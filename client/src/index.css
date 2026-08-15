@@ -9,44 +9,44 @@
   --opaque-button-border-intensity: -8;
   --elevate-1: rgba(0, 0, 0, 0.03);
   --elevate-2: rgba(0, 0, 0, 0.08);
-  --background: 0 0% 100%;
-  --foreground: 0 0% 9%;
-  --border: 0 0% 91%;
-  --card: 0 0% 98%;
-  --card-foreground: 0 0% 9%;
-  --card-border: 0 0% 94%;
-  --sidebar: 0 0% 96%;
-  --sidebar-foreground: 0 0% 9%;
-  --sidebar-border: 0 0% 92%;
-  --sidebar-primary: 221 83% 53%;
-  --sidebar-primary-foreground: 0 0% 98%;
-  --sidebar-accent: 0 0% 89%;
-  --sidebar-accent-foreground: 0 0% 9%;
-  --sidebar-ring: 221 83% 53%;
-  --popover: 0 0% 95%;
-  --popover-foreground: 0 0% 9%;
-  --popover-border: 0 0% 91%;
-  --primary: 221 83% 53%;
-  --primary-foreground: 0 0% 98%;
-  --secondary: 0 0% 92%;
-  --secondary-foreground: 0 0% 9%;
-  --muted: 0 0% 93%;
-  --muted-foreground: 0 0% 40%;
-  --accent: 220 14% 92%;
-  --accent-foreground: 0 0% 9%;
-  --destructive: 0 84% 42%;
-  --destructive-foreground: 0 0% 98%;
-  --input: 0 0% 75%;
-  --ring: 221 83% 53%;
-  --chart-1: 221 83% 45%;
-  --chart-2: 262 83% 48%;
-  --chart-3: 173 58% 39%;
-  --chart-4: 43 74% 49%;
-  --chart-5: 27 87% 55%;
-  --font-sans: Open Sans, sans-serif;
-  --font-serif: Georgia, serif;
-  --font-mono: Menlo, monospace;
-  --radius: 0.5rem;
+  --background: 210 24% 98%;
+  --foreground: 215 30% 16%;
+  --border: 214 18% 87%;
+  --card: 0 0% 100%;
+  --card-foreground: 215 30% 16%;
+  --card-border: 214 18% 89%;
+  --sidebar: 214 26% 96%;
+  --sidebar-foreground: 215 28% 20%;
+  --sidebar-border: 214 18% 88%;
+  --sidebar-primary: 176 58% 28%;
+  --sidebar-primary-foreground: 0 0% 100%;
+  --sidebar-accent: 210 22% 90%;
+  --sidebar-accent-foreground: 215 30% 16%;
+  --sidebar-ring: 176 58% 32%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 215 30% 16%;
+  --popover-border: 214 18% 88%;
+  --primary: 176 58% 28%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 212 20% 93%;
+  --secondary-foreground: 215 30% 18%;
+  --muted: 212 20% 94%;
+  --muted-foreground: 215 16% 42%;
+  --accent: 210 22% 92%;
+  --accent-foreground: 215 30% 16%;
+  --destructive: 352 68% 42%;
+  --destructive-foreground: 0 0% 100%;
+  --input: 214 16% 76%;
+  --ring: 176 58% 32%;
+  --chart-1: 176 58% 30%;
+  --chart-2: 214 62% 44%;
+  --chart-3: 266 42% 50%;
+  --chart-4: 34 88% 42%;
+  --chart-5: 352 60% 46%;
+  --font-sans: Inter, system-ui, sans-serif;
+  --font-serif: Inter, system-ui, sans-serif;
+  --font-mono: IBM Plex Mono, ui-monospace, monospace;
+  --radius: 0.25rem;
   --shadow-2xs: 0px 2px 0px 0px hsl(0 0% 0% / 0);
   --shadow-xs: 0px 2px 0px 0px hsl(0 0% 0% / 0);
   --shadow-sm: 0px 2px 0px 0px hsl(0 0% 0% / 0), 0px 1px 2px -1px hsl(0 0% 0% / 0);
@@ -99,48 +99,54 @@
   --destructive-border: hsl(
     from hsl(var(--destructive)) h s calc(l + var(--opaque-button-border-intensity)) / alpha
   );
-}
 
+  --warning: 32 90% 40%;
+  --warning-foreground: 0 0% 100%;
+  --warning-soft: 40 92% 92%;
+  --positive: 160 60% 28%;
+  --positive-soft: 164 46% 92%;
+  --danger-soft: 352 76% 95%;
+}
 .dark {
   --button-outline: rgba(255, 255, 255, 0.1);
   --badge-outline: rgba(255, 255, 255, 0.05);
   --opaque-button-border-intensity: 9;
   --elevate-1: rgba(255, 255, 255, 0.04);
   --elevate-2: rgba(255, 255, 255, 0.09);
-  --background: 0 0% 7%;
-  --foreground: 0 0% 98%;
-  --border: 0 0% 16%;
-  --card: 0 0% 9%;
-  --card-foreground: 0 0% 98%;
-  --card-border: 0 0% 13%;
-  --sidebar: 0 0% 11%;
-  --sidebar-foreground: 0 0% 98%;
-  --sidebar-border: 0 0% 15%;
-  --sidebar-primary: 221 83% 53%;
-  --sidebar-primary-foreground: 0 0% 98%;
-  --sidebar-accent: 0 0% 16%;
-  --sidebar-accent-foreground: 0 0% 98%;
-  --sidebar-ring: 221 83% 53%;
-  --popover: 0 0% 13%;
-  --popover-foreground: 0 0% 98%;
-  --popover-border: 0 0% 17%;
-  --primary: 221 83% 53%;
-  --primary-foreground: 0 0% 98%;
-  --secondary: 0 0% 18%;
-  --secondary-foreground: 0 0% 98%;
-  --muted: 0 0% 19%;
-  --muted-foreground: 0 0% 65%;
-  --accent: 220 9% 17%;
-  --accent-foreground: 0 0% 98%;
-  --destructive: 0 84% 42%;
-  --destructive-foreground: 0 0% 98%;
-  --input: 0 0% 30%;
-  --ring: 221 83% 53%;
-  --chart-1: 221 83% 65%;
-  --chart-2: 262 83% 68%;
-  --chart-3: 173 58% 55%;
-  --chart-4: 43 74% 65%;
-  --chart-5: 27 87% 65%;
+  --background: 215 30% 8%;
+  --foreground: 210 22% 96%;
+  --border: 215 18% 20%;
+  --card: 215 26% 11%;
+  --card-foreground: 210 22% 96%;
+  --card-border: 215 18% 19%;
+  --sidebar: 215 30% 10%;
+  --sidebar-foreground: 210 20% 92%;
+  --sidebar-border: 215 18% 18%;
+  --sidebar-primary: 174 56% 42%;
+  --sidebar-primary-foreground: 215 40% 8%;
+  --sidebar-accent: 215 20% 18%;
+  --sidebar-accent-foreground: 210 22% 96%;
+  --sidebar-ring: 174 56% 42%;
+  --popover: 215 26% 13%;
+  --popover-foreground: 210 22% 96%;
+  --popover-border: 215 18% 22%;
+  --primary: 174 56% 42%;
+  --primary-foreground: 215 40% 8%;
+  --secondary: 215 20% 18%;
+  --secondary-foreground: 210 22% 96%;
+  --muted: 215 20% 17%;
+  --muted-foreground: 214 14% 68%;
+  --accent: 215 20% 17%;
+  --accent-foreground: 210 22% 96%;
+  --destructive: 352 66% 52%;
+  --destructive-foreground: 0 0% 100%;
+  --input: 215 16% 32%;
+  --ring: 174 56% 42%;
+  --chart-1: 174 56% 46%;
+  --chart-2: 212 70% 62%;
+  --chart-3: 266 62% 70%;
+  --chart-4: 36 88% 58%;
+  --chart-5: 352 70% 62%;
   --shadow-2xs: 0px 2px 0px 0px hsl(0 0% 0% / 0);
   --shadow-xs: 0px 2px 0px 0px hsl(0 0% 0% / 0);
   --shadow-sm: 0px 2px 0px 0px hsl(0 0% 0% / 0), 0px 1px 2px -1px hsl(0 0% 0% / 0);
@@ -191,6 +197,13 @@
   --destructive-border: hsl(
     from hsl(var(--destructive)) h s calc(l + var(--opaque-button-border-intensity)) / alpha
   );
+  --warning: 36 90% 56%;
+  --warning-foreground: 215 40% 8%;
+  --warning-soft: 34 46% 18%;
+  --positive: 158 54% 46%;
+  --positive-soft: 160 40% 15%;
+  --danger-soft: 352 44% 18%;
+
 }
 
 @layer base {
@@ -200,6 +213,31 @@
 
   body {
     @apply font-sans antialiased bg-background text-foreground;
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  .tnum {
+    font-variant-numeric: tabular-nums lining-nums;
+  }
+
+  th,
+  td {
+    font-variant-numeric: tabular-nums lining-nums;
+  }
+
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: hsl(var(--border));
+    border-radius: 999px;
   }
 }
 

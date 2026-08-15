@@ -6,9 +6,9 @@ export default {
   theme: {
     extend: {
       borderRadius: {
-        lg: ".5625rem", /* 9px */
-        md: ".375rem", /* 6px */
-        sm: ".1875rem", /* 3px */
+        lg: ".3125rem", /* 5px */
+        md: ".25rem", /* 4px */
+        sm: ".125rem", /* 2px */
       },
       colors: {
         // Flat / base colors (regular buttons)
@@ -52,6 +52,16 @@ export default {
           border: "var(--destructive-border)",
         },
         ring: "hsl(var(--ring) / <alpha-value>)",
+        warning: {
+          DEFAULT: "hsl(var(--warning) / <alpha-value>)",
+          foreground: "hsl(var(--warning-foreground) / <alpha-value>)",
+          soft: "hsl(var(--warning-soft) / <alpha-value>)",
+        },
+        positive: {
+          DEFAULT: "hsl(var(--positive) / <alpha-value>)",
+          soft: "hsl(var(--positive-soft) / <alpha-value>)",
+        },
+        "danger-soft": "hsl(var(--danger-soft) / <alpha-value>)",
         chart: {
           "1": "hsl(var(--chart-1) / <alpha-value>)",
           "2": "hsl(var(--chart-2) / <alpha-value>)",

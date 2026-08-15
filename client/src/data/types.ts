@@ -294,7 +294,8 @@ export type AuditAction =
   | "classified"
   | "accepted"
   | "rejected"
-  | "signed";
+  | "signed"
+  | "shared";
 
 export interface AuditRow {
   id: string;

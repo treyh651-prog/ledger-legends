@@ -21,7 +21,7 @@ export function signedUsd(cents: number): string {
   return (cents > 0 ? "+$" : "-$") + money(Math.abs(cents));
 }
 
-export function pct(numerator: number, denominator: number, digits = 1): string {
+export function pct(numerator: number, denominator = 100, digits = 1): string {
   if (!denominator) return "n/a";
   return ((numerator / denominator) * 100).toFixed(digits) + "%";
 }
