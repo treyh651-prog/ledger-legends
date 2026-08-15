@@ -12,7 +12,7 @@ export default function Budget() {
   const jobs = useMemo(() => jobProfitability(ds, activeClientId, period), [ds, activeClientId, period]);
 
   const worst = [...bva.rows].filter((r) => !r.favorable).sort((a, b) => Math.abs(b.variance) - Math.abs(a.variance)).slice(0, 6);
-  const chart = worst.map((r) => ({ name: r.account.name.length > 16 ? `${r.account.name.slice(0, 15)}.` : r.account.name, Variance: Math.round(r.variance / 100) }));
+  const chart = worst.map((r) => ({ name: r.account.name, Variance: Math.round(Math.abs(r.variance) / 100) }));
 
   return (
     <>
@@ -35,13 +35,21 @@ export default function Budget() {
       </div>
 
       {chart.length ? (
-        <SectionCard title="Biggest gaps against plan" description="Amounts in dollars, unfavorable only." testId="card-bva-chart">
-          <div className="h-[240px] w-full">
+        <SectionCard title="Biggest gaps against plan" description="How far each line ran past plan, in dollars." testId="card-bva-chart">
+          <div className="h-[260px] w-full">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={chart} margin={{ top: 4, right: 8, left: -8, bottom: 0 }}>
-                <CartesianGrid stroke="hsl(var(--border))" vertical={false} />
-                <XAxis dataKey="name" tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }} tickLine={false} axisLine={false} interval={0} />
-                <YAxis tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} tickLine={false} axisLine={false} width={54} />
+              <BarChart data={chart} layout="vertical" margin={{ top: 4, right: 16, left: 4, bottom: 0 }}>
+                <CartesianGrid stroke="hsl(var(--border))" horizontal={false} />
+                <XAxis type="number" tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }} tickLine={false} axisLine={false} />
+                <YAxis
+                  type="category"
+                  dataKey="name"
+                  tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }}
+                  tickLine={false}
+                  axisLine={false}
+                  width={104}
+                  tickFormatter={(v: string) => (v.length > 16 ? `${v.slice(0, 15)}.` : v)}
+                />
                 <Tooltip
                   contentStyle={{
                     background: "hsl(var(--popover))",
@@ -50,9 +58,9 @@ export default function Budget() {
                     fontSize: 12,
                     color: "hsl(var(--popover-foreground))",
                   }}
-                  formatter={(v: number) => [`${v.toLocaleString()} dollars`, "Variance"]}
+                  formatter={(v: number) => [`${v.toLocaleString()} dollars under plan`, "Variance"]}
                 />
-                <Bar dataKey="Variance" radius={[2, 2, 0, 0]}>
+                <Bar dataKey="Variance" radius={[0, 2, 2, 0]} barSize={14}>
                   {chart.map((c) => (
                     <Cell key={c.name} fill="hsl(var(--chart-4))" />
                   ))}

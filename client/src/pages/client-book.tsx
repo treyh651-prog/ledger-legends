@@ -21,7 +21,7 @@ export default function ClientBook() {
     <>
       <PageHeader
         title={activeClient.dba}
-        subtitle={`${activeClient.legalName}, ${activeClient.entityType}. Fiscal year ends ${activeClient.fiscalYearEnd}. Engagement led by ${activeClient.lead}.`}
+        subtitle={`${activeClient.legalName}. Filed as ${activeClient.entityType}, fiscal year ends ${activeClient.fiscalYearEnd}. Engagement led by ${activeClient.lead}.`}
         actions={
           <>
             <Button

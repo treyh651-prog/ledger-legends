@@ -351,7 +351,13 @@ export function DataGrid<T>({
             ) : null}
           </li>
         ))}
-        {footer ? <li className="bg-muted/40 px-3 py-3 text-sm">{footer}</li> : null}
+        {footer ? (
+          <li className="bg-muted/40 px-3 py-2 text-sm">
+            <table className="w-full table-fixed">
+              <tfoot>{footer}</tfoot>
+            </table>
+          </li>
+        ) : null}
       </ul>
     </div>
   );

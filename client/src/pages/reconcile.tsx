@@ -120,6 +120,7 @@ export default function Reconcile() {
                 key: "desc",
                 label: "Description",
                 mobile: "title",
+                cellClassName: "max-w-[180px] lg:max-w-[240px]",
                 render: (l) => (
                   <div className="min-w-0">
                     <p className="truncate">{l.description}</p>
@@ -195,6 +196,7 @@ export default function Reconcile() {
                 key: "desc",
                 label: "Description",
                 mobile: "title",
+                cellClassName: "max-w-[180px] lg:max-w-[240px]",
                 render: (t) => (
                   <div className="min-w-0">
                     <p className="truncate">{t.description}</p>

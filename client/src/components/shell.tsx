@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import { Link, useLocation } from "wouter";
 import {
@@ -185,8 +185,13 @@ function PlaneSwitcher() {
 }
 
 export function AppShell({ children }: { children: ReactNode }) {
-  const { ds, activeClientId, setActiveClient, period, setPeriod, theme, setTheme, plane, loadMode, setLoadMode } = useApp();
+  const { ds, activeClientId, setActiveClient, period, setPeriod, theme, setTheme, plane, setPlane, loadMode, setLoadMode } = useApp();
   const [mobileNav, setMobileNav] = useState(false);
+  const [routePath] = useLocation();
+  const routePlane = routePath.startsWith("/portal") ? "portal" : "firm";
+  useEffect(() => {
+    if (plane !== routePlane) setPlane(routePlane);
+  }, [routePlane, plane, setPlane]);
   const client = ds.clients.find((c) => c.id === activeClientId);
 
   return (

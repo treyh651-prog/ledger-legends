@@ -349,8 +349,16 @@ export default function Journal() {
                 Out of balance by <span className="tnum font-semibold">{usd(diff)}</span>
               </span>
             </div>
-            <span className={diff === 0 && totalDebit > 0 ? "font-medium text-positive" : "font-medium text-warning"}>
-              {totalDebit === 0 ? "Enter some amounts" : diff === 0 ? "Ready to post" : "Not balanced yet"}
+            <span className={canPost ? "font-medium text-positive" : "font-medium text-warning"}>
+              {totalDebit === 0
+                ? "Enter some amounts"
+                : diff !== 0
+                  ? "Not balanced yet"
+                  : memo.trim().length <= 3
+                    ? "Write a memo to finish"
+                    : !lines.every((l) => !parseAmountToCents(l.debit) || l.accountId)
+                      ? "Pick an account on every line"
+                      : "Ready to post"}
             </span>
           </div>
 
