@@ -1,0 +1,84 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  verify:
+    name: Types, books, guards, build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out the code
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type check
+        run: npx tsc --noEmit
+
+      # The important one. Asserts that debits equal credits, that every
+      # balance sheet balances, and that cash flow ties to the balance sheet
+      # for every client and every period. Exits 1 on any failure.
+      - name: Books must foot
+        run: npx tsx script/check-books.ts
+
+      # Money is stored as integer cents. Float math on currency is a defect,
+      # not a style choice, so parsing money into a float fails the build.
+      - name: No float math on money
+        run: |
+          if grep -rn --include=*.ts --include=*.tsx -E 'parseFloat|Number\.parseFloat' client/src shared; then
+            echo "Found float parsing. Money is integer cents. Use the cents helpers instead."
+            exit 1
+          fi
+          echo "No float parsing found."
+
+      # State is in memory only. The preview iframe blocks web storage, so a
+      # stray localStorage call breaks the app in the one place it gets reviewed.
+      - name: No web storage
+        run: |
+          if grep -rn --include=*.ts --include=*.tsx -E 'localStorage|sessionStorage' client/src shared; then
+            echo "Found web storage usage. Keep state in memory."
+            exit 1
+          fi
+          echo "No web storage usage found."
+
+      # Copy rule. No em dashes, and no en dashes standing in for one.
+      - name: Copy style
+        run: |
+          if grep -rnP '[\x{2014}\x{2013}]' --include=*.ts --include=*.tsx --include=*.css client/src shared; then
+            echo "Found an em dash or en dash. Rewrite the sentence with plain punctuation."
+            exit 1
+          fi
+          echo "No long dashes found."
+
+      # Nothing in this product stores a credential. Bank connections are
+      # represented as records, never as secrets.
+      - name: No credential fields
+        run: |
+          if grep -rniE 'type="password"|bankPassword|routingSecret|apiSecret[[:space:]]*[:=]' --include=*.ts --include=*.tsx client/src shared; then
+            echo "Found something that looks like a credential field. This product does not store credentials."
+            exit 1
+          fi
+          echo "No credential fields found."
+
+      - name: Build
+        run: npm run build
+
+      - name: Upload the built bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: ledger-legends-dist
+          path: dist/public
+          retention-days: 7
