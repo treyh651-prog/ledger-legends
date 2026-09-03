@@ -83,6 +83,12 @@ import "./close-lock";
 import "./close-rollforward";
 import "./close-yearend";
 import "./close-pipeline";
+// Module 8 reporting. The pipeline suite comes last because it runs all four.
+import "./rpt-build-package";
+import "./rpt-flag-variances";
+import "./rpt-rebuild-forecast";
+import "./rpt-compose-narrative";
+import "./rpt-pipeline";
 
 type Outcome = Awaited<ReturnType<typeof execute<PairTransfersScope, Proposal>>>;
 

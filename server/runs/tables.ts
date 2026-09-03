@@ -1451,6 +1451,275 @@ export interface ClosingEntryRow {
   manualOverride: boolean;
 }
 
+/**
+ * Module 8 reporting, migration 0016.
+ *
+ * Everything below is a derived report row. Not one of these tables is read by
+ * the ledger, and not one of them can produce a journal entry, which is what
+ * makes the four reporting runs safe on a locked period.
+ */
+
+/** The other half of a variance. Ledger sign convention, integer cents. */
+export interface BudgetRow {
+  id: Ulid;
+  firmId: Ulid;
+  clientId: Ulid;
+  version: number;
+  periodStart: string;
+  periodEnd: string;
+  accountNumber: string;
+  classId: Ulid | null;
+  locationId: Ulid | null;
+  programId: Ulid | null;
+  budgetCents: Cents;
+  source: "entered" | "imported" | "rolled_forward";
+  createdAt: string;
+  manualOverride: boolean;
+}
+
+/** A null account number is the client default, an account number overrides it. */
+export interface BudgetThresholdRow {
+  id: Ulid;
+  firmId: Ulid;
+  clientId: Ulid;
+  version: number;
+  accountNumber: string | null;
+  varianceFloorCents: Cents;
+  varianceThresholdBp: number;
+  note: string;
+  createdAt: string;
+  manualOverride: boolean;
+}
+
+/** One figure on one statement line. Cents are text because jsonb has no bigint. */
+export interface ReportSectionLine {
+  label: string;
+  accountNumber: string | null;
+  amountCents: string;
+  comparisonCents: string | null;
+  note: string | null;
+}
+
+export interface ReportPackageRow {
+  id: Ulid;
+  firmId: Ulid;
+  clientId: Ulid;
+  version: number;
+  periodStart: string;
+  periodEnd: string;
+  basis: "accrual" | "cash";
+  comparisonBasis: "prior_period" | "prior_year" | "budget" | "none";
+  comparisonAvailable: boolean;
+  comparisonNote: string;
+  state: "draft" | "superseded";
+  /** Doc 02 rule 1. Null once the period is locked. */
+  watermark: string | null;
+  closedWithExceptions: boolean;
+  exceptionBanner: string | null;
+  sectionCount: number;
+  omissionCount: number;
+  contentChecksum: string;
+  ledgerFingerprint: string;
+  /** D7. Governance mode only, retention starting at period end, seven years. */
+  vaultObjectKey: string;
+  vaultObjectLockMode: "GOVERNANCE";
+  vaultRetentionStartsOn: string;
+  vaultObjectLockUntil: string;
+  builtByRunId: string | null;
+  builtAt: string;
+  manualOverride: boolean;
+}
+
+export interface ReportSectionRow {
+  id: Ulid;
+  firmId: Ulid;
+  clientId: Ulid;
+  version: number;
+  packageId: Ulid;
+  sequence: number;
+  sectionCode: string;
+  sectionTitle: string;
+  status: "rendered" | "omitted";
+  omissionReason: string | null;
+  asOfDate: string;
+  bannerText: string | null;
+  lines: ReportSectionLine[];
+  contentChecksum: string;
+  createdByRunId: string | null;
+  createdAt: string;
+  manualOverride: boolean;
+}
+
+export interface ReportVarianceRow {
+  id: Ulid;
+  firmId: Ulid;
+  clientId: Ulid;
+  version: number;
+  periodStart: string;
+  periodEnd: string;
+  accountNumber: string;
+  accountName: string;
+  actualCents: Cents;
+  budgetCents: Cents;
+  varianceCents: Cents;
+  /** Null where the budget is zero, because no division is attempted. */
+  varianceBp: number | null;
+  direction: "favorable" | "unfavorable" | "neutral";
+  flagged: boolean;
+  flagCode: "within_threshold" | "over_threshold" | "unbudgeted_activity";
+  floorCents: Cents;
+  thresholdBp: number;
+  detail: string;
+  createdByRunId: string | null;
+  createdAt: string;
+  manualOverride: boolean;
+}
+
+/** One source row behind one forecast week. Cents are text, jsonb again. */
+export interface ForecastItem {
+  itemId: string;
+  kind:
+    | "invoice"
+    | "bill"
+    | "recurring"
+    | "loan"
+    | "payroll";
+  sourceTable: string;
+  dueDate: string;
+  amountCents: string;
+  direction: "inflow" | "outflow";
+}
+
+export interface CashForecastRunRow {
+  id: Ulid;
+  firmId: Ulid;
+  clientId: Ulid;
+  version: number;
+  periodStart: string;
+  periodEnd: string;
+  startDate: string;
+  endDate: string;
+  horizonWeeks: number;
+  scenario: "base" | "slow_collections" | "revenue_shortfall";
+  slowShiftDays: number;
+  shortfallBp: number;
+  useHistory: boolean;
+  openingCashCents: Cents;
+  totalInflowCents: Cents;
+  totalOutflowCents: Cents;
+  closingCashCents: Cents;
+  firstShortfallWeek: number | null;
+  shortfallWeekCount: number;
+  itemCount: number;
+  ledgerFingerprint: string;
+  builtByRunId: string | null;
+  builtAt: string;
+  manualOverride: boolean;
+}
+
+export interface CashForecastWeekRow {
+  id: Ulid;
+  firmId: Ulid;
+  clientId: Ulid;
+  version: number;
+  forecastRunId: Ulid;
+  weekNumber: number;
+  weekStart: string;
+  weekEnd: string;
+  openingCents: Cents;
+  arInflowCents: Cents;
+  otherInflowCents: Cents;
+  apOutflowCents: Cents;
+  recurringOutflowCents: Cents;
+  loanOutflowCents: Cents;
+  payrollOutflowCents: Cents;
+  inflowCents: Cents;
+  outflowCents: Cents;
+  closingCents: Cents;
+  shortfall: boolean;
+  items: ForecastItem[];
+  createdByRunId: string | null;
+  createdAt: string;
+  manualOverride: boolean;
+}
+
+/** One sentence the composer selected, with the template that produced it. */
+export interface NarrativeSentence {
+  sectionCode: string;
+  triggerCode: string;
+  templateId: string;
+  priority: number;
+  droppable: boolean;
+  text: string;
+}
+
+/** Every trigger evaluated, fired or not, with its value and its threshold. */
+export interface NarrativeTrigger {
+  triggerCode: string;
+  sectionCode: string;
+  computedValue: string;
+  threshold: string;
+  fired: boolean;
+  detail: string;
+}
+
+export interface ReportNarrativeRow {
+  id: Ulid;
+  firmId: Ulid;
+  clientId: Ulid;
+  version: number;
+  periodStart: string;
+  periodEnd: string;
+  audience: "owner" | "lender";
+  comparisonBasis: "prior_period" | "prior_year" | "budget" | "none";
+  state: "draft";
+  sentenceCount: number;
+  droppedCount: number;
+  maxSentencesPerSection: number;
+  sentences: NarrativeSentence[];
+  triggerLog: NarrativeTrigger[];
+  bodyText: string;
+  contentChecksum: string;
+  ledgerFingerprint: string;
+  manualEdit: boolean;
+  composedByRunId: string | null;
+  composedAt: string;
+  manualOverride: boolean;
+}
+
+/** A future dated approved payroll amount, stated as a positive magnitude. */
+export interface PayrollApprovalRow {
+  id: Ulid;
+  firmId: Ulid;
+  clientId: Ulid;
+  version: number;
+  payDate: string;
+  amountCents: Cents;
+  fundingAccount: string;
+  status: "approved" | "draft" | "paid" | "void";
+  approvedBy: Ulid | null;
+  approvedOn: string | null;
+  detail: string;
+  createdAt: string;
+  manualOverride: boolean;
+}
+
+/** The whole delivery surface of module 8. Two actions, no address column. */
+export interface ReportAuditEventRow {
+  id: Ulid;
+  firmId: Ulid;
+  clientId: Ulid;
+  version: number;
+  periodStart: string;
+  action: "report_available" | "narrative_available";
+  subjectTable: string;
+  subjectId: Ulid;
+  detail: string;
+  createdByRunId: string | null;
+  createdAt: string;
+  manualOverride: boolean;
+}
+
 export interface RowMap {
   bank_accounts: BankAccountRow;
   chart_accounts: ChartAccountRow;
@@ -1503,6 +1772,16 @@ export interface RowMap {
   close_gate_results: CloseGateResultRow;
   opening_balances: OpeningBalanceRow;
   closing_entries: ClosingEntryRow;
+  budgets: BudgetRow;
+  budget_thresholds: BudgetThresholdRow;
+  report_packages: ReportPackageRow;
+  report_sections: ReportSectionRow;
+  report_variances: ReportVarianceRow;
+  cash_forecast_runs: CashForecastRunRow;
+  cash_forecast_weeks: CashForecastWeekRow;
+  report_narratives: ReportNarrativeRow;
+  payroll_approvals: PayrollApprovalRow;
+  report_audit_events: ReportAuditEventRow;
   run_log: RunLogRow;
   run_log_items: RunLogItemRow;
   run_log_events: RunLogEventRow;
@@ -1600,4 +1879,23 @@ export const OVERRIDE_WATCHED_FIELDS: readonly string[] = [
   "openingBalanceCents",
   "status",
   "equityAccount",
+  /**
+   * Module 8 adds the reporting columns. A person who edited a narrative draft,
+   * corrected a package figure, or decided by hand that a variance is not worth
+   * flagging has made a decision, and invariant 8 says a run may not write over
+   * it. The checksum columns are on the list because a checksum is the identity
+   * of the content a person was looking at, and the body text is on it because
+   * the words in a draft are the decision itself.
+   */
+  "contentChecksum",
+  "bodyText",
+  "sentences",
+  "lines",
+  "flagged",
+  "flagCode",
+  "budgetCents",
+  "closingCents",
+  "shortfall",
+  "watermark",
+  "exceptionBanner",
 ];

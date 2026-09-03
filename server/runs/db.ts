@@ -69,6 +69,16 @@ import type {
   TransactionRow,
   TransferPairRow,
   VendorRow,
+  BudgetRow,
+  BudgetThresholdRow,
+  CashForecastRunRow,
+  CashForecastWeekRow,
+  PayrollApprovalRow,
+  ReportAuditEventRow,
+  ReportNarrativeRow,
+  ReportPackageRow,
+  ReportSectionRow,
+  ReportVarianceRow,
 } from "./tables";
 
 export type Isolation = "repeatable read" | "serializable";
@@ -558,6 +568,62 @@ export interface QueryCatalog {
   vendor_credits_for_client: {
     params: { firmId: Ulid; clientId: Ulid };
     row: VendorCreditRow;
+  };
+
+  /**
+   * Module 8 reporting reads. Every one of them is a read of a report table or
+   * of a stored threshold. The reporting runs read ledger data through the
+   * existing close queries, which is what keeps them readers on a locked period.
+   */
+
+  /** Budget rows for one period, account number ascending. */
+  budgets_for_period: {
+    params: { firmId: Ulid; clientId: Ulid; periodStart: string };
+    row: BudgetRow;
+  };
+  /**
+   * Every threshold row for the client, the default and the overrides together,
+   * so the caller resolves precedence once in one place rather than issuing a
+   * query per account.
+   */
+  budget_thresholds_for_client: {
+    params: { firmId: Ulid; clientId: Ulid };
+    row: BudgetThresholdRow;
+  };
+  report_packages_for_client: {
+    params: { firmId: Ulid; clientId: Ulid };
+    row: ReportPackageRow;
+  };
+  /** Sections under one package, catalog sequence ascending. */
+  report_sections_for_package: {
+    params: { firmId: Ulid; clientId: Ulid; packageId: Ulid };
+    row: ReportSectionRow;
+  };
+  report_variances_for_period: {
+    params: { firmId: Ulid; clientId: Ulid; periodStart: string };
+    row: ReportVarianceRow;
+  };
+  cash_forecast_runs_for_client: {
+    params: { firmId: Ulid; clientId: Ulid };
+    row: CashForecastRunRow;
+  };
+  /** Week rows under one forecast header, week number ascending. */
+  cash_forecast_weeks_for_run: {
+    params: { firmId: Ulid; clientId: Ulid; forecastRunId: Ulid };
+    row: CashForecastWeekRow;
+  };
+  report_narratives_for_client: {
+    params: { firmId: Ulid; clientId: Ulid };
+    row: ReportNarrativeRow;
+  };
+  /** Pay date ascending. The forecast walks these forward from its start date. */
+  payroll_approvals_for_client: {
+    params: { firmId: Ulid; clientId: Ulid };
+    row: PayrollApprovalRow;
+  };
+  report_audit_events_for_client: {
+    params: { firmId: Ulid; clientId: Ulid };
+    row: ReportAuditEventRow;
   };
 }
 

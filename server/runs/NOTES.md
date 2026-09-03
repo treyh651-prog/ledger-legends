@@ -1130,3 +1130,133 @@ particular rows in the fixture.
     lock is something that happened at a moment and a period is a thing with a
     current state, and inferring the state from a lock row leaves no way to say a
     period is open, reopened, or being worked.
+
+99. **The variance threshold was stated twice with two different numbers.** Doc
+    02 says a floor of fifty thousand cents and five hundred basis points. The
+    brief says ten percent by default. Options: take the doc figure, take the
+    brief figure, take the stricter of the two, take the looser of the two, or
+    keep both conditions with the brief setting the percentage. Chosen: keep both
+    conditions, default the percentage to one thousand basis points per the brief
+    and the floor to fifty thousand cents per doc 02, and let a per account row
+    override either. Precedent is entry 84: when the brief and a doc disagree on
+    a number, the brief wins. Keeping both conditions is the real point. A
+    percentage alone shouts about a rounding difference on a small account and a
+    floor alone shouts about a large account that moved a fraction of a percent,
+    and each row states the threshold and the floor it was measured against so a
+    flag read six months later still explains itself.
+
+100. **There was no budget table.** Variances compare actual to budget and no
+    migration through 0015 had anywhere to keep a budget. Options: read budgets
+    from an external system, store a budget as a journal entry in a memo account,
+    put a budget column on the chart of accounts, keep budgets in a jsonb blob on
+    the client, or add a table. Chosen: `report.budgets`, one row per account per
+    period, with class, location, and program columns so a budget can be as
+    dimensioned as the ledger it is compared to. A memo account budget would sit
+    inside the ledger and would then have to be excluded from every statement by
+    hand, and a column on the chart cannot hold a figure that changes by period.
+
+101. **Vault attachment when the run has no bytes to attach.** D7 wants the
+    package in the vault under Object Lock, but `vault.documents` requires a scan
+    status of clean and a verified magic number, and a run assembling a package
+    has structured rows rather than a rendered file. Options: write a vault
+    document row with a fake scan status, render a PDF inside the run, defer the
+    attachment to a later delivery run, put the retention terms on the package
+    row, or skip the attachment. Chosen: retention terms on the package row, plus
+    a report audit event. The row records the object key, the lock mode, the
+    retention start, and the retention end, so the vault contract is stated and
+    checkable without a run ever pretending it scanned a file it never had.
+
+102. **The audit event action list had no room for a report.** Doc 07 fixes the
+    `vault.audit_events.action` check list, and neither `report_available` nor
+    `narrative_available` is on it. Options: widen the vault check constraint,
+    reuse a nearby action such as `document_downloaded`, write no audit row,
+    write to the run log only, or add a reporting audit table. Chosen: a separate
+    `report.report_audit_events` table with its own two value check list.
+    Widening a check constraint in another module's schema to hold a word that
+    module has no concept of is how a check list stops meaning anything, and
+    reusing `document_downloaded` would put a false statement in the audit trail.
+
+103. **There was no payroll table either.** The forecast needs approved payroll
+    and nothing in the schema held it. Options: infer payroll from recurring
+    templates, infer it from historical journal entries, read it from an external
+    provider, treat it as an ordinary bill, or add a table. Chosen:
+    `report.payroll_approvals`, holding a pay date, a positive magnitude, a
+    funding account, and a status. Only an approved row is forecast. Inferring
+    payroll from history is a fitted estimate, which the no artificial
+    intelligence constraint rules out, and a draft payroll is not a commitment.
+
+104. **The ledger fingerprint in the reporting scope hash.** A reporting run is
+    a reader, so its candidate rows can be identical across two calls while the
+    ledger underneath has changed. Options: leave the fingerprint out and accept
+    stale packages, add the fingerprint, add a build timestamp, add a monotonic
+    counter, or disable deduplication for the whole module. Chosen: the
+    fingerprint, exactly as CLOSE-LOCK-PERIOD does it in entry 93. A timestamp
+    would defeat deduplication entirely, so a rebuild that changed nothing would
+    still write, and a counter is a timestamp with extra steps.
+
+105. **Sections as structured lines rather than rendered bytes.** Options: store
+    a rendered PDF, store HTML, store markdown, store a line array, or store only
+    the totals. Chosen: a jsonb array of lines, each with a label, an optional
+    account number, a cents string, an optional comparison, and a note. A
+    rendered file cannot be diffed, cannot be checksummed field by field, and
+    puts presentation inside a run whose job is figures. Cents are text in jsonb
+    because jsonb has no bigint, and every one of them is a whole number of cents.
+
+106. **A comparison column with no prior period behind it.** The first period a
+    client is on the system has nothing to compare against. Options: compare
+    against zero, omit the comparison column, leave it null and say why, refuse
+    to build the package, or compare against the budget instead. Chosen: null
+    comparison figures plus a stated note on the header saying no prior period
+    figures exist. Comparing against zero would report every account as an
+    infinite increase, and silently omitting the column leaves a reader to guess
+    whether the prior period was zero or absent.
+
+107. **Where the forecast starts.** Options: the run date, the period end, the
+    day after the period end, the following Monday, or the first day of the next
+    period. Chosen: the day after the period end. A forecast starting inside the
+    period double counts cash that already moved, and one starting on the run
+    date gives two different answers for the same closed period on two different
+    days, which breaks preview equals apply. The day after the close is also the
+    first day whose cash is genuinely unknown.
+
+108. **When a payable actually leaves.** Options: always the due date, always the
+    discount day, the earlier of the two, the discount day only when the discount
+    is worth more than the cost of paying early, or the later of the two. Chosen:
+    the discount day when it falls before the due date, otherwise the due date,
+    and a payment day already in the past is clamped forward to the first week of
+    the horizon. A bill overdue at close is not a bill that never gets paid, and
+    dropping it would understate the outflow. Judging whether a discount is worth
+    taking is a decision about the client's money and is not a run's to make.
+
+109. **The collection curve, and the line the constraint draws.** Options: fit a
+    curve to the client's own collection history, fit one to a peer set, use a
+    stated table of weights by aging bucket, use a single flat percentage, or
+    assume every invoice pays on its due date. Chosen: a stated table, written in
+    `rpt-rebuild-forecast.ts` where a person can read it and argue with it, with
+    `useHistory` recorded false on every header. A fitted curve is a learned
+    parameter, which the no artificial intelligence constraint forbids, and it
+    would also make two rebuilds over one ledger disagree. The rows deliberately
+    do not sum to ten thousand basis points for the late buckets, because an
+    invoice ninety days past due is mostly not arriving inside thirteen weeks and
+    placing it all would put money in the forecast that is not coming.
+
+110. **The change log described the run that built it.** The first version listed
+    every run log row for the period, which meant the preview saw one row and the
+    apply saw two, and the framework refused the apply as a stale preview.
+    Options: exclude the current execution by id, exclude all previews, exclude
+    the reporting module, freeze the change log at preview time, or drop the
+    section. Chosen: applied runs only, completed only, and no run whose type
+    starts with `RPT-`. A change log is a list of what changed the books, and a
+    reporting run changes no book. Excluding one execution by id would still let
+    a second reporting run appear between two calls, so the filter is on the
+    module rather than on the execution.
+
+111. **How much a narrative section may say.** Options: no cap, a fixed cap that
+    drops overflow silently, a cap that drops the lowest priority sentences and
+    counts the drops, a cap per narrative rather than per section, or a character
+    limit. Chosen: a per section cap, default five, dropping the lowest priority
+    droppable sentences and recording the count on the row, with the cap widened
+    to fit any sentence marked not droppable. That last part matters: the brief
+    requires the narrative to name every failed gate and every variance over
+    threshold, and a narrative that named four of seven failures while looking
+    complete would be worse than one that named none.

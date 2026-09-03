@@ -21,6 +21,10 @@ import { arWriteoffUncollectible } from "./runs/ar-writeoff-uncollectible";
 import { clsEvaluateGates } from "./runs/cls-evaluate-gates";
 import { clsLockPeriod } from "./runs/cls-lock-period";
 import { clsPostYearEnd } from "./runs/cls-post-yearend";
+import { rptBuildPackage } from "./runs/rpt-build-package";
+import { rptFlagVariances } from "./runs/rpt-flag-variances";
+import { rptRebuildForecast } from "./runs/rpt-rebuild-forecast";
+import { rptComposeNarrative } from "./runs/rpt-compose-narrative";
 import { clsRollForward } from "./runs/cls-roll-forward";
 import { importCommitBatch } from "./runs/import-commit-batch";
 import { perAmortizePrepaids } from "./runs/per-amortize-prepaids";
@@ -103,6 +107,29 @@ export const registry: readonly RegistryEntry[] = [
   entry(clsLockPeriod),
   entry(clsRollForward),
   entry(clsPostYearEnd),
+  // Module 8 reporting, in the order REPORTING_ORDER explains.
+  entry(rptBuildPackage),
+  entry(rptFlagVariances),
+  entry(rptRebuildForecast),
+  entry(rptComposeNarrative),
+];
+
+/**
+ * Module 8 execution order.
+ *
+ * The package comes first because it is the snapshot every later step describes.
+ * Variances come second, because a flag is a comparison against figures the
+ * package already fixed. The forecast is third and independent of the first two,
+ * placed here because the narrative reads it. The narrative is last, always, for
+ * one reason: it is a description of what the other three found, so composing it
+ * earlier would describe a state that no longer exists by the time a reader sees
+ * it.
+ */
+export const REPORTING_ORDER: readonly string[] = [
+  "RPT-BUILD-PACKAGE",
+  "RPT-FLAG-VARIANCES",
+  "RPT-REBUILD-FORECAST",
+  "RPT-COMPOSE-NARRATIVE",
 ];
 
 /**

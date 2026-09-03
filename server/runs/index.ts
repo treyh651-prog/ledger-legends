@@ -53,6 +53,11 @@ export * from "./runs/cls-evaluate-gates";
 export * from "./runs/cls-lock-period";
 export * from "./runs/cls-roll-forward";
 export * from "./runs/cls-post-yearend";
+export * from "./runs/rpt-shared";
+export * from "./runs/rpt-build-package";
+export * from "./runs/rpt-flag-variances";
+export * from "./runs/rpt-rebuild-forecast";
+export * from "./runs/rpt-compose-narrative";
 export {
   registry,
   lookupRun,
@@ -60,5 +65,6 @@ export {
   CLOSE_ORDER,
   CODING_CASCADE_ORDER,
   RECONCILIATION_ORDER,
+  REPORTING_ORDER,
   cascadePosition,
 } from "./registry";

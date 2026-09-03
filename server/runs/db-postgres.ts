@@ -97,6 +97,16 @@ const PHYSICAL_TABLES: Partial<Record<TableName, string>> = {
   close_gate_results: "close.close_gate_results",
   opening_balances: "close.opening_balances",
   closing_entries: "close.closing_entries",
+  budgets: "report.budgets",
+  budget_thresholds: "report.budget_thresholds",
+  report_packages: "report.report_packages",
+  report_sections: "report.report_sections",
+  report_variances: "report.report_variances",
+  cash_forecast_runs: "report.cash_forecast_runs",
+  cash_forecast_weeks: "report.cash_forecast_weeks",
+  report_narratives: "report.report_narratives",
+  payroll_approvals: "report.payroll_approvals",
+  report_audit_events: "report.report_audit_events",
 };
 
 function physical(table: TableName): string {
@@ -207,6 +217,33 @@ const CENTS_FIELDS: Record<string, readonly string[]> = {
     "closedExpenseCents",
     "closedNetCents",
   ],
+  budgets: ["budgetCents"],
+  budget_thresholds: ["varianceFloorCents"],
+  report_variances: [
+    "actualCents",
+    "budgetCents",
+    "varianceCents",
+    "floorCents",
+  ],
+  cash_forecast_runs: [
+    "openingCashCents",
+    "totalInflowCents",
+    "totalOutflowCents",
+    "closingCashCents",
+  ],
+  cash_forecast_weeks: [
+    "openingCents",
+    "arInflowCents",
+    "otherInflowCents",
+    "apOutflowCents",
+    "recurringOutflowCents",
+    "loanOutflowCents",
+    "payrollOutflowCents",
+    "inflowCents",
+    "outflowCents",
+    "closingCents",
+  ],
+  payroll_approvals: ["amountCents"],
 };
 
 function camelToSnake(name: string): string {
@@ -729,6 +766,130 @@ const CLOSING_ENTRY_COLUMNS = `
   closed_net_cents::text as "closedNetCents",
   account_count as "accountCount", posted_by_run_id as "postedByRunId",
   posted_at::text as "postedAt", manual_override as "manualOverride"
+`;
+
+/* Module 8 reporting column lists, migration 0016. */
+
+const BUDGET_COLUMNS = `
+  id, firm_id as "firmId", client_id as "clientId", version,
+  period_start::text as "periodStart", period_end::text as "periodEnd",
+  account_number as "accountNumber", class_id as "classId",
+  location_id as "locationId", program_id as "programId",
+  budget_cents::text as "budgetCents", source,
+  created_at::text as "createdAt", manual_override as "manualOverride"
+`;
+
+const BUDGET_THRESHOLD_COLUMNS = `
+  id, firm_id as "firmId", client_id as "clientId", version,
+  account_number as "accountNumber",
+  variance_floor_cents::text as "varianceFloorCents",
+  variance_threshold_bp as "varianceThresholdBp", note,
+  created_at::text as "createdAt", manual_override as "manualOverride"
+`;
+
+const REPORT_PACKAGE_COLUMNS = `
+  id, firm_id as "firmId", client_id as "clientId", version,
+  period_start::text as "periodStart", period_end::text as "periodEnd",
+  basis, comparison_basis as "comparisonBasis",
+  comparison_available as "comparisonAvailable",
+  comparison_note as "comparisonNote", state, watermark,
+  closed_with_exceptions as "closedWithExceptions",
+  exception_banner as "exceptionBanner", section_count as "sectionCount",
+  omission_count as "omissionCount", content_checksum as "contentChecksum",
+  ledger_fingerprint as "ledgerFingerprint",
+  vault_object_key as "vaultObjectKey",
+  vault_object_lock_mode as "vaultObjectLockMode",
+  vault_retention_starts_on::text as "vaultRetentionStartsOn",
+  vault_object_lock_until::text as "vaultObjectLockUntil",
+  built_by_run_id as "builtByRunId", built_at::text as "builtAt",
+  manual_override as "manualOverride"
+`;
+
+const REPORT_SECTION_COLUMNS = `
+  id, firm_id as "firmId", client_id as "clientId", version,
+  package_id as "packageId", sequence, section_code as "sectionCode",
+  section_title as "sectionTitle", status,
+  omission_reason as "omissionReason", as_of_date::text as "asOfDate",
+  banner_text as "bannerText", lines,
+  content_checksum as "contentChecksum",
+  created_by_run_id as "createdByRunId", created_at::text as "createdAt",
+  manual_override as "manualOverride"
+`;
+
+const REPORT_VARIANCE_COLUMNS = `
+  id, firm_id as "firmId", client_id as "clientId", version,
+  period_start::text as "periodStart", period_end::text as "periodEnd",
+  account_number as "accountNumber", account_name as "accountName",
+  actual_cents::text as "actualCents", budget_cents::text as "budgetCents",
+  variance_cents::text as "varianceCents", variance_bp as "varianceBp",
+  direction, flagged, flag_code as "flagCode",
+  floor_cents::text as "floorCents", threshold_bp as "thresholdBp", detail,
+  created_by_run_id as "createdByRunId", created_at::text as "createdAt",
+  manual_override as "manualOverride"
+`;
+
+const CASH_FORECAST_RUN_COLUMNS = `
+  id, firm_id as "firmId", client_id as "clientId", version,
+  period_start::text as "periodStart", period_end::text as "periodEnd",
+  start_date::text as "startDate", end_date::text as "endDate",
+  horizon_weeks as "horizonWeeks", scenario,
+  slow_shift_days as "slowShiftDays", shortfall_bp as "shortfallBp",
+  use_history as "useHistory",
+  opening_cash_cents::text as "openingCashCents",
+  total_inflow_cents::text as "totalInflowCents",
+  total_outflow_cents::text as "totalOutflowCents",
+  closing_cash_cents::text as "closingCashCents",
+  first_shortfall_week as "firstShortfallWeek",
+  shortfall_week_count as "shortfallWeekCount", item_count as "itemCount",
+  ledger_fingerprint as "ledgerFingerprint",
+  built_by_run_id as "builtByRunId", built_at::text as "builtAt",
+  manual_override as "manualOverride"
+`;
+
+const CASH_FORECAST_WEEK_COLUMNS = `
+  id, firm_id as "firmId", client_id as "clientId", version,
+  forecast_run_id as "forecastRunId", week_number as "weekNumber",
+  week_start::text as "weekStart", week_end::text as "weekEnd",
+  opening_cents::text as "openingCents",
+  ar_inflow_cents::text as "arInflowCents",
+  other_inflow_cents::text as "otherInflowCents",
+  ap_outflow_cents::text as "apOutflowCents",
+  recurring_outflow_cents::text as "recurringOutflowCents",
+  loan_outflow_cents::text as "loanOutflowCents",
+  payroll_outflow_cents::text as "payrollOutflowCents",
+  inflow_cents::text as "inflowCents", outflow_cents::text as "outflowCents",
+  closing_cents::text as "closingCents", shortfall, items,
+  created_by_run_id as "createdByRunId", created_at::text as "createdAt",
+  manual_override as "manualOverride"
+`;
+
+const REPORT_NARRATIVE_COLUMNS = `
+  id, firm_id as "firmId", client_id as "clientId", version,
+  period_start::text as "periodStart", period_end::text as "periodEnd",
+  audience, comparison_basis as "comparisonBasis", state,
+  sentence_count as "sentenceCount", dropped_count as "droppedCount",
+  max_sentences_per_section as "maxSentencesPerSection",
+  sentences, trigger_log as "triggerLog", body_text as "bodyText",
+  content_checksum as "contentChecksum",
+  ledger_fingerprint as "ledgerFingerprint", manual_edit as "manualEdit",
+  composed_by_run_id as "composedByRunId", composed_at::text as "composedAt",
+  manual_override as "manualOverride"
+`;
+
+const PAYROLL_APPROVAL_COLUMNS = `
+  id, firm_id as "firmId", client_id as "clientId", version,
+  pay_date::text as "payDate", amount_cents::text as "amountCents",
+  funding_account as "fundingAccount", status, approved_by as "approvedBy",
+  approved_on::text as "approvedOn", detail,
+  created_at::text as "createdAt", manual_override as "manualOverride"
+`;
+
+const REPORT_AUDIT_EVENT_COLUMNS = `
+  id, firm_id as "firmId", client_id as "clientId", version,
+  period_start::text as "periodStart", action,
+  subject_table as "subjectTable", subject_id as "subjectId", detail,
+  created_by_run_id as "createdByRunId", created_at::text as "createdAt",
+  manual_override as "manualOverride"
 `;
 
 const QUERIES: Record<QueryName, SqlSpec> = {
@@ -1496,6 +1657,89 @@ const QUERIES: Record<QueryName, SqlSpec> = {
     table: "vendor_credits",
     sql: `select ${VENDOR_CREDIT_COLUMNS}
           from subledger.vendor_credits
+          where firm_id = $1 and client_id = $2
+          order by id asc`,
+    params: (p) => [p.firmId, p.clientId],
+  },
+
+  /* Module 8 reporting reads. */
+
+  budgets_for_period: {
+    table: "budgets",
+    sql: `select ${BUDGET_COLUMNS}
+          from report.budgets
+          where firm_id = $1 and client_id = $2 and period_start = $3
+          order by account_number asc, id asc`,
+    params: (p) => [p.firmId, p.clientId, p.periodStart],
+  },
+  budget_thresholds_for_client: {
+    table: "budget_thresholds",
+    sql: `select ${BUDGET_THRESHOLD_COLUMNS}
+          from report.budget_thresholds
+          where firm_id = $1 and client_id = $2
+          order by id asc`,
+    params: (p) => [p.firmId, p.clientId],
+  },
+  report_packages_for_client: {
+    table: "report_packages",
+    sql: `select ${REPORT_PACKAGE_COLUMNS}
+          from report.report_packages
+          where firm_id = $1 and client_id = $2
+          order by period_start asc, id asc`,
+    params: (p) => [p.firmId, p.clientId],
+  },
+  report_sections_for_package: {
+    table: "report_sections",
+    sql: `select ${REPORT_SECTION_COLUMNS}
+          from report.report_sections
+          where firm_id = $1 and client_id = $2 and package_id = $3
+          order by sequence asc, id asc`,
+    params: (p) => [p.firmId, p.clientId, p.packageId],
+  },
+  report_variances_for_period: {
+    table: "report_variances",
+    sql: `select ${REPORT_VARIANCE_COLUMNS}
+          from report.report_variances
+          where firm_id = $1 and client_id = $2 and period_start = $3
+          order by account_number asc, id asc`,
+    params: (p) => [p.firmId, p.clientId, p.periodStart],
+  },
+  cash_forecast_runs_for_client: {
+    table: "cash_forecast_runs",
+    sql: `select ${CASH_FORECAST_RUN_COLUMNS}
+          from report.cash_forecast_runs
+          where firm_id = $1 and client_id = $2
+          order by period_start asc, id asc`,
+    params: (p) => [p.firmId, p.clientId],
+  },
+  cash_forecast_weeks_for_run: {
+    table: "cash_forecast_weeks",
+    sql: `select ${CASH_FORECAST_WEEK_COLUMNS}
+          from report.cash_forecast_weeks
+          where firm_id = $1 and client_id = $2 and forecast_run_id = $3
+          order by week_number asc, id asc`,
+    params: (p) => [p.firmId, p.clientId, p.forecastRunId],
+  },
+  report_narratives_for_client: {
+    table: "report_narratives",
+    sql: `select ${REPORT_NARRATIVE_COLUMNS}
+          from report.report_narratives
+          where firm_id = $1 and client_id = $2
+          order by period_start asc, id asc`,
+    params: (p) => [p.firmId, p.clientId],
+  },
+  payroll_approvals_for_client: {
+    table: "payroll_approvals",
+    sql: `select ${PAYROLL_APPROVAL_COLUMNS}
+          from report.payroll_approvals
+          where firm_id = $1 and client_id = $2
+          order by pay_date asc, id asc`,
+    params: (p) => [p.firmId, p.clientId],
+  },
+  report_audit_events_for_client: {
+    table: "report_audit_events",
+    sql: `select ${REPORT_AUDIT_EVENT_COLUMNS}
+          from report.report_audit_events
           where firm_id = $1 and client_id = $2
           order by id asc`,
     params: (p) => [p.firmId, p.clientId],

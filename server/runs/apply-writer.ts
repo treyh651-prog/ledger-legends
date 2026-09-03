@@ -52,6 +52,13 @@ import type {
   StagedRowRow,
   SuspenseItemRow,
   TransactionRow,
+  CashForecastRunRow,
+  CashForecastWeekRow,
+  ReportAuditEventRow,
+  ReportNarrativeRow,
+  ReportPackageRow,
+  ReportSectionRow,
+  ReportVarianceRow,
 } from "./tables";
 
 /**
@@ -350,6 +357,28 @@ async function writeField(
     case "opening_balances":
       await tx.update("opening_balances", rowId, after);
       return;
+    // Doc 02 module 8. A rebuild refreshes the package header and its sections,
+    // the variance rows, the forecast header and its weeks, and the narrative
+    // draft. Every one of them carries the override flag, and the guard in the
+    // store is what refuses a write to an overridden row.
+    case "report_packages":
+      await tx.update("report_packages", rowId, after);
+      return;
+    case "report_sections":
+      await tx.update("report_sections", rowId, after);
+      return;
+    case "report_variances":
+      await tx.update("report_variances", rowId, after);
+      return;
+    case "cash_forecast_runs":
+      await tx.update("cash_forecast_runs", rowId, after);
+      return;
+    case "cash_forecast_weeks":
+      await tx.update("cash_forecast_weeks", rowId, after);
+      return;
+    case "report_narratives":
+      await tx.update("report_narratives", rowId, after);
+      return;
     default:
       throw new ProposalWriteError(
         "UNKNOWN_WRITE_TABLE",
@@ -485,6 +514,45 @@ async function insertRow(
       return;
     case "period_locks":
       await tx.insert("period_locks", [withId as unknown as PeriodLockRow]);
+      return;
+    // Doc 02 module 8. Reporting inserts only report rows. There is no path from
+    // here to a ledger table, which is the property that lets a reporting run
+    // work on a locked period at all. The audit event table is the whole of the
+    // module's delivery surface, and it has no address column to send to.
+    case "report_packages":
+      await tx.insert("report_packages", [
+        withId as unknown as ReportPackageRow,
+      ]);
+      return;
+    case "report_sections":
+      await tx.insert("report_sections", [
+        withId as unknown as ReportSectionRow,
+      ]);
+      return;
+    case "report_variances":
+      await tx.insert("report_variances", [
+        withId as unknown as ReportVarianceRow,
+      ]);
+      return;
+    case "cash_forecast_runs":
+      await tx.insert("cash_forecast_runs", [
+        withId as unknown as CashForecastRunRow,
+      ]);
+      return;
+    case "cash_forecast_weeks":
+      await tx.insert("cash_forecast_weeks", [
+        withId as unknown as CashForecastWeekRow,
+      ]);
+      return;
+    case "report_narratives":
+      await tx.insert("report_narratives", [
+        withId as unknown as ReportNarrativeRow,
+      ]);
+      return;
+    case "report_audit_events":
+      await tx.insert("report_audit_events", [
+        withId as unknown as ReportAuditEventRow,
+      ]);
       return;
     default:
       throw new ProposalWriteError(

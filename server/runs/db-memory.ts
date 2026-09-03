@@ -57,6 +57,14 @@ import {
   type RecBatchRow,
   type SubTieoutRow,
   type SubstantiationRecordRow,
+  type BudgetRow,
+  type CashForecastRunRow,
+  type CashForecastWeekRow,
+  type PayrollApprovalRow,
+  type ReportNarrativeRow,
+  type ReportPackageRow,
+  type ReportSectionRow,
+  type ReportVarianceRow,
   type RunLogRow,
   type StagedRowRow,
   type StatementLineRow,
@@ -121,6 +129,16 @@ const TABLES: TableName[] = [
   "close_gate_results",
   "opening_balances",
   "closing_entries",
+  "budgets",
+  "budget_thresholds",
+  "report_packages",
+  "report_sections",
+  "report_variances",
+  "cash_forecast_runs",
+  "cash_forecast_weeks",
+  "report_narratives",
+  "payroll_approvals",
+  "report_audit_events",
   "run_log",
   "run_log_items",
   "run_log_events",
@@ -1249,6 +1267,131 @@ class MemoryTx implements RunTx {
           .sort((a, b) => (a.startedAt < b.startedAt ? -1 : a.startedAt > b.startedAt ? 1 : byId(a, b)))
           .map((r) => clone(r as unknown as AnyRow));
       }
+
+      /* Module 8 reporting reads. */
+
+      case "budgets_for_period": {
+        const p = rawParams as QueryCatalog["budgets_for_period"]["params"];
+        return this.view("budgets")
+          .map((r) => r as unknown as BudgetRow)
+          .filter(
+            (r) =>
+              r.firmId === p.firmId &&
+              r.clientId === p.clientId &&
+              r.periodStart === p.periodStart,
+          )
+          .sort(compareByAccount)
+          .map((r) => clone(r as unknown as AnyRow));
+      }
+      case "budget_thresholds_for_client": {
+        const p = rawParams as QueryCatalog["budget_thresholds_for_client"]["params"];
+        return this.view("budget_thresholds")
+          .filter((r) => r.firmId === p.firmId && r.clientId === p.clientId)
+          .sort(byId)
+          .map(clone);
+      }
+      case "report_packages_for_client": {
+        const p = rawParams as QueryCatalog["report_packages_for_client"]["params"];
+        return this.view("report_packages")
+          .map((r) => r as unknown as ReportPackageRow)
+          .filter((r) => r.firmId === p.firmId && r.clientId === p.clientId)
+          .sort((a, b) =>
+            a.periodStart !== b.periodStart
+              ? a.periodStart < b.periodStart
+                ? -1
+                : 1
+              : byId(a, b),
+          )
+          .map((r) => clone(r as unknown as AnyRow));
+      }
+      case "report_sections_for_package": {
+        const p = rawParams as QueryCatalog["report_sections_for_package"]["params"];
+        return this.view("report_sections")
+          .map((r) => r as unknown as ReportSectionRow)
+          .filter(
+            (r) =>
+              r.firmId === p.firmId &&
+              r.clientId === p.clientId &&
+              r.packageId === p.packageId,
+          )
+          .sort((a, b) =>
+            a.sequence !== b.sequence ? a.sequence - b.sequence : byId(a, b),
+          )
+          .map((r) => clone(r as unknown as AnyRow));
+      }
+      case "report_variances_for_period": {
+        const p = rawParams as QueryCatalog["report_variances_for_period"]["params"];
+        return this.view("report_variances")
+          .map((r) => r as unknown as ReportVarianceRow)
+          .filter(
+            (r) =>
+              r.firmId === p.firmId &&
+              r.clientId === p.clientId &&
+              r.periodStart === p.periodStart,
+          )
+          .sort(compareByAccount)
+          .map((r) => clone(r as unknown as AnyRow));
+      }
+      case "cash_forecast_runs_for_client": {
+        const p = rawParams as QueryCatalog["cash_forecast_runs_for_client"]["params"];
+        return this.view("cash_forecast_runs")
+          .map((r) => r as unknown as CashForecastRunRow)
+          .filter((r) => r.firmId === p.firmId && r.clientId === p.clientId)
+          .sort((a, b) =>
+            a.periodStart !== b.periodStart
+              ? a.periodStart < b.periodStart
+                ? -1
+                : 1
+              : byId(a, b),
+          )
+          .map((r) => clone(r as unknown as AnyRow));
+      }
+      case "cash_forecast_weeks_for_run": {
+        const p = rawParams as QueryCatalog["cash_forecast_weeks_for_run"]["params"];
+        return this.view("cash_forecast_weeks")
+          .map((r) => r as unknown as CashForecastWeekRow)
+          .filter(
+            (r) =>
+              r.firmId === p.firmId &&
+              r.clientId === p.clientId &&
+              r.forecastRunId === p.forecastRunId,
+          )
+          .sort((a, b) =>
+            a.weekNumber !== b.weekNumber ? a.weekNumber - b.weekNumber : byId(a, b),
+          )
+          .map((r) => clone(r as unknown as AnyRow));
+      }
+      case "report_narratives_for_client": {
+        const p = rawParams as QueryCatalog["report_narratives_for_client"]["params"];
+        return this.view("report_narratives")
+          .map((r) => r as unknown as ReportNarrativeRow)
+          .filter((r) => r.firmId === p.firmId && r.clientId === p.clientId)
+          .sort((a, b) =>
+            a.periodStart !== b.periodStart
+              ? a.periodStart < b.periodStart
+                ? -1
+                : 1
+              : byId(a, b),
+          )
+          .map((r) => clone(r as unknown as AnyRow));
+      }
+      case "payroll_approvals_for_client": {
+        const p = rawParams as QueryCatalog["payroll_approvals_for_client"]["params"];
+        return this.view("payroll_approvals")
+          .map((r) => r as unknown as PayrollApprovalRow)
+          .filter((r) => r.firmId === p.firmId && r.clientId === p.clientId)
+          .sort((a, b) =>
+            a.payDate !== b.payDate ? (a.payDate < b.payDate ? -1 : 1) : byId(a, b),
+          )
+          .map((r) => clone(r as unknown as AnyRow));
+      }
+      case "report_audit_events_for_client": {
+        const p = rawParams as QueryCatalog["report_audit_events_for_client"]["params"];
+        return this.view("report_audit_events")
+          .filter((r) => r.firmId === p.firmId && r.clientId === p.clientId)
+          .sort(byId)
+          .map(clone);
+      }
       default: {
         const exhaustive: never = name;
         throw new Error(`unknown query ${String(exhaustive)}`);
@@ -1438,6 +1581,21 @@ function compareRemittanceLines(
 function compareStatementItems(a: StatementItemRow, b: StatementItemRow): number {
   if (a.statementId !== b.statementId) return a.statementId < b.statementId ? -1 : 1;
   if (a.lineNumber !== b.lineNumber) return a.lineNumber < b.lineNumber ? -1 : 1;
+  return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+}
+
+/**
+ * Account number ascending then row id ascending. Used by the module 8 reads
+ * that key on an account, which is the same total ordering rule doc 00 Part 6
+ * states for every list a run walks.
+ */
+function compareByAccount(
+  a: { accountNumber: string; id: string },
+  b: { accountNumber: string; id: string },
+): number {
+  if (a.accountNumber !== b.accountNumber) {
+    return a.accountNumber < b.accountNumber ? -1 : 1;
+  }
   return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
 }
 
