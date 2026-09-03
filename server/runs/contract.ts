@@ -163,7 +163,14 @@ export interface ProposedFieldWrite {
   before: Record<string, unknown>; // captured for the undo plan
   after: Record<string, unknown>;
   provenance: {
-    cascadeLevel: number; // 0 through 9, per the conventions doc
+    /**
+     * 0 through 9, per the conventions doc, or null for a write that belongs to
+     * no coding level at all. Module 3 reconciliation writes are the null case:
+     * a cleared flag and a match tier are not a coding decision and claiming a
+     * level for them would put reconciliation inside the cascade, where doc 00
+     * Part 3 does not put it. The run log already stored this column nullable.
+     */
+    cascadeLevel: number | null;
     ruleId?: string; // "RULE-" plus ULID
     ruleVersion?: number;
     templateId?: Ulid;
@@ -185,7 +192,7 @@ export interface ProposedRowInsert {
   rowId: Ulid;
   row: Record<string, unknown>;
   provenance: {
-    cascadeLevel: number;
+    cascadeLevel: number | null;
     ruleId?: string;
     ruleVersion?: number;
     templateId?: Ulid;

@@ -180,6 +180,18 @@ what the coding cascade provenance requires. Each of the decisions below is a
 place where the docs left a real choice open. Three options were written down,
 one was picked, and the reason is recorded.
 
+Migration 0011 shipped the register and the import pipeline. It did not ship the
+bank side, so module 3 needed `db/migrations/0012_reconciliation.sql`. That
+migration adds `ledger.rec_batches` and `ledger.statement_lines`, and adds
+`statement_id`, `statement_line_id`, `statement_date`, `match_tier`,
+`match_confidence`, `rec_batch_id`, `stale_owner` and `stale_escalates_on` to
+`ledger.transactions`. It does not add a `cleared_flag`, because 0011 already has
+`cleared` and `cleared_date`, which decision 42 explains. Both new tables get RLS
+enabled and forced with the same `client_isolation` policy the rest of the schema
+uses, and the same discriminator freeze trigger, so a reconciliation row cannot
+be moved to another tenant any more than a transaction can. The batch index the
+brief asks for is `rec_batches_id`.
+
 15. **The dedup grain on the bank supplied id.** Options: key it on
     `(client_id, account_number, bank_transaction_id)` matching what migration
     0009 did on staged rows, key it on
@@ -430,3 +442,188 @@ forgets the first check still cannot get past the second.
     a generic SUS-01 and lose the real reason, and severity is not a field any
     document defines. The tie break on the code string is there so a rerun
     produces the same reason rather than whichever row came back first.
+
+## The module 3 reconciliation runs
+
+Three runs turn a bank statement into a signed off difference. `REC-MATCH-TIERED`
+proposes the matches, `REC-CLEAR-MATCHED` records what cleared and computes the
+difference, `REC-FLAG-STALE` chases what never cleared. `RECONCILIATION_ORDER` in
+`registry.ts` states the order and `server/runs/__tests__/rec-pipeline.ts` walks
+it, so the order is a test and not a comment.
+
+Doc 00 gate G03 is the whole reason these exist: every bank and card account
+reconciled through period end with a zero difference. The runs are built so the
+difference is always produced and always visible, including when it is large.
+A batch that cannot reconcile still closes, with the number on the batch row and
+a state of `out_of_balance`. Hiding a difference is worse than reporting one.
+
+### The override contract in module 3
+
+Invariant 8 says no run changes the coding of a row carrying the manual override
+flag. Module 3 splits that into two halves, because reconciliation writes facts
+that are not coding.
+
+Matching and clearing include overridden rows. Whether the bank showed a
+transaction is the bank's statement about the world, not an opinion about how the
+row should be classified, and an operating account cannot reconcile if the rows a
+person touched by hand are invisible to it. So `REC-MATCH-TIERED` and
+`REC-CLEAR-MATCHED` ask for candidates with `includeOverridden: true`, and the
+only fields they write on the register are `statement_id`, `statement_line_id`,
+`statement_date`, `match_tier`, `match_confidence`, `rec_batch_id`, `cleared`,
+and `cleared_date`. None of those is a coding field, none of them is in
+`OVERRIDE_WATCHED_FIELDS`, and the store level guard in `apply-writer.ts` still
+refuses anything that is. The overridden rows are counted in `overriddenInScope`
+on every run so the report shows them rather than swallowing them.
+
+`REC-FLAG-STALE` skips them instead, with a `manual_override` skip. Flagging is
+not a fact the bank supplied. It assigns an owner and starts a thirty day
+escalation clock, which is a judgment about the row, and the person who set the
+override already owns it.
+
+The tests that hold this line are `rec match, an overridden row is matched and
+never recoded`, `rec clear, an overridden row clears and is never recoded`,
+`rec stale, an overridden row is skipped and never recoded`, and
+`rec pipeline, the override row is matched, cleared, and never recoded`. Three of
+them walk every proposal the run produced and assert no coding field name appears
+in any of them, so the guarantee is about the proposal set and not about the
+particular rows in the fixture.
+
+42. **Whether to add `cleared_flag` as the brief names it.** Migration 0011
+    already ships `transactions.cleared` and `transactions.cleared_date`, and
+    doc 04 documents `cleared` as the register's own field. Options: add
+    `cleared_flag` and leave `cleared` unused, add it and keep the two in step
+    with a trigger, rename `cleared` to `cleared_flag`, or use `cleared`.
+    Chosen: use `cleared`. Two columns for one fact is how a book ends up with
+    two answers to whether a check cashed, a trigger is a moving part guarding a
+    problem that need not exist, and a rename would break the import pipeline and
+    the check-books script for a word. The brief's `cleared_flag` and the
+    schema's `cleared` are the same field and 0012 adds no second one.
+
+43. **Where statement lines live.** A statement is a list of lines from the bank,
+    and none of them is a book entry. Options: import them as register rows with
+    a marker, hold them only in the import staging table, or give them their own
+    table. Chosen: `ledger.statement_lines` in migration 0012. Register rows are
+    the client's books and putting the bank's rows in there means every report,
+    every total, and every gate has to remember to filter them out, which is a
+    filter somebody eventually forgets. Staging is cleared on commit and the match
+    state has to outlive the import. Its own table also gives the match fields
+    somewhere honest to live: `match_tier`, `match_confidence`, `match_diff_cents`
+    and `matched_transaction_count` describe the line, not the book row.
+
+44. **What `match_confidence` means.** Options: a computed score from date
+    distance and amount distance and vendor similarity, a per tier constant, or a
+    free number each tier picks. Chosen: a per tier constant, `CONFIDENCE` in
+    `rec-shared.ts`, at 100, 90, 80 and 70. Doc 02 Part A invariant 3 wants a run
+    to be reproducible from its inputs, and a similarity score is exactly the kind
+    of number that drifts when the scoring function is tuned, changing what a
+    person sees on a batch they already reviewed. A constant per tier says the
+    only thing the confidence is really claiming, which is which rule fired.
+    `match_diff_cents` carries the one piece of real measurement, the cents the
+    match absorbed.
+
+45. **The tier 2 window.** The brief says five days, doc 02 module 3 says three,
+    and `txn-pair-transfers` uses three for transfer pairing. Options: three,
+    five, or a scope option. Chosen: a scope option, `windowDays`, defaulting to
+    five as the brief asks. A firm with weekend heavy card settlement needs more
+    than three and a firm with clean ACH wants fewer false candidates, so the
+    number is a policy and not a constant. The default follows the brief because
+    the brief is the newer instruction. The test `rec match, the window is
+    inclusive and one day past it is no match` pins the boundary in both
+    directions so a later change to the default cannot quietly widen it.
+
+46. **What makes the tier 3 cent tolerance safe.** A tolerance on amount alone
+    matches unrelated money. Options: tolerance alone, tolerance plus a vendor
+    match, tolerance plus a vendor match plus a tighter window, or no tier 3.
+    Chosen: tolerance plus a required normalized vendor equality, with the
+    tolerance defaulting to one cent and capped at one hundred by
+    `MAX_TOLERANCE_CENTS`. Two payments to two different vendors one cent apart
+    are common in any month with volume, and matching them is a silent error that
+    reconciles to zero while being wrong. Requiring the vendor makes the tolerance
+    an answer to rounding and card processor fees, which is the case it exists
+    for. The cap stops a scope from turning tier 3 into a dollar wide net. The
+    exact absorbed difference is written to `match_diff_cents` so the cent is
+    posted rather than lost, which is what the pipeline test asserts.
+
+47. **How tier 4 chooses among possible groups.** A deposit of 750.00 against a
+    pool of open invoices can have several subsets that sum to it. Options: take
+    the first group found, take the smallest, take the one closest in date, or
+    refuse when there is more than one. Chosen: consider groups of two to four
+    same sign rows inside the window, prefer the smallest qualifying group, and
+    when more than one distinct group of that size sums to the line, write
+    nothing and report `ambiguous_candidate`. Guessing between two explanations
+    of the same deposit is how a receivable gets closed against the wrong
+    customer, and that error is invisible until the customer calls. The pool is
+    capped at `DEFAULT_CANDIDATE_POOL_CAP` of twelve rows because subset search
+    grows fast and a run that hangs on a busy account is its own outage. Over the
+    cap the run reports `candidate_pool_over_cap` and leaves the line for a
+    person.
+
+48. **Which tiers clear without a person.** Options: clear every tier, clear none
+    until accepted, or split by tier. Chosen: split. Tier 1 is an exact amount on
+    the exact date, which is identity rather than inference, so it is written with
+    `match_confirmed` true and clears on its own. Tiers 2 through 4 are proposals
+    and clear only after a person accepts them, which is the state the reconcile
+    screen writes. `REC-CLEAR-MATCHED` skips an unaccepted match and names
+    `match_not_confirmed` in the detail. The scope option `clearUnconfirmed`
+    exists for a firm that wants the older behavior, defaulting off. Auto clearing
+    an inferred match is how a difference of zero stops meaning anything.
+
+49. **Where the stale flag is written.** Options: write SUS-18 into
+    `transactions.suspense_reason` the way the coding cascade does, add dedicated
+    stale columns, or track the whole thing in `suspense_items` alone. Chosen:
+    dedicated columns, `stale_flagged`, `stale_flagged_on`, `stale_owner`,
+    `stale_escalates_on` and `escheat_review`, plus a SUS-18 item and one portal
+    request. `suspense_reason` is a coding column, it is watched by the override
+    guard, and writing it would overwrite whatever coding question the row was
+    already carrying: a stale check is not a miscoded check. Items alone would
+    give the run no cheap way to ask whether it already flagged a row, which is
+    what makes a daily run idempotent.
+
+50. **The stale threshold.** The brief says sixty days by default, doc 02 gives
+    per instrument ages. Options: sixty flat, per instrument, or per instrument
+    with an override. Chosen: per instrument with an explicit override.
+    `STALE_THRESHOLD_DAYS` holds ninety for an issued check, thirty for an
+    electronic item, ten for a deposit and sixty for anything else, which is the
+    brief's number as the default bucket. A deposit that has not appeared in two
+    weeks is a real problem and a check outstanding for two months is normal, so
+    one flat number is either noisy or blind. A scope `thresholdDays` overrides
+    all four for the firm that wants the simple rule. At `ESCHEAT_REVIEW_DAYS` of
+    one hundred and eighty the run also sets `escheat_review`, because past that
+    age the question stops being a bank question and becomes an unclaimed property
+    question. Nothing is filed, the column only says look.
+
+51. **What the difference is and when a batch reconciles.** Options: statement
+    balance minus cleared ledger balance, the reverse, or absolute value. Chosen:
+    statement minus cleared, so a positive difference means the bank shows more
+    money than the cleared books do, matching how a difference is read on a paper
+    reconciliation. Zero is `reconciled`, anything else is `out_of_balance`, and
+    both states close the batch with `closed_at` set. The cleared ledger balance
+    counts every cleared row on the account through period end and not only the
+    rows this batch cleared, because a balance is cumulative and last month's
+    cleared check is still cleared.
+
+52. **The batch lifecycle across two runs.** Options: open the batch in a third
+    run, open it on import, or open it in matching and close it in clearing.
+    Chosen: the third. Matching inserts the batch at `derivedId(statementId,
+    "rec-batch", 0)`, so a rerun finds it rather than opening a second one, and
+    clearing writes the balances, the difference, the state and `closed_at`. A
+    separate opener would be a run that does nothing a person can see, and opening
+    on import would leave a batch standing for a statement nobody reconciled.
+    `REC-CLEAR-MATCHED` refuses with `REC_NO_OPEN_BATCH` when matching never ran
+    and with `REC_BATCH_ALREADY_CLOSED` when the difference was already signed
+    off, because a closed difference is history and rewriting it silently changes
+    a number somebody already approved.
+
+53. **A framework change: `provenance.cascadeLevel` is now `number | null`.**
+    Every proposal carries provenance, and until now the cascade level was a
+    required number. A reconciliation write belongs to no cascade level: the
+    cascade is about how a row was coded, and matching a statement line is not
+    coding. Options: write a sentinel such as zero or ninety nine, invent a level
+    ten for reconciliation, add a separate provenance shape, or widen the field to
+    nullable. Chosen: widen it. A sentinel would show up in the level distribution
+    reports as coding activity that never happened, an invented level would put
+    reconciliation inside a ladder it is not part of, and a second provenance
+    shape doubles the surface every consumer has to handle. The run log column was
+    already nullable, so the change lines the TypeScript type up with the schema
+    rather than against it. All ninety six existing framework tests pass unchanged
+    after it.

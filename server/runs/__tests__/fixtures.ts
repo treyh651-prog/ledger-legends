@@ -87,6 +87,22 @@ export interface TxnOverrides {
   cleared?: boolean;
   status?: "active" | "reversed";
   description?: string;
+  checkNumber?: string | null;
+  // Migration 0011 and 0012 reconciliation fields.
+  instrumentType?: "issued_check" | "electronic" | "deposit" | "other";
+  clearedDate?: string | null;
+  statementId?: string | null;
+  statementLineId?: string | null;
+  statementDate?: string | null;
+  matchTier?: number | null;
+  matchConfidence?: number | null;
+  recBatchId?: string | null;
+  staleFlagged?: boolean;
+  staleFlaggedOn?: string | null;
+  staleOwner?: "firm" | "client" | "system" | null;
+  staleEscalatesOn?: string | null;
+  escheatReview?: boolean;
+  voided?: boolean;
 }
 
 export function txn(
@@ -116,7 +132,7 @@ export function txn(
     vendorNormalizationVersion: extra.vendorNormalizationVersion ?? null,
     normalizationDegraded: extra.normalizationDegraded ?? false,
     vendorId: extra.vendorId ?? null,
-    checkNumber: null,
+    checkNumber: extra.checkNumber ?? null,
     bankCode: extra.bankCode ?? null,
     institutionId: extra.institutionId ?? null,
     bankTransactionId: extra.bankTransactionId ?? null,
@@ -146,8 +162,26 @@ export function txn(
     duplicateOfTransactionId: extra.duplicateOfTransactionId ?? null,
     legitimateRepeat: extra.legitimateRepeat ?? false,
     journalEntryId: null,
+    instrumentType: extra.instrumentType ?? "other",
     cleared: extra.cleared ?? false,
-    clearedDate: extra.cleared ? postedDate : null,
+    clearedDate:
+      extra.clearedDate === undefined
+        ? extra.cleared
+          ? postedDate
+          : null
+        : extra.clearedDate,
+    statementId: extra.statementId ?? null,
+    statementLineId: extra.statementLineId ?? null,
+    statementDate: extra.statementDate ?? null,
+    matchTier: extra.matchTier ?? null,
+    matchConfidence: extra.matchConfidence ?? null,
+    recBatchId: extra.recBatchId ?? null,
+    staleFlagged: extra.staleFlagged ?? false,
+    staleFlaggedOn: extra.staleFlaggedOn ?? null,
+    staleOwner: extra.staleOwner ?? null,
+    staleEscalatesOn: extra.staleEscalatesOn ?? null,
+    escheatReview: extra.escheatReview ?? false,
+    voided: extra.voided ?? false,
     status: extra.status ?? "active",
     manualOverride: extra.manualOverride ?? false,
     manualOverrideBy: extra.manualOverride ? ACTOR : null,

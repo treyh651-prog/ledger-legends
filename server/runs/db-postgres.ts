@@ -93,6 +93,12 @@ const CENTS_FIELDS: Record<string, readonly string[]> = {
   run_log_events: ["netCents"],
   import_batches: ["netCents"],
   staged_rows: ["amountCents"],
+  statement_lines: ["amountCents", "matchDiffCents"],
+  rec_batches: [
+    "statementBalanceCents",
+    "clearedLedgerBalanceCents",
+    "diffCents",
+  ],
 };
 
 function camelToSnake(name: string): string {
@@ -158,8 +164,18 @@ const TXN_COLUMNS = `
   duplicate_flag as "duplicateFlag",
   duplicate_of_transaction_id as "duplicateOfTransactionId",
   legitimate_repeat as "legitimateRepeat",
-  journal_entry_id as "journalEntryId", cleared,
-  cleared_date::text as "clearedDate", status,
+  journal_entry_id as "journalEntryId",
+  instrument_type as "instrumentType", cleared,
+  cleared_date::text as "clearedDate",
+  statement_id as "statementId", statement_line_id as "statementLineId",
+  statement_date::text as "statementDate",
+  match_tier as "matchTier", match_confidence as "matchConfidence",
+  rec_batch_id as "recBatchId",
+  stale_flagged as "staleFlagged",
+  stale_flagged_on::text as "staleFlaggedOn",
+  stale_owner as "staleOwner",
+  stale_escalates_on::text as "staleEscalatesOn",
+  escheat_review as "escheatReview", voided, status,
   manual_override as "manualOverride", manual_override_by as "manualOverrideBy",
   manual_override_at::text as "manualOverrideAt", version`;
 
@@ -225,6 +241,32 @@ const JE_COLUMNS = `
   source_table as "sourceTable", source_row_id as "sourceRowId",
   source_version as "sourceVersion", created_by_run_id as "createdByRunId",
   run_type as "runType", run_version as "runVersion"`;
+
+const STATEMENT_LINE_COLUMNS = `
+  id, firm_id as "firmId", client_id as "clientId",
+  bank_account_id as "bankAccountId", statement_id as "statementId",
+  statement_date::text as "statementDate",
+  amount_cents::text as "amountCents", currency, description,
+  normalized_vendor as "normalizedVendor", check_number as "checkNumber",
+  source_format as "sourceFormat", rec_batch_id as "recBatchId",
+  match_tier as "matchTier", match_confidence as "matchConfidence",
+  match_diff_cents::text as "matchDiffCents",
+  match_confirmed as "matchConfirmed",
+  matched_transaction_id as "matchedTransactionId",
+  matched_transaction_count as "matchedTransactionCount",
+  matched_by_run_id as "matchedByRunId", version`;
+
+const REC_BATCH_COLUMNS = `
+  id, firm_id as "firmId", client_id as "clientId",
+  bank_account_id as "bankAccountId", statement_id as "statementId",
+  statement_period as "statementPeriod",
+  period_start::text as "periodStart", period_end::text as "periodEnd",
+  statement_balance_cents::text as "statementBalanceCents",
+  cleared_ledger_balance_cents::text as "clearedLedgerBalanceCents",
+  diff_cents::text as "diffCents", state,
+  opened_by as "openedBy", opened_at::text as "openedAt",
+  opened_by_run_id as "openedByRunId", closed_at::text as "closedAt",
+  closed_by_run_id as "closedByRunId", version`;
 
 const QUERIES: Record<QueryName, SqlSpec> = {
   bank_accounts_for_client: {
@@ -605,6 +647,44 @@ const QUERIES: Record<QueryName, SqlSpec> = {
           where firm_id = $1 and client_id = $2 and status = 'open'
           order by id asc`,
     params: (p) => [p.firmId, p.clientId],
+  },
+  statement_lines_for_statement: {
+    table: "statement_lines",
+    sql: `select ${STATEMENT_LINE_COLUMNS}
+          from ${SCHEMA}.statement_lines
+          where firm_id = $1 and client_id = $2
+            and bank_account_id = $3 and statement_id = $4
+          order by statement_date asc, abs(amount_cents) asc, id asc`,
+    params: (p) => [p.firmId, p.clientId, p.bankAccountId, p.statementId],
+  },
+  rec_batch_for_statement: {
+    table: "rec_batches",
+    sql: `select ${REC_BATCH_COLUMNS}
+          from ${SCHEMA}.rec_batches
+          where firm_id = $1 and client_id = $2
+            and bank_account_id = $3 and statement_id = $4
+          order by id asc`,
+    params: (p) => [p.firmId, p.clientId, p.bankAccountId, p.statementId],
+  },
+  cleared_transactions_for_account: {
+    table: "transactions",
+    sql: `select ${TXN_COLUMNS}
+          from ${SCHEMA}.transactions
+          where firm_id = $1 and client_id = $2
+            and bank_account_id = $3
+            and cleared = true and status = 'active'
+            and posted_date <= $4::date
+          order by posted_date asc, abs(amount_cents) asc, id asc`,
+    params: (p) => [p.firmId, p.clientId, p.bankAccountId, p.through],
+  },
+  transactions_for_statement: {
+    table: "transactions",
+    sql: `select ${TXN_COLUMNS}
+          from ${SCHEMA}.transactions
+          where firm_id = $1 and client_id = $2
+            and bank_account_id = $3 and statement_id = $4
+          order by id asc`,
+    params: (p) => [p.firmId, p.clientId, p.bankAccountId, p.statementId],
   },
   suspense_items_for_transactions: {
     table: "suspense_items",

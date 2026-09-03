@@ -39,6 +39,7 @@ import {
   type RowMap,
   type RunLogRow,
   type StagedRowRow,
+  type StatementLineRow,
   type RuleRow,
   type SettlementRowRow,
   type SuspenseItemRow,
@@ -52,6 +53,8 @@ const TABLES: TableName[] = [
   "bank_accounts",
   "chart_accounts",
   "transactions",
+  "rec_batches",
+  "statement_lines",
   "mapping_profiles",
   "import_batches",
   "staged_rows",
@@ -733,6 +736,65 @@ class MemoryTx implements RunTx {
           .sort(byId)
           .map((r) => clone(r as unknown as AnyRow));
       }
+      case "statement_lines_for_statement": {
+        const p =
+          rawParams as QueryCatalog["statement_lines_for_statement"]["params"];
+        return this.view("statement_lines")
+          .map((r) => r as unknown as StatementLineRow)
+          .filter(
+            (r) =>
+              r.firmId === p.firmId &&
+              r.clientId === p.clientId &&
+              r.bankAccountId === p.bankAccountId &&
+              r.statementId === p.statementId,
+          )
+          .sort(compareStatementLines)
+          .map((r) => clone(r as unknown as AnyRow));
+      }
+      case "rec_batch_for_statement": {
+        const p = rawParams as QueryCatalog["rec_batch_for_statement"]["params"];
+        return this.view("rec_batches")
+          .filter(
+            (r) =>
+              r.firmId === p.firmId &&
+              r.clientId === p.clientId &&
+              r.bankAccountId === p.bankAccountId &&
+              r.statementId === p.statementId,
+          )
+          .sort(byId)
+          .map(clone);
+      }
+      case "cleared_transactions_for_account": {
+        const p =
+          rawParams as QueryCatalog["cleared_transactions_for_account"]["params"];
+        return this.view("transactions")
+          .map((r) => r as unknown as TransactionRow)
+          .filter(
+            (r) =>
+              r.firmId === p.firmId &&
+              r.clientId === p.clientId &&
+              r.bankAccountId === p.bankAccountId &&
+              r.cleared === true &&
+              r.status === "active" &&
+              r.postedDate <= p.through,
+          )
+          .sort(compareTransactions)
+          .map((r) => clone(r as unknown as AnyRow));
+      }
+      case "transactions_for_statement": {
+        const p = rawParams as QueryCatalog["transactions_for_statement"]["params"];
+        return this.view("transactions")
+          .map((r) => r as unknown as TransactionRow)
+          .filter(
+            (r) =>
+              r.firmId === p.firmId &&
+              r.clientId === p.clientId &&
+              r.bankAccountId === p.bankAccountId &&
+              r.statementId === p.statementId,
+          )
+          .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+          .map((r) => clone(r as unknown as AnyRow));
+      }
       default: {
         const exhaustive: never = name;
         throw new Error(`unknown query ${String(exhaustive)}`);
@@ -776,6 +838,20 @@ function compareSplits(a: AnyRow, b: AnyRow): number {
   const bn = b.lineNumber as number;
   if (an !== bn) return an < bn ? -1 : 1;
   return byId(a, b);
+}
+
+/**
+ * Doc 02 module 3 iteration order for the bank side: statement line date
+ * ascending, absolute amount ascending, statement line id ascending.
+ */
+function compareStatementLines(a: StatementLineRow, b: StatementLineRow): number {
+  if (a.statementDate !== b.statementDate) {
+    return a.statementDate < b.statementDate ? -1 : 1;
+  }
+  const aa = a.amountCents < BigInt(0) ? -a.amountCents : a.amountCents;
+  const ba = b.amountCents < BigInt(0) ? -b.amountCents : b.amountCents;
+  if (aa !== ba) return aa < ba ? -1 : 1;
+  return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
 }
 
 /** Doc 02 TXN-SPLIT-SETTLEMENTS iteration order: payout date asc, payout id asc. */

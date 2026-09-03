@@ -25,6 +25,8 @@ import type {
   MappingProfileRow,
   PeriodLockRow,
   PortalRequestRow,
+  RecBatchRow,
+  StatementLineRow,
   RecurringSplitRow,
   RecurringTemplateRow,
   RowMap,
@@ -244,6 +246,52 @@ export interface QueryCatalog {
   suspense_items_for_transactions: {
     params: { firmId: Ulid; clientId: Ulid; transactionIds: Ulid[] };
     row: SuspenseItemRow;
+  };
+
+  // Doc 02 module 3. Everything below is read by the three reconciliation runs.
+
+  /**
+   * The bank side of the match, in the doc 02 iteration order: statement line
+   * date ascending, absolute amount ascending, statement line id ascending.
+   */
+  statement_lines_for_statement: {
+    params: {
+      firmId: Ulid;
+      clientId: Ulid;
+      bankAccountId: Ulid;
+      statementId: Ulid;
+    };
+    row: StatementLineRow;
+  };
+  /** At most one batch per account per statement, by the unique constraint. */
+  rec_batch_for_statement: {
+    params: { firmId: Ulid; clientId: Ulid; bankAccountId: Ulid; statementId: Ulid };
+    row: RecBatchRow;
+  };
+  /**
+   * Every cleared register row on one account through a day. This is the
+   * cleared ledger balance REC-CLEAR-MATCHED subtracts from the statement
+   * balance, and it deliberately reaches back before the statement period,
+   * because a balance is cumulative and a period is not.
+   */
+  cleared_transactions_for_account: {
+    params: {
+      firmId: Ulid;
+      clientId: Ulid;
+      bankAccountId: Ulid;
+      through: string;
+    };
+    row: TransactionRow;
+  };
+  /** Register rows already linked to a line of one statement. */
+  transactions_for_statement: {
+    params: {
+      firmId: Ulid;
+      clientId: Ulid;
+      bankAccountId: Ulid;
+      statementId: Ulid;
+    };
+    row: TransactionRow;
   };
 }
 

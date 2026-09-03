@@ -1,7 +1,7 @@
 /**
  * The run registry. One entry per implemented run type.
  *
- * The 49 run types in the contract are the target. Eleven are implemented so
+ * The 49 run types in the contract are the target. Fourteen are implemented so
  * far. IMPORT-PARSE-FEED and IMPORT-COMMIT-BATCH are the front door: nothing the
  * other runs read exists until a feed has been parsed and a batch committed. The
  * nine module 2 coding runs then take the register from a raw descriptor to a
@@ -14,6 +14,9 @@
 import type { Proposal, Run } from "./contract";
 import { importCommitBatch } from "./runs/import-commit-batch";
 import { importParseFeed } from "./runs/import-parse-feed";
+import { recClearMatched } from "./runs/rec-clear-matched";
+import { recFlagStale } from "./runs/rec-flag-stale";
+import { recMatchTiered } from "./runs/rec-match-tiered";
 import { txnApplyRecurring } from "./runs/txn-apply-recurring";
 import { txnApplyRules } from "./runs/txn-apply-rules";
 import { txnApplyVendorDefaults } from "./runs/txn-apply-vendordefaults";
@@ -53,6 +56,23 @@ export const registry: readonly RegistryEntry[] = [
   entry(txnApplyVendorDefaults),
   entry(txnMapBankCodes),
   entry(txnSweepSuspense),
+  // Module 3 reconciliation, in the only order they can run in: matching opens
+  // the batch, clearing closes it with a difference, and stale flagging reports
+  // on what clearing left outstanding.
+  entry(recMatchTiered),
+  entry(recClearMatched),
+  entry(recFlagStale),
+];
+
+/**
+ * Module 3 execution order. Kept separate from the coding cascade because
+ * reconciliation is not a coding step: it never decides what a row is, only
+ * whether the bank has seen it.
+ */
+export const RECONCILIATION_ORDER: readonly string[] = [
+  "REC-MATCH-TIERED",
+  "REC-CLEAR-MATCHED",
+  "REC-FLAG-STALE",
 ];
 
 /**

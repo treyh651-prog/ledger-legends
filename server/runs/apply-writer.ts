@@ -30,6 +30,7 @@ import type {
   JournalEntryRow,
   JournalLineRow,
   PortalRequestRow,
+  RecBatchRow,
   SettlementRowRow,
   StagedRowRow,
   SuspenseItemRow,
@@ -215,6 +216,14 @@ async function writeField(
     case "suspense_items":
       await tx.update("suspense_items", rowId, after);
       return;
+    // Doc 02 module 3. REC-MATCH-TIERED writes the tier onto the bank line and
+    // REC-CLEAR-MATCHED writes the difference onto the batch.
+    case "statement_lines":
+      await tx.update("statement_lines", rowId, after);
+      return;
+    case "rec_batches":
+      await tx.update("rec_batches", rowId, after);
+      return;
     case "journal_entries":
       await tx.update("journal_entries", rowId, after);
       return;
@@ -272,6 +281,10 @@ async function insertRow(
     // Doc 02 TXN-SWEEP-SUSPENSE step 4 creates one request per client owned code.
     case "portal_requests":
       await tx.insert("portal_requests", [withId as unknown as PortalRequestRow]);
+      return;
+    // REC-MATCH-TIERED opens the reconciliation batch for the statement.
+    case "rec_batches":
+      await tx.insert("rec_batches", [withId as unknown as RecBatchRow]);
       return;
     // Doc 02 TXN-APPLY-RULES steps 7 and 8 raise these without stopping coding.
     case "documentation_exceptions":

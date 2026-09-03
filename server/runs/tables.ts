@@ -85,12 +85,87 @@ export interface TransactionRow {
   duplicateOfTransactionId: Ulid | null;
   legitimateRepeat: boolean;
   journalEntryId: Ulid | null;
+  /** Doc 02 module 3 REC-FLAG-STALE reads this to pick a threshold. */
+  instrumentType: "issued_check" | "electronic" | "deposit" | "other";
+  /** The cleared flag. Migration 0011 named it cleared and 0012 kept that name. */
   cleared: boolean;
   clearedDate: string | null;
+  /** Migration 0012. Which statement, which line, which tier, which batch. */
+  statementId: Ulid | null;
+  statementLineId: Ulid | null;
+  statementDate: string | null;
+  matchTier: number | null;
+  matchConfidence: number | null;
+  recBatchId: Ulid | null;
+  /** REC-FLAG-STALE. None of these four are coding columns. */
+  staleFlagged: boolean;
+  staleFlaggedOn: string | null;
+  staleOwner: "firm" | "client" | "system" | null;
+  staleEscalatesOn: string | null;
+  escheatReview: boolean;
+  voided: boolean;
   status: "active" | "reversed";
   manualOverride: boolean;
   manualOverrideBy: Ulid | null;
   manualOverrideAt: string | null;
+  version: number;
+}
+
+/**
+ * ledger.rec_batches, migration 0012. One row per account per statement
+ * period. REC-MATCH-TIERED opens it, REC-CLEAR-MATCHED closes it with the
+ * difference gate G03 tests on it.
+ */
+export interface RecBatchRow {
+  id: Ulid;
+  firmId: Ulid;
+  clientId: Ulid;
+  bankAccountId: Ulid;
+  statementId: Ulid;
+  /** "YYYY-MM", the period the statement covers. */
+  statementPeriod: string;
+  periodStart: string;
+  periodEnd: string;
+  statementBalanceCents: Cents;
+  clearedLedgerBalanceCents: Cents | null;
+  diffCents: Cents | null;
+  state: "open" | "reconciled" | "out_of_balance";
+  openedBy: Ulid;
+  openedAt: string;
+  openedByRunId: string | null;
+  closedAt: string | null;
+  closedByRunId: string | null;
+  version: number;
+}
+
+/**
+ * ledger.statement_lines, migration 0012. The bank side of the match. A
+ * statement line is never a register row: the register is what the books say
+ * and the statement is what the bank says, and reconciliation is the question
+ * of whether the two agree.
+ */
+export interface StatementLineRow {
+  id: Ulid;
+  firmId: Ulid;
+  clientId: Ulid;
+  bankAccountId: Ulid;
+  statementId: Ulid;
+  /** The date the bank put on the line. This governs clearing. */
+  statementDate: string;
+  amountCents: Cents;
+  currency: string;
+  description: string;
+  normalizedVendor: string | null;
+  checkNumber: string | null;
+  sourceFormat: "csv" | "ofx" | "qfx" | "qbo" | "xlsx";
+  recBatchId: Ulid | null;
+  matchTier: number | null;
+  matchConfidence: number | null;
+  matchDiffCents: Cents | null;
+  matchConfirmed: boolean;
+  matchedTransactionId: Ulid | null;
+  matchedTransactionCount: number;
+  matchedByRunId: string | null;
   version: number;
 }
 
@@ -569,6 +644,8 @@ export interface RowMap {
   bank_accounts: BankAccountRow;
   chart_accounts: ChartAccountRow;
   transactions: TransactionRow;
+  rec_batches: RecBatchRow;
+  statement_lines: StatementLineRow;
   mapping_profiles: MappingProfileRow;
   import_batches: ImportBatchRow;
   staged_rows: StagedRowRow;

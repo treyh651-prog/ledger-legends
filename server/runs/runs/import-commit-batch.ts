@@ -315,8 +315,24 @@ export const importCommitBatch: Run<CommitBatchScope, Proposal> = {
         duplicateOfTransactionId: row.duplicateOfTransactionId,
         legitimateRepeat: row.dedupState === "confirmed_repeat",
         journalEntryId: null,
+        // An imported row arrives uncleared and unreconciled. Migration 0012
+        // added the match columns and REC-MATCH-TIERED is the only run that
+        // fills them, so every one of them starts null here.
+        instrumentType: instrumentFor(row.bankCode, row.checkNumber),
         cleared: false,
         clearedDate: null,
+        statementId: null,
+        statementLineId: null,
+        statementDate: null,
+        matchTier: null,
+        matchConfidence: null,
+        recBatchId: null,
+        staleFlagged: false,
+        staleFlaggedOn: null,
+        staleOwner: null,
+        staleEscalatesOn: null,
+        escheatReview: false,
+        voided: false,
         status: "active",
         manualOverride: false,
         manualOverrideBy: null,
@@ -518,4 +534,25 @@ function skipReasonFor(
     };
   }
   return null;
+}
+
+/**
+ * Migration 0011 gives every register row an instrument type and migration 0012
+ * gives REC-FLAG-STALE a per instrument threshold to read it with. A check
+ * number means a check was issued, a bank code the feed marked as a credit
+ * means a deposit, anything else the feed identifies is electronic, and a row
+ * the feed says nothing about is other, which carries the sixty day default.
+ */
+function instrumentFor(
+  bankCode: string | null,
+  checkNumber: string | null,
+): "issued_check" | "electronic" | "deposit" | "other" {
+  if (checkNumber !== null && checkNumber !== "") return "issued_check";
+  if (bankCode === null) return "other";
+  const code = bankCode.toUpperCase();
+  if (code === "DEP" || code === "CREDIT" || code === "DEPOSIT") return "deposit";
+  if (code === "ACH" || code === "EFT" || code === "WIRE" || code === "CARD") {
+    return "electronic";
+  }
+  return "other";
 }

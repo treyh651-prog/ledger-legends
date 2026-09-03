@@ -35,9 +35,14 @@ export * from "./runs/txn-apply-rules";
 export * from "./runs/txn-apply-vendordefaults";
 export * from "./runs/txn-map-bankcodes";
 export * from "./runs/txn-sweep-suspense";
+export * from "./runs/rec-shared";
+export * from "./runs/rec-match-tiered";
+export * from "./runs/rec-clear-matched";
+export * from "./runs/rec-flag-stale";
 export {
   registry,
   lookupRun,
   CODING_CASCADE_ORDER,
+  RECONCILIATION_ORDER,
   cascadePosition,
 } from "./registry";

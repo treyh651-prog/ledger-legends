@@ -54,6 +54,11 @@ import "./txn-apply-vendordefaults";
 import "./txn-map-bankcodes";
 import "./txn-sweep-suspense";
 import "./coding-pipeline";
+// The module 3 reconciliation suites, one file per run plus the pipeline test.
+import "./rec-match-tiered";
+import "./rec-clear-matched";
+import "./rec-flag-stale";
+import "./rec-pipeline";
 
 type Outcome = Awaited<ReturnType<typeof execute<PairTransfersScope, Proposal>>>;
 
