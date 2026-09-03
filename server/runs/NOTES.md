@@ -1260,3 +1260,137 @@ particular rows in the fixture.
     requires the narrative to name every failed gate and every variance over
     threshold, and a narrative that named four of seven failures while looking
     complete would be worse than one that named none.
+
+112. **The 1099 threshold is configuration and not a constant.** The reportable
+    floor moved from six hundred dollars to two thousand, and the old floor still
+    governs older years. Options: hard code two thousand, hard code both with a
+    year comparison in the run, read the floor from a `tax.thresholds` table with
+    an effective date range, put it on the client policy row, or take it from the
+    caller's scope. Chosen: the table. A statutory number with a date range is
+    data, not code, and the next change to it should be a seed row rather than a
+    deploy. The run reads the row whose range covers the tax year end and records
+    the value and the range it used on the data set, so a compiled set can be
+    read back years later and still explain which floor produced it. A caller
+    supplied floor was rejected outright: a threshold somebody typed is exactly
+    the kind of figure D4 says this firm does not accept.
+
+113. **W-9 tracking reuses the existing request machinery.** `w9-track` needs to
+    raise a document request when a form is missing, and `sub-raise-requests`
+    already raises document requests. Options: a second request table just for
+    tax forms, a separate row in the same table with its own id scheme, reuse of
+    `requestId(clientId, subjectKey)` so both runs land on one row, a flag column
+    on the vendor, or no request at all and only a state row. Chosen: reuse
+    `requestId` with a W-9 subject key. Two runs that both chase the same missing
+    piece of paper have to write the same row or the client gets asked twice and
+    the two chases age separately. Sharing the id also means the close side of
+    the system already knows how to age, escalate, and close the request, and
+    none of that had to be written a second time.
+
+114. **A `practice_states` table, because tenancy carries none of it.** The
+    practice runs need to know whether a client is live, what its service tier
+    is, who leads the engagement, and what the period cadence is. Options: add
+    the columns to `tenancy.clients`, read them from the engagement letter row,
+    infer liveness from recent activity, add a `practice_states` table keyed by
+    client, or take them from the run's scope. Chosen: the new table. The tenancy
+    row is a tenancy row and the migration for it is not this module's to change,
+    inference from activity would make a quiet month look like an offboarded
+    client, and a scope supplied tier is a figure somebody typed. The table also
+    gives the workload runs somewhere to record the last generation date, which
+    is what makes the generation idempotent per client and period.
+
+115. **One client per practice execution.** Doc 02 asks for the workload across
+    every live client, and `FrozenScope` requires a `clientId`. Options: relax
+    the frozen scope to allow a null client, add a firm level scope kind, run the
+    firm loop inside one execution and write rows for many clients, keep one
+    execution per client and let the orchestrator loop, or add a second run type
+    that fans out. Chosen: one execution per client, with the orchestrator
+    looping the live list. The tenancy filter on every query is the reason the
+    two tenant negative test can fail for a real reason, and an execution that
+    wrote rows for eleven clients would have to hold that filter open. It also
+    keeps a single client's failure from taking the whole firm's generation with
+    it, and the run log stays readable, one row per client per period.
+
+116. **No holiday calendar, so business days skip weekends only.** Task due
+    dates, escalation windows, and the fifteen day production window all need to
+    count business days. Options: a full federal holiday table, a per firm
+    calendar, weekends only, weekends plus a hard coded federal list, or calendar
+    days throughout. Chosen: weekends only, in `shiftToBusinessDay` and
+    `addBusinessDays`. A holiday table is real work with a real maintenance
+    burden and nothing in doc 02 or doc 05 asks for one, a hard coded federal
+    list goes stale silently, and calendar days would put deadlines on Sundays.
+    The choice is written down here because it is the kind of thing that looks
+    like a bug later: a due date that lands on a holiday is deliberate.
+
+117. **New tables for payroll, handoffs, and exports rather than reuse.** All
+    three attach an artifact to the vault, and migration 0010 already has vault
+    dependent tables. Options: reuse `statement_documents`, reuse
+    `report_packages` with a new kind, add a generic `artifacts` table for all
+    three, add three purpose built tables, or store them as document links.
+    Chosen: three purpose built tables in 0017. A pay run carries a disbursement
+    check constraint, an export carries a fifteen day production check, and a
+    handoff carries a scope statement, and none of those constraints can live on
+    a generic row. The generic table was the tempting one, and it was rejected
+    for exactly that reason: the constraints are the point, and a shared table
+    would have pushed all three into application code where nothing enforces
+    them.
+
+118. **Gross wages come off the vault register, never off the scope.** The
+    approval needs a gross figure. Options: take gross from the scope, take it
+    from the provider approval row, read it from the substantiation record linked
+    to the register in the vault, sum it from a prior ledger entry, or require
+    all of them to agree. Chosen: read gross from the substantiation record,
+    derive net as gross less withholding, and refuse when the provider's own net
+    disagrees with the derived one. D5 and G11 both point the same way: a payroll
+    total this firm typed is a payroll total this firm calculated, and this firm
+    does not calculate payroll. Withholding and employer tax still arrive on the
+    scope because the register is a document and not a parsed feed, but they are
+    checked against the provider row before anything is written.
+
+119. **Entity exclusion is decided before counting, not after.** The first
+    version counted a payee into the header and then dropped its lines when the
+    entity type excluded it, so the reportable count and the lines under it
+    described different sets. Options: count after exclusion, count before and
+    accept the mismatch, emit zero amount lines for excluded payees, drop the
+    header counts, or split the header into gross and net counts. Chosen: compute
+    the eligible box classes first, and a payee with no eligible class increments
+    the excluded count and produces one skip naming the entity type. A payee that
+    is excluded for one box and reportable for another still emits a skip per
+    class. A header that disagrees with its own detail is the sort of defect a
+    CPA finds in February, and it costs nothing to decide the exclusion first.
+
+120. **Escalation and nudging do not gate on a locked period.** The task brief
+    says write runs skip a locked target period. Options: apply that to all five
+    practice runs, apply it to none, apply it to generation only, gate on the
+    client's own lock rather than the period lock, or make it configurable.
+    Chosen: `prc-generate-work` skips a locked period per catalog code, while
+    `prc-escalate-overdue` and `prc-nudge-requests` do not. A period lock is a
+    statement about the ledger, and neither of those two writes a ledger row.
+    Worse, gating them would mean an overdue task inside a month somebody closed
+    early stops escalating, which is the exact case where escalation matters. The
+    reasoning is in each file header so the difference reads as a decision.
+
+121. **The disbursement constraint is mirrored in the memory database.** The
+    check lives in `db/migrations/0017_compliance_practice.sql`, and the test
+    suite never touches Postgres. Options: assert the constraint by reading the
+    SQL text, assert it only through the row type, mirror the check in
+    `db-memory.ts` alongside the override and period lock guards, skip the
+    assertion, or stand up a real database for the suite. Chosen: mirror it, and
+    assert it both ways. `db-memory.ts` already reproduces
+    `ledger.guard_manual_override` and `ledger.enforce_period_lock` for the same
+    reason, that a suite running against a store which cannot refuse a write
+    proves nothing. The new `CheckViolation` carries the constraint name as a
+    field rather than only in its message, so the compliance test asserts the
+    name and not a substring that any other constraint could satisfy. The
+    fifteen day production check is mirrored the same way.
+
+122. **The export leaves its own run log rows out of the manifest.** The
+    offboarding catalog counts rows per file, and the run log file counted every
+    row including the one the preview had just written, so every apply refused as
+    a stale preview. Options: exclude the current execution by id, freeze the
+    count at preview time, drop the run log from the export, count applied rows
+    only, or exclude every row whose type is the export itself. Chosen: exclude
+    the export's own run type. Excluding one execution by id leaves the same
+    defect open for a second export request, and freezing the count would put a
+    number in the manifest that the file does not have. The log of the run that
+    built the archive is not part of the client's history in any case, and this
+    is the same reasoning entry 110 reached for the reporting change log.

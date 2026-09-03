@@ -55,6 +55,17 @@ import type {
   CashForecastRunRow,
   CashForecastWeekRow,
   ReportAuditEventRow,
+  TaxDataSetRow,
+  TaxDataLineRow,
+  W9StateRow,
+  PracticeTaskRow,
+  PracticeEscalationRow,
+  WorkloadNoticeRow,
+  RequestNudgeRow,
+  PayRunRow,
+  PayRegisterEntryRow,
+  CpaHandoffRow,
+  OffboardExportRow,
   ReportNarrativeRow,
   ReportPackageRow,
   ReportSectionRow,
@@ -379,6 +390,51 @@ async function writeField(
     case "report_narratives":
       await tx.update("report_narratives", rowId, after);
       return;
+    /*
+     * Modules 9 and 10. The tax, practice, payroll, and archive tables. Every
+     * one of them goes through tx.update for the same reason the tables above
+     * do: the override guard and the period lock guard live there, and a run
+     * that reached past them would be able to write a row a person had claimed.
+     */
+    case "tax_data_sets":
+      await tx.update("tax_data_sets", rowId, after);
+      return;
+    case "tax_data_lines":
+      await tx.update("tax_data_lines", rowId, after);
+      return;
+    case "w9_states":
+      await tx.update("w9_states", rowId, after);
+      return;
+    case "practice_states":
+      await tx.update("practice_states", rowId, after);
+      return;
+    case "practice_tasks":
+      await tx.update("practice_tasks", rowId, after);
+      return;
+    case "workload_notices":
+      await tx.update("workload_notices", rowId, after);
+      return;
+    case "request_nudges":
+      await tx.update("request_nudges", rowId, after);
+      return;
+    case "pay_runs":
+      await tx.update("pay_runs", rowId, after);
+      return;
+    case "pay_register_entries":
+      await tx.update("pay_register_entries", rowId, after);
+      return;
+    case "cpa_handoffs":
+      await tx.update("cpa_handoffs", rowId, after);
+      return;
+    case "offboard_exports":
+      await tx.update("offboard_exports", rowId, after);
+      return;
+    /*
+     * practice_escalations is absent on purpose. Doc 02 PRAC-ESCALATE-OVERDUE
+     * says an escalation record is never edited and never removed, so there is
+     * no field write path to it at all and a run that tried would be refused
+     * here by name rather than by review.
+     */
     default:
       throw new ProposalWriteError(
         "UNKNOWN_WRITE_TABLE",
@@ -552,6 +608,48 @@ async function insertRow(
     case "report_audit_events":
       await tx.insert("report_audit_events", [
         withId as unknown as ReportAuditEventRow,
+      ]);
+      return;
+    /* Modules 9 and 10. */
+    case "tax_data_sets":
+      await tx.insert("tax_data_sets", [withId as unknown as TaxDataSetRow]);
+      return;
+    case "tax_data_lines":
+      await tx.insert("tax_data_lines", [withId as unknown as TaxDataLineRow]);
+      return;
+    case "w9_states":
+      await tx.insert("w9_states", [withId as unknown as W9StateRow]);
+      return;
+    case "practice_tasks":
+      await tx.insert("practice_tasks", [withId as unknown as PracticeTaskRow]);
+      return;
+    case "practice_escalations":
+      await tx.insert("practice_escalations", [
+        withId as unknown as PracticeEscalationRow,
+      ]);
+      return;
+    case "workload_notices":
+      await tx.insert("workload_notices", [
+        withId as unknown as WorkloadNoticeRow,
+      ]);
+      return;
+    case "request_nudges":
+      await tx.insert("request_nudges", [withId as unknown as RequestNudgeRow]);
+      return;
+    case "pay_runs":
+      await tx.insert("pay_runs", [withId as unknown as PayRunRow]);
+      return;
+    case "pay_register_entries":
+      await tx.insert("pay_register_entries", [
+        withId as unknown as PayRegisterEntryRow,
+      ]);
+      return;
+    case "cpa_handoffs":
+      await tx.insert("cpa_handoffs", [withId as unknown as CpaHandoffRow]);
+      return;
+    case "offboard_exports":
+      await tx.insert("offboard_exports", [
+        withId as unknown as OffboardExportRow,
       ]);
       return;
     default:

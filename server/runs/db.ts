@@ -75,6 +75,20 @@ import type {
   CashForecastWeekRow,
   PayrollApprovalRow,
   ReportAuditEventRow,
+  TaxThresholdRow,
+  TaxDataSetRow,
+  TaxDataLineRow,
+  W9StateRow,
+  PracticeStateRow,
+  PracticeTaskCatalogRow,
+  PracticeTaskRow,
+  PracticeEscalationRow,
+  WorkloadNoticeRow,
+  RequestNudgeRow,
+  PayRunRow,
+  PayRegisterEntryRow,
+  CpaHandoffRow,
+  OffboardExportRow,
   ReportNarrativeRow,
   ReportPackageRow,
   ReportSectionRow,
@@ -625,6 +639,76 @@ export interface QueryCatalog {
     params: { firmId: Ulid; clientId: Ulid };
     row: ReportAuditEventRow;
   };
+
+  /**
+   * Modules 9 and 10. Tax compilation, practice management, payroll, and the
+   * two archive headers. Every one of these is a read. The tax and archive runs
+   * take their ledger figures from the existing close queries, which is what
+   * lets them run against a locked period without writing to it.
+   */
+
+  /** Every threshold row for the firm, effective from ascending. */
+  tax_thresholds_for_firm: {
+    params: { firmId: Ulid };
+    row: TaxThresholdRow;
+  };
+  tax_data_sets_for_client: {
+    params: { firmId: Ulid; clientId: Ulid };
+    row: TaxDataSetRow;
+  };
+  /** Lines under one data set, payee name ascending then box code ascending. */
+  tax_data_lines_for_set: {
+    params: { firmId: Ulid; clientId: Ulid; dataSetId: Ulid };
+    row: TaxDataLineRow;
+  };
+  /** W-9 state rows for the client, vendor name ascending. */
+  w9_states_for_client: {
+    params: { firmId: Ulid; clientId: Ulid };
+    row: W9StateRow;
+  };
+  practice_state_for_client: {
+    params: { firmId: Ulid; clientId: Ulid };
+    row: PracticeStateRow;
+  };
+  /** Catalog rows, catalog code ascending. */
+  practice_catalog_for_client: {
+    params: { firmId: Ulid; clientId: Ulid };
+    row: PracticeTaskCatalogRow;
+  };
+  practice_tasks_for_client: {
+    params: { firmId: Ulid; clientId: Ulid };
+    row: PracticeTaskRow;
+  };
+  /** Append only history, as of date ascending then rung ascending. */
+  practice_escalations_for_client: {
+    params: { firmId: Ulid; clientId: Ulid };
+    row: PracticeEscalationRow;
+  };
+  workload_notices_for_client: {
+    params: { firmId: Ulid; clientId: Ulid };
+    row: WorkloadNoticeRow;
+  };
+  request_nudges_for_client: {
+    params: { firmId: Ulid; clientId: Ulid };
+    row: RequestNudgeRow;
+  };
+  /** Pay date ascending then provider name ascending. */
+  pay_runs_for_client: {
+    params: { firmId: Ulid; clientId: Ulid };
+    row: PayRunRow;
+  };
+  pay_register_entries_for_client: {
+    params: { firmId: Ulid; clientId: Ulid };
+    row: PayRegisterEntryRow;
+  };
+  cpa_handoffs_for_client: {
+    params: { firmId: Ulid; clientId: Ulid };
+    row: CpaHandoffRow;
+  };
+  offboard_exports_for_client: {
+    params: { firmId: Ulid; clientId: Ulid };
+    row: OffboardExportRow;
+  };
 }
 
 export type QueryName = keyof QueryCatalog;
@@ -693,6 +777,23 @@ export class UniqueViolation extends Error {
   readonly code = "UNIQUE_VIOLATION";
   constructor(readonly constraintName: string) {
     super(`unique_violation: ${constraintName}`);
+  }
+}
+
+/**
+ * Raised when a table's check constraint refuses a row.
+ *
+ * The name is carried on the error rather than only in the message, because the
+ * compliance suite asserts a specific constraint by name and a message match
+ * would pass against any constraint that happened to mention the same column.
+ */
+export class CheckViolation extends Error {
+  readonly code = "CHECK_VIOLATION";
+  constructor(
+    readonly constraintName: string,
+    readonly table: string,
+  ) {
+    super(`check_violation: ${constraintName} on ${table}`);
   }
 }
 

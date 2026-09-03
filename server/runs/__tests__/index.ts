@@ -90,6 +90,24 @@ import "./rpt-rebuild-forecast";
 import "./rpt-compose-narrative";
 import "./rpt-pipeline";
 
+// Module 8 tax compilation. Compilation only. Nothing here files or issues.
+import "./tax-build-1099";
+import "./w9-track";
+
+// Module 9 practice management.
+import "./prc-generate-work";
+import "./prc-escalate-overdue";
+import "./prc-nudge-requests";
+
+// Doc 05 deliverables. Payroll approval, register posting, and the two archives.
+import "./pay-approve-run";
+import "./pay-post-register";
+import "./cpa-build-handoff";
+import "./offboard-build-export";
+
+// The four hard lines, checked on their own rather than inside a run's suite.
+import "./compliance-tests";
+
 type Outcome = Awaited<ReturnType<typeof execute<PairTransfersScope, Proposal>>>;
 
 function run(

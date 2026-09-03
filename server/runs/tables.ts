@@ -535,6 +535,33 @@ export interface VendorRow {
    */
   w9OnFile: boolean;
   w9ExpiresOn: string | null;
+  /**
+   * Migration 0017. What the payee is, which is what decides whether a 1099
+   * line exists at all. A corporation is excluded, and an incorporated attorney
+   * is not, so the answer has to be the entity type and never a guess from the
+   * name. Unknown is the honest default and it does not exclude anybody.
+   */
+  entityType:
+    | "individual"
+    | "sole_proprietor"
+    | "partnership"
+    | "llc"
+    | "c_corporation"
+    | "s_corporation"
+    | "government"
+    | "tax_exempt"
+    | "unknown";
+  /**
+   * Migration 0017. A person put this payee on hold. A held payee with no W-9
+   * is left out of the compiled set entirely rather than compiled with a
+   * warning, because the hold is a decision somebody already made.
+   */
+  paymentHold: boolean;
+  /**
+   * Migration 0017. Four digits, and there is nowhere in this schema to put
+   * more of a taxpayer identification number than that.
+   */
+  tinLast4: string | null;
 }
 
 /**
@@ -1720,6 +1747,441 @@ export interface ReportAuditEventRow {
   manualOverride: boolean;
 }
 
+/* --------------------------------------------------------------------------
+ * Module 9 tax compilation, migration 0017.
+ *
+ * COMPLIANCE. Ledger Legends is not a CPA firm. These rows hold compiled data.
+ * Nothing here is filed, issued, submitted, or transmitted. There is no form
+ * number column, no submission id, and no filed at timestamp, because no run in
+ * this codebase may create one.
+ * ----------------------------------------------------------------------- */
+
+/** The dated 1099 threshold. Doc 02 rule 1 forbids reading this from code. */
+export interface TaxThresholdRow {
+  id: Ulid;
+  firmId: Ulid;
+  version: number;
+  formFamily: "1099";
+  effectiveFrom: string;
+  effectiveTo: string | null;
+  thresholdCents: Cents;
+  sourceNote: string;
+  createdAt: string;
+  manualOverride: boolean;
+}
+
+/** The compiled payee data set handed to the client's CPA. Never a filing. */
+export interface TaxDataSetRow {
+  id: Ulid;
+  firmId: Ulid;
+  clientId: Ulid;
+  version: number;
+  taxYear: number;
+  periodStart: string;
+  periodEnd: string;
+  thresholdCents: Cents;
+  thresholdEffectiveFrom: string;
+  thresholdEffectiveTo: string | null;
+  payeeCount: number;
+  reportableCount: number;
+  approachingCount: number;
+  excludedCount: number;
+  backupWithholdingCount: number;
+  reportableTotalCents: Cents;
+  excludedCardTotalCents: Cents;
+  state: "compiled";
+  /** One value. The column exists so the guarantee is data and not a comment. */
+  compilationOnly: true;
+  handoffStatement: string;
+  contentChecksum: string;
+  ledgerFingerprint: string;
+  vaultObjectKey: string;
+  vaultObjectLockMode: "GOVERNANCE";
+  vaultRetentionStartsOn: string;
+  vaultObjectLockUntil: string;
+  builtByRunId: string | null;
+  builtAt: string;
+  manualOverride: boolean;
+}
+
+/** One compiled line per payee per form box. Doc 02 module 9 rule 5. */
+export interface TaxDataLineRow {
+  id: Ulid;
+  firmId: Ulid;
+  clientId: Ulid;
+  dataSetId: Ulid;
+  version: number;
+  payeeId: Ulid;
+  payeeName: string;
+  class1099: "nec" | "attorney" | "misc_rent" | "misc_other";
+  formCode: "1099-NEC" | "1099-MISC";
+  boxCode: "NEC-1" | "MISC-1" | "MISC-3" | "MISC-10";
+  grossPaidCents: Cents;
+  excludedCardCents: Cents;
+  excludedClassNoneCents: Cents;
+  reportableCents: Cents;
+  /** The aggregate payee total. The threshold is measured against this. */
+  payeeTotalCents: Cents;
+  state: "reportable" | "approaching_threshold";
+  w9State: W9StatusCode;
+  /** A flag for the CPA. This codebase withholds nothing. */
+  backupWithholdingRequired: boolean;
+  entityExcluded: boolean;
+  attorneyExceptionApplied: boolean;
+  /** Four digits at most. There is nowhere in this schema to put more. */
+  tinLast4: string | null;
+  reason: string;
+  createdByRunId: string | null;
+  createdAt: string;
+  manualOverride: boolean;
+}
+
+/** The five value ordered status list, doc 02 TAX-TRACK-W9 rule 1. */
+export type W9StatusCode =
+  | "on_file_complete"
+  | "on_file_incomplete"
+  | "requested_pending"
+  | "requested_overdue"
+  | "missing";
+
+/** W-9 collection state per vendor per year. */
+export interface W9StateRow {
+  id: Ulid;
+  firmId: Ulid;
+  clientId: Ulid;
+  version: number;
+  taxYear: number;
+  vendorId: Ulid;
+  vendorName: string;
+  /** The collection stage. */
+  state: "not_requested" | "requested" | "received" | "on_file" | "expired";
+  /** The doc 02 severity code. Stored, never derived at read time. */
+  statusCode: W9StatusCode;
+  requestedOn: string | null;
+  receivedOn: string | null;
+  expiresOn: string | null;
+  onFile: boolean;
+  requestId: Ulid | null;
+  escalation: "none" | "lead";
+  ageDays: number;
+  tinLast4: string | null;
+  asOfDate: string;
+  lastRefreshedOn: string | null;
+  refreshCount: number;
+  detail: string;
+  createdByRunId: string | null;
+  createdAt: string;
+  manualOverride: boolean;
+}
+
+/* --------------------------------------------------------------------------
+ * Module 10 practice management, migration 0017.
+ * ----------------------------------------------------------------------- */
+
+/** The practice facts of one client that doc 02 module 10 reads. */
+export interface PracticeStateRow {
+  id: Ulid;
+  firmId: Ulid;
+  clientId: Ulid;
+  version: number;
+  clientName: string;
+  stage: "prospect" | "onboarding" | "active" | "paused" | "offboarded";
+  serviceFrequency: "monthly" | "quarterly" | "annual";
+  leadId: Ulid | null;
+  preparerId: Ulid | null;
+  partnerId: Ulid | null;
+  /** Members unavailable for the whole period. Doc 02 leaves their work unassigned. */
+  unavailableMemberIds: string[];
+  /** Members out of office today. The assignee rung is skipped for them. */
+  outOfOfficeMemberIds: string[];
+  escalationAssigneeDays: number;
+  escalationLeadDays: number;
+  escalationPartnerDays: number;
+  escalationAtRiskDays: number;
+  engagementPaused: boolean;
+  nudgesPaused: boolean;
+  atRisk: boolean;
+  atRiskSetOn: string | null;
+  createdAt: string;
+  manualOverride: boolean;
+}
+
+/** One standard piece of work the firm does for a client every period. */
+export interface PracticeTaskCatalogRow {
+  id: Ulid;
+  firmId: Ulid;
+  clientId: Ulid;
+  version: number;
+  catalogCode: string;
+  title: string;
+  kind: "checklist" | "deadline" | "gate_target";
+  role: "preparer" | "reviewer";
+  scopeKey: string | null;
+  gateCode: string | null;
+  predecessorCode: string | null;
+  /** Days after period end. A weekend result shifts forward to Monday. */
+  dueOffsetDays: number;
+  frequency: "monthly" | "quarterly" | "annual";
+  isActive: boolean;
+  createdAt: string;
+  manualOverride: boolean;
+}
+
+/** A generated task. One per client per period per catalog code. */
+export interface PracticeTaskRow {
+  id: Ulid;
+  firmId: Ulid;
+  clientId: Ulid;
+  version: number;
+  periodStart: string;
+  periodEnd: string;
+  catalogCode: string;
+  title: string;
+  kind: "checklist" | "deadline" | "gate_target";
+  role: "preparer" | "reviewer";
+  gateCode: string | null;
+  dueDate: string;
+  /** The day the current due date was set. The escalation ladder keys on it. */
+  dueDateSetOn: string;
+  state: "open" | "blocked" | "complete";
+  blockedByCode: string | null;
+  assigneeId: Ulid | null;
+  assignmentReason: string;
+  escalationRung: EscalationRung;
+  lastEscalatedOn: string | null;
+  commentCount: number;
+  timeEntryCount: number;
+  completedOn: string | null;
+  createdByRunId: string | null;
+  createdAt: string;
+  manualOverride: boolean;
+}
+
+export type EscalationRung = "none" | "assignee" | "lead" | "partner" | "at_risk";
+
+/** An escalation record. Append only, per doc 02 PRAC-ESCALATE-OVERDUE. */
+export interface PracticeEscalationRow {
+  id: Ulid;
+  firmId: Ulid;
+  clientId: Ulid;
+  version: number;
+  taskId: Ulid;
+  asOfDate: string;
+  dueDate: string;
+  daysOverdue: number;
+  rung: "assignee" | "lead" | "partner" | "at_risk" | "due_date_reset";
+  recipientId: Ulid | null;
+  recipientRole: "assignee" | "lead" | "partner" | "firm" | "predecessor_owner";
+  priorRung: EscalationRung;
+  reason: string;
+  resetFromDueDate: string | null;
+  resetToDueDate: string | null;
+  createdByRunId: string | null;
+  createdAt: string;
+  manualOverride: boolean;
+}
+
+/** What one firm member is carrying, as of one day. */
+export interface WorkloadNoticeRow {
+  id: Ulid;
+  firmId: Ulid;
+  clientId: Ulid;
+  version: number;
+  asOfDate: string;
+  memberId: Ulid;
+  memberRole: "assignee" | "lead" | "partner" | "firm";
+  overdueCount: number;
+  oldestDueDate: string | null;
+  oldestTaskId: Ulid | null;
+  maxDaysOverdue: number;
+  detail: string;
+  createdByRunId: string | null;
+  createdAt: string;
+  manualOverride: boolean;
+}
+
+/**
+ * A nudge decision. Not an outbox. There is no recipient, no address, and no
+ * message body on this row, because nothing in this module sends anything.
+ */
+export interface RequestNudgeRow {
+  id: Ulid;
+  firmId: Ulid;
+  clientId: Ulid;
+  version: number;
+  requestId: Ulid;
+  asOfDate: string;
+  nudgeNumber: number;
+  escalationAgeDays: number;
+  ageDays: number;
+  nextCheckOn: string;
+  action: "nudge_due" | "schedule_exhausted" | "call_task";
+  detail: string;
+  createdByRunId: string | null;
+  createdAt: string;
+  manualOverride: boolean;
+}
+
+/* --------------------------------------------------------------------------
+ * D5 payroll, migration 0017.
+ *
+ * Approval is review. It authorizes no disbursement, which is a column with a
+ * named check constraint rather than a sentence in a comment.
+ * ----------------------------------------------------------------------- */
+
+export interface PayRunRow {
+  id: Ulid;
+  firmId: Ulid;
+  clientId: Ulid;
+  version: number;
+  providerName: string;
+  payPeriodStart: string;
+  payPeriodEnd: string;
+  payDate: string;
+  periodStart: string;
+  periodEnd: string;
+  employeeCount: number | null;
+  /** The register in the vault. PAY-POST-REGISTER posts from nothing else. */
+  registerVaultObjectKey: string;
+  registerChecksum: string;
+  grossCents: Cents;
+  employerTaxCents: Cents;
+  employeeWithholdingCents: Cents;
+  netCents: Cents;
+  status: "approved" | "posted";
+  approvedBy: Ulid | null;
+  approvedAt: string;
+  approvalStatement: string;
+  /** One value. Constraint pay_run_no_disbursement_authority refuses the other. */
+  authorizesDisbursement: false;
+  postedEntryId: Ulid | null;
+  postedAt: string | null;
+  postedRunId: string | null;
+  vaultObjectLockMode: "GOVERNANCE";
+  vaultRetentionStartsOn: string;
+  vaultObjectLockUntil: string;
+  createdByRunId: string | null;
+  createdAt: string;
+  manualOverride: boolean;
+}
+
+/** One posted register per pay run per period per client. */
+export interface PayRegisterEntryRow {
+  id: Ulid;
+  firmId: Ulid;
+  clientId: Ulid;
+  payRunId: Ulid;
+  version: number;
+  periodStart: string;
+  periodEnd: string;
+  payDate: string;
+  entryId: Ulid | null;
+  postedRunId: string | null;
+  lineCount: number;
+  grossCents: Cents;
+  employerTaxCents: Cents;
+  withholdingCents: Cents;
+  netCents: Cents;
+  wageAccount: string;
+  employerTaxAccount: string;
+  withholdingAccount: string;
+  /** 1010 on the pay date, or 1930 payroll clearing when the debit lands later. */
+  fundingAccount: string;
+  detail: string;
+  createdByRunId: string | null;
+  createdAt: string;
+  manualOverride: boolean;
+}
+
+/* --------------------------------------------------------------------------
+ * D5 and D9 deliverables, migration 0017.
+ * ----------------------------------------------------------------------- */
+
+/** One artifact inside a handoff or an export. */
+export interface ArchiveArtifact {
+  path: string;
+  artifactKind: string;
+  fileFormat: "csv" | "json" | "pdf" | "txt";
+  rowCount: number;
+  checksum: string;
+  detail: string;
+}
+
+/** One open item carried into the handoff so the CPA sees it before filing. */
+export interface HandoffOpenItem {
+  kind: string;
+  subjectId: string;
+  detail: string;
+  amountCents: Cents;
+}
+
+/**
+ * The CPA handoff archive.
+ *
+ * COMPLIANCE. There is no filed at column and no submission column. The scope
+ * statement says in writing that this is compiled bookkeeping, not an audit,
+ * not a review, not a compilation report under professional standards, and not
+ * tax advice.
+ */
+export interface CpaHandoffRow {
+  id: Ulid;
+  firmId: Ulid;
+  clientId: Ulid;
+  version: number;
+  taxYear: number;
+  periodStart: string;
+  periodEnd: string;
+  scopeKind: "period" | "fiscal_year";
+  reportingBasis: "accrual" | "cash" | "both";
+  isFiscalYearEnd: boolean;
+  status: "complete";
+  artifactCount: number;
+  openItemCount: number;
+  artifacts: ArchiveArtifact[];
+  openItems: HandoffOpenItem[];
+  scopeStatement: string;
+  taxDataSetId: Ulid | null;
+  contentChecksum: string;
+  ledgerFingerprint: string;
+  vaultObjectKey: string;
+  vaultObjectLockMode: "GOVERNANCE";
+  vaultRetentionStartsOn: string;
+  vaultObjectLockUntil: string;
+  builtByRunId: string | null;
+  builtAt: string;
+  manualOverride: boolean;
+}
+
+/** The D9 offboarding archive. Open formats, fifteen business days, no fee. */
+export interface OffboardExportRow {
+  id: Ulid;
+  firmId: Ulid;
+  clientId: Ulid;
+  version: number;
+  requestedOn: string;
+  productionDays: 15;
+  dueOn: string;
+  historyStart: string | null;
+  historyEnd: string;
+  periodStart: string;
+  periodEnd: string;
+  status: "complete";
+  fileCount: number;
+  documentCount: number;
+  totalRowCount: number;
+  files: ArchiveArtifact[];
+  manifestChecksum: string;
+  contentChecksum: string;
+  ledgerFingerprint: string;
+  vaultObjectKey: string;
+  vaultObjectLockMode: "GOVERNANCE";
+  vaultRetentionStartsOn: string;
+  vaultObjectLockUntil: string;
+  builtByRunId: string | null;
+  builtAt: string;
+  manualOverride: boolean;
+}
+
 export interface RowMap {
   bank_accounts: BankAccountRow;
   chart_accounts: ChartAccountRow;
@@ -1782,6 +2244,20 @@ export interface RowMap {
   report_narratives: ReportNarrativeRow;
   payroll_approvals: PayrollApprovalRow;
   report_audit_events: ReportAuditEventRow;
+  tax_thresholds: TaxThresholdRow;
+  tax_data_sets: TaxDataSetRow;
+  tax_data_lines: TaxDataLineRow;
+  w9_states: W9StateRow;
+  practice_states: PracticeStateRow;
+  practice_task_catalog: PracticeTaskCatalogRow;
+  practice_tasks: PracticeTaskRow;
+  practice_escalations: PracticeEscalationRow;
+  workload_notices: WorkloadNoticeRow;
+  request_nudges: RequestNudgeRow;
+  pay_runs: PayRunRow;
+  pay_register_entries: PayRegisterEntryRow;
+  cpa_handoffs: CpaHandoffRow;
+  offboard_exports: OffboardExportRow;
   run_log: RunLogRow;
   run_log_items: RunLogItemRow;
   run_log_events: RunLogEventRow;
@@ -1898,4 +2374,40 @@ export const OVERRIDE_WATCHED_FIELDS: readonly string[] = [
   "shortfall",
   "watermark",
   "exceptionBanner",
+  /**
+   * Modules 9 and 10 add the tax, practice, payroll, and archive columns. The
+   * reasoning is invariant 8 once more. A person who corrected a compiled 1099
+   * figure, marked a W-9 received off a paper form, moved a task deadline,
+   * assigned work by hand, or approved a payroll run has made a decision, and a
+   * run may not write over it. The escalation rung is on the list because a
+   * rung is the decision itself, and the disbursement flag is on it because
+   * nothing at all may write that column.
+   */
+  "reportableCents",
+  "payeeTotalCents",
+  "backupWithholdingRequired",
+  "statusCode",
+  "onFile",
+  "requestedOn",
+  "receivedOn",
+  "expiresOn",
+  "tinLast4",
+  "dueDate",
+  "dueDateSetOn",
+  "assigneeId",
+  "escalationRung",
+  "blockedByCode",
+  "completedOn",
+  "overdueCount",
+  "nextCheckOn",
+  "authorizesDisbursement",
+  "approvedBy",
+  "approvalStatement",
+  "grossCents",
+  "netCents",
+  "registerVaultObjectKey",
+  "artifacts",
+  "files",
+  "scopeStatement",
+  "ledgerFingerprint",
 ];

@@ -252,6 +252,9 @@ export function vendor(id: string, extra: Partial<VendorRow> = {}): VendorRow {
     earlyDiscountRule: null,
     w9OnFile: true,
     w9ExpiresOn: null,
+    entityType: "individual",
+    paymentHold: false,
+    tinLast4: null,
     ...extra,
   };
 }

@@ -107,6 +107,20 @@ const PHYSICAL_TABLES: Partial<Record<TableName, string>> = {
   report_narratives: "report.report_narratives",
   payroll_approvals: "report.payroll_approvals",
   report_audit_events: "report.report_audit_events",
+  tax_thresholds: "tax.thresholds",
+  tax_data_sets: "tax.data_sets",
+  tax_data_lines: "tax.data_lines",
+  w9_states: "tax.w9_states",
+  practice_states: "practice.practice_states",
+  practice_task_catalog: "practice.task_catalog",
+  practice_tasks: "practice.tasks",
+  practice_escalations: "practice.escalations",
+  workload_notices: "practice.workload_notices",
+  request_nudges: "practice.request_nudges",
+  pay_runs: "subledger.pay_runs",
+  pay_register_entries: "subledger.pay_register_entries",
+  cpa_handoffs: "deliverable.cpa_handoffs",
+  offboard_exports: "deliverable.offboard_exports",
 };
 
 function physical(table: TableName): string {
@@ -244,6 +258,31 @@ const CENTS_FIELDS: Record<string, readonly string[]> = {
     "closingCents",
   ],
   payroll_approvals: ["amountCents"],
+  tax_thresholds: ["thresholdCents"],
+  tax_data_sets: [
+    "thresholdCents",
+    "reportableTotalCents",
+    "excludedCardTotalCents",
+  ],
+  tax_data_lines: [
+    "grossPaidCents",
+    "excludedCardCents",
+    "excludedClassNoneCents",
+    "reportableCents",
+    "payeeTotalCents",
+  ],
+  pay_runs: [
+    "grossCents",
+    "employerTaxCents",
+    "employeeWithholdingCents",
+    "netCents",
+  ],
+  pay_register_entries: [
+    "grossCents",
+    "employerTaxCents",
+    "withholdingCents",
+    "netCents",
+  ],
 };
 
 function camelToSnake(name: string): string {
@@ -892,6 +931,225 @@ const REPORT_AUDIT_EVENT_COLUMNS = `
   manual_override as "manualOverride"
 `;
 
+/* Modules 9 and 10. Column lists for the tax, practice, payroll, and archive
+ * reads. Every cents column is selected as text and converted to bigint on the
+ * way out, the same as every other money column in this driver, because a cents
+ * figure that passed through a float once is no longer the figure. */
+
+const TAX_THRESHOLD_COLUMNS = `
+  id, firm_id as "firmId", version, form_family as "formFamily",
+  effective_from::text as "effectiveFrom", effective_to::text as "effectiveTo",
+  threshold_cents::text as "thresholdCents", source_note as "sourceNote",
+  created_at::text as "createdAt", manual_override as "manualOverride"
+`;
+
+const TAX_DATA_SET_COLUMNS = `
+  id, firm_id as "firmId", client_id as "clientId", version,
+  tax_year as "taxYear", period_start::text as "periodStart",
+  period_end::text as "periodEnd", threshold_cents::text as "thresholdCents",
+  threshold_effective_from::text as "thresholdEffectiveFrom",
+  threshold_effective_to::text as "thresholdEffectiveTo",
+  payee_count as "payeeCount", reportable_count as "reportableCount",
+  approaching_count as "approachingCount", excluded_count as "excludedCount",
+  backup_withholding_count as "backupWithholdingCount",
+  reportable_total_cents::text as "reportableTotalCents",
+  excluded_card_total_cents::text as "excludedCardTotalCents",
+  state, compilation_only as "compilationOnly",
+  handoff_statement as "handoffStatement",
+  content_checksum as "contentChecksum",
+  ledger_fingerprint as "ledgerFingerprint",
+  vault_object_key as "vaultObjectKey",
+  vault_object_lock_mode as "vaultObjectLockMode",
+  vault_retention_starts_on::text as "vaultRetentionStartsOn",
+  vault_object_lock_until::text as "vaultObjectLockUntil",
+  built_by_run_id as "builtByRunId", built_at::text as "builtAt",
+  manual_override as "manualOverride"
+`;
+
+const TAX_DATA_LINE_COLUMNS = `
+  id, firm_id as "firmId", client_id as "clientId",
+  data_set_id as "dataSetId", version,
+  payee_id as "payeeId", payee_name as "payeeName",
+  class_1099 as "class1099", form_code as "formCode", box_code as "boxCode",
+  gross_paid_cents::text as "grossPaidCents",
+  excluded_card_cents::text as "excludedCardCents",
+  excluded_class_none_cents::text as "excludedClassNoneCents",
+  reportable_cents::text as "reportableCents",
+  payee_total_cents::text as "payeeTotalCents",
+  state, w9_state as "w9State",
+  backup_withholding_required as "backupWithholdingRequired",
+  entity_excluded as "entityExcluded",
+  attorney_exception_applied as "attorneyExceptionApplied",
+  tin_last4 as "tinLast4", reason,
+  created_by_run_id as "createdByRunId", created_at::text as "createdAt",
+  manual_override as "manualOverride"
+`;
+
+const W9_STATE_COLUMNS = `
+  id, firm_id as "firmId", client_id as "clientId", version,
+  tax_year as "taxYear", vendor_id as "vendorId", vendor_name as "vendorName",
+  state, status_code as "statusCode",
+  requested_on::text as "requestedOn", received_on::text as "receivedOn",
+  expires_on::text as "expiresOn", on_file as "onFile",
+  request_id as "requestId", escalation, age_days as "ageDays",
+  tin_last4 as "tinLast4", as_of_date::text as "asOfDate",
+  last_refreshed_on::text as "lastRefreshedOn", refresh_count as "refreshCount",
+  detail, created_by_run_id as "createdByRunId", created_at::text as "createdAt",
+  manual_override as "manualOverride"
+`;
+
+const PRACTICE_STATE_COLUMNS = `
+  id, firm_id as "firmId", client_id as "clientId", version,
+  client_name as "clientName", stage, service_frequency as "serviceFrequency",
+  lead_id as "leadId", preparer_id as "preparerId", partner_id as "partnerId",
+  unavailable_member_ids as "unavailableMemberIds",
+  out_of_office_member_ids as "outOfOfficeMemberIds",
+  escalation_assignee_days as "escalationAssigneeDays",
+  escalation_lead_days as "escalationLeadDays",
+  escalation_partner_days as "escalationPartnerDays",
+  escalation_at_risk_days as "escalationAtRiskDays",
+  engagement_paused as "engagementPaused", nudges_paused as "nudgesPaused",
+  at_risk as "atRisk", at_risk_set_on::text as "atRiskSetOn",
+  created_at::text as "createdAt", manual_override as "manualOverride"
+`;
+
+const PRACTICE_CATALOG_COLUMNS = `
+  id, firm_id as "firmId", client_id as "clientId", version,
+  catalog_code as "catalogCode", title, kind, role,
+  scope_key as "scopeKey", gate_code as "gateCode",
+  predecessor_code as "predecessorCode",
+  due_offset_days as "dueOffsetDays", frequency, is_active as "isActive",
+  created_at::text as "createdAt", manual_override as "manualOverride"
+`;
+
+const PRACTICE_TASK_COLUMNS = `
+  id, firm_id as "firmId", client_id as "clientId", version,
+  period_start::text as "periodStart", period_end::text as "periodEnd",
+  catalog_code as "catalogCode", title, kind, role, gate_code as "gateCode",
+  due_date::text as "dueDate", due_date_set_on::text as "dueDateSetOn",
+  state, blocked_by_code as "blockedByCode", assignee_id as "assigneeId",
+  assignment_reason as "assignmentReason",
+  escalation_rung as "escalationRung",
+  last_escalated_on::text as "lastEscalatedOn",
+  comment_count as "commentCount", time_entry_count as "timeEntryCount",
+  completed_on::text as "completedOn",
+  created_by_run_id as "createdByRunId", created_at::text as "createdAt",
+  manual_override as "manualOverride"
+`;
+
+const PRACTICE_ESCALATION_COLUMNS = `
+  id, firm_id as "firmId", client_id as "clientId", version,
+  task_id as "taskId", as_of_date::text as "asOfDate",
+  due_date::text as "dueDate", days_overdue as "daysOverdue", rung,
+  recipient_id as "recipientId", recipient_role as "recipientRole",
+  prior_rung as "priorRung", reason,
+  reset_from_due_date::text as "resetFromDueDate",
+  reset_to_due_date::text as "resetToDueDate",
+  created_by_run_id as "createdByRunId", created_at::text as "createdAt",
+  manual_override as "manualOverride"
+`;
+
+const WORKLOAD_NOTICE_COLUMNS = `
+  id, firm_id as "firmId", client_id as "clientId", version,
+  as_of_date::text as "asOfDate", member_id as "memberId",
+  member_role as "memberRole", overdue_count as "overdueCount",
+  oldest_due_date::text as "oldestDueDate", oldest_task_id as "oldestTaskId",
+  max_days_overdue as "maxDaysOverdue", detail,
+  created_by_run_id as "createdByRunId", created_at::text as "createdAt",
+  manual_override as "manualOverride"
+`;
+
+const REQUEST_NUDGE_COLUMNS = `
+  id, firm_id as "firmId", client_id as "clientId", version,
+  request_id as "requestId", as_of_date::text as "asOfDate",
+  nudge_number as "nudgeNumber",
+  escalation_age_days as "escalationAgeDays", age_days as "ageDays",
+  next_check_on::text as "nextCheckOn", action, detail,
+  created_by_run_id as "createdByRunId", created_at::text as "createdAt",
+  manual_override as "manualOverride"
+`;
+
+const PAY_RUN_COLUMNS = `
+  id, firm_id as "firmId", client_id as "clientId", version,
+  provider_name as "providerName",
+  pay_period_start::text as "payPeriodStart",
+  pay_period_end::text as "payPeriodEnd", pay_date::text as "payDate",
+  period_start::text as "periodStart", period_end::text as "periodEnd",
+  employee_count as "employeeCount",
+  register_vault_object_key as "registerVaultObjectKey",
+  register_checksum as "registerChecksum",
+  gross_cents::text as "grossCents",
+  employer_tax_cents::text as "employerTaxCents",
+  employee_withholding_cents::text as "employeeWithholdingCents",
+  net_cents::text as "netCents",
+  status, approved_by as "approvedBy", approved_at::text as "approvedAt",
+  approval_statement as "approvalStatement",
+  authorizes_disbursement as "authorizesDisbursement",
+  posted_entry_id as "postedEntryId", posted_at::text as "postedAt",
+  posted_run_id as "postedRunId",
+  vault_object_lock_mode as "vaultObjectLockMode",
+  vault_retention_starts_on::text as "vaultRetentionStartsOn",
+  vault_object_lock_until::text as "vaultObjectLockUntil",
+  created_by_run_id as "createdByRunId", created_at::text as "createdAt",
+  manual_override as "manualOverride"
+`;
+
+const PAY_REGISTER_ENTRY_COLUMNS = `
+  id, firm_id as "firmId", client_id as "clientId",
+  pay_run_id as "payRunId", version,
+  period_start::text as "periodStart", period_end::text as "periodEnd",
+  pay_date::text as "payDate", entry_id as "entryId",
+  posted_run_id as "postedRunId", line_count as "lineCount",
+  gross_cents::text as "grossCents",
+  employer_tax_cents::text as "employerTaxCents",
+  withholding_cents::text as "withholdingCents",
+  net_cents::text as "netCents",
+  wage_account as "wageAccount",
+  employer_tax_account as "employerTaxAccount",
+  withholding_account as "withholdingAccount",
+  funding_account as "fundingAccount", detail,
+  created_by_run_id as "createdByRunId", created_at::text as "createdAt",
+  manual_override as "manualOverride"
+`;
+
+const CPA_HANDOFF_COLUMNS = `
+  id, firm_id as "firmId", client_id as "clientId", version,
+  tax_year as "taxYear", period_start::text as "periodStart",
+  period_end::text as "periodEnd", scope_kind as "scopeKind",
+  reporting_basis as "reportingBasis",
+  is_fiscal_year_end as "isFiscalYearEnd", status,
+  artifact_count as "artifactCount", open_item_count as "openItemCount",
+  artifacts, open_items as "openItems", scope_statement as "scopeStatement",
+  tax_data_set_id as "taxDataSetId",
+  content_checksum as "contentChecksum",
+  ledger_fingerprint as "ledgerFingerprint",
+  vault_object_key as "vaultObjectKey",
+  vault_object_lock_mode as "vaultObjectLockMode",
+  vault_retention_starts_on::text as "vaultRetentionStartsOn",
+  vault_object_lock_until::text as "vaultObjectLockUntil",
+  built_by_run_id as "builtByRunId", built_at::text as "builtAt",
+  manual_override as "manualOverride"
+`;
+
+const OFFBOARD_EXPORT_COLUMNS = `
+  id, firm_id as "firmId", client_id as "clientId", version,
+  requested_on::text as "requestedOn", production_days as "productionDays",
+  due_on::text as "dueOn", history_start::text as "historyStart",
+  history_end::text as "historyEnd",
+  period_start::text as "periodStart", period_end::text as "periodEnd",
+  status, file_count as "fileCount", document_count as "documentCount",
+  total_row_count as "totalRowCount", files,
+  manifest_checksum as "manifestChecksum",
+  content_checksum as "contentChecksum",
+  ledger_fingerprint as "ledgerFingerprint",
+  vault_object_key as "vaultObjectKey",
+  vault_object_lock_mode as "vaultObjectLockMode",
+  vault_retention_starts_on::text as "vaultRetentionStartsOn",
+  vault_object_lock_until::text as "vaultObjectLockUntil",
+  built_by_run_id as "builtByRunId", built_at::text as "builtAt",
+  manual_override as "manualOverride"
+`;
+
 const QUERIES: Record<QueryName, SqlSpec> = {
   bank_accounts_for_client: {
     table: "bank_accounts",
@@ -1217,7 +1475,9 @@ const QUERIES: Record<QueryName, SqlSpec> = {
             default_category_version as "defaultCategoryVersion",
             is_active as "isActive",
             early_discount_rule as "earlyDiscountRule",
-            w9_on_file as "w9OnFile", w9_expires_on::text as "w9ExpiresOn"
+            w9_on_file as "w9OnFile", w9_expires_on::text as "w9ExpiresOn",
+            entity_type as "entityType", payment_hold as "paymentHold",
+            tin_last4 as "tinLast4"
           from subledger.vendors
           where firm_id = $1 and client_id = $2
           order by id asc`,
@@ -1742,6 +2002,118 @@ const QUERIES: Record<QueryName, SqlSpec> = {
           from report.report_audit_events
           where firm_id = $1 and client_id = $2
           order by id asc`,
+    params: (p) => [p.firmId, p.clientId],
+  },
+  tax_thresholds_for_firm: {
+    table: "tax_thresholds",
+    sql: `select ${TAX_THRESHOLD_COLUMNS}
+          from tax.thresholds
+          where firm_id = $1
+          order by effective_from asc, id asc`,
+    params: (p) => [p.firmId],
+  },
+  tax_data_sets_for_client: {
+    table: "tax_data_sets",
+    sql: `select ${TAX_DATA_SET_COLUMNS}
+          from tax.data_sets
+          where firm_id = $1 and client_id = $2
+          order by tax_year asc, id asc`,
+    params: (p) => [p.firmId, p.clientId],
+  },
+  tax_data_lines_for_set: {
+    table: "tax_data_lines",
+    sql: `select ${TAX_DATA_LINE_COLUMNS}
+          from tax.data_lines
+          where firm_id = $1 and client_id = $2 and data_set_id = $3
+          order by payee_name asc, box_code asc, id asc`,
+    params: (p) => [p.firmId, p.clientId, p.dataSetId],
+  },
+  w9_states_for_client: {
+    table: "w9_states",
+    sql: `select ${W9_STATE_COLUMNS}
+          from tax.w9_states
+          where firm_id = $1 and client_id = $2
+          order by vendor_name asc, id asc`,
+    params: (p) => [p.firmId, p.clientId],
+  },
+  practice_state_for_client: {
+    table: "practice_states",
+    sql: `select ${PRACTICE_STATE_COLUMNS}
+          from practice.practice_states
+          where firm_id = $1 and client_id = $2
+          order by id asc`,
+    params: (p) => [p.firmId, p.clientId],
+  },
+  practice_catalog_for_client: {
+    table: "practice_task_catalog",
+    sql: `select ${PRACTICE_CATALOG_COLUMNS}
+          from practice.task_catalog
+          where firm_id = $1 and client_id = $2
+          order by catalog_code asc, id asc`,
+    params: (p) => [p.firmId, p.clientId],
+  },
+  practice_tasks_for_client: {
+    table: "practice_tasks",
+    sql: `select ${PRACTICE_TASK_COLUMNS}
+          from practice.tasks
+          where firm_id = $1 and client_id = $2
+          order by period_start asc, catalog_code asc, id asc`,
+    params: (p) => [p.firmId, p.clientId],
+  },
+  practice_escalations_for_client: {
+    table: "practice_escalations",
+    sql: `select ${PRACTICE_ESCALATION_COLUMNS}
+          from practice.escalations
+          where firm_id = $1 and client_id = $2
+          order by as_of_date asc, id asc`,
+    params: (p) => [p.firmId, p.clientId],
+  },
+  workload_notices_for_client: {
+    table: "workload_notices",
+    sql: `select ${WORKLOAD_NOTICE_COLUMNS}
+          from practice.workload_notices
+          where firm_id = $1 and client_id = $2
+          order by as_of_date asc, id asc`,
+    params: (p) => [p.firmId, p.clientId],
+  },
+  request_nudges_for_client: {
+    table: "request_nudges",
+    sql: `select ${REQUEST_NUDGE_COLUMNS}
+          from practice.request_nudges
+          where firm_id = $1 and client_id = $2
+          order by request_id asc, nudge_number asc, id asc`,
+    params: (p) => [p.firmId, p.clientId],
+  },
+  pay_runs_for_client: {
+    table: "pay_runs",
+    sql: `select ${PAY_RUN_COLUMNS}
+          from subledger.pay_runs
+          where firm_id = $1 and client_id = $2
+          order by pay_date asc, provider_name asc, id asc`,
+    params: (p) => [p.firmId, p.clientId],
+  },
+  pay_register_entries_for_client: {
+    table: "pay_register_entries",
+    sql: `select ${PAY_REGISTER_ENTRY_COLUMNS}
+          from subledger.pay_register_entries
+          where firm_id = $1 and client_id = $2
+          order by pay_date asc, id asc`,
+    params: (p) => [p.firmId, p.clientId],
+  },
+  cpa_handoffs_for_client: {
+    table: "cpa_handoffs",
+    sql: `select ${CPA_HANDOFF_COLUMNS}
+          from deliverable.cpa_handoffs
+          where firm_id = $1 and client_id = $2
+          order by period_start asc, id asc`,
+    params: (p) => [p.firmId, p.clientId],
+  },
+  offboard_exports_for_client: {
+    table: "offboard_exports",
+    sql: `select ${OFFBOARD_EXPORT_COLUMNS}
+          from deliverable.offboard_exports
+          where firm_id = $1 and client_id = $2
+          order by requested_on asc, id asc`,
     params: (p) => [p.firmId, p.clientId],
   },
 };

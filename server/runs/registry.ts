@@ -1,7 +1,7 @@
 /**
  * The run registry. One entry per implemented run type.
  *
- * The 49 run types in the contract are the target. Thirty two are implemented so
+ * The 49 run types in the contract are the target. Forty one are implemented so
  * far. IMPORT-PARSE-FEED and IMPORT-COMMIT-BATCH are the front door: nothing the
  * other runs read exists until a feed has been parsed and a batch committed. The
  * nine module 2 coding runs then take the register from a raw descriptor to a
@@ -13,6 +13,15 @@
 
 import type { Proposal, Run } from "./contract";
 import { apApplyEarlyDiscount } from "./runs/ap-apply-earlydiscount";
+import { cpaBuildHandoff } from "./runs/cpa-build-handoff";
+import { offboardBuildExport } from "./runs/offboard-build-export";
+import { payApproveRun } from "./runs/pay-approve-run";
+import { payPostRegister } from "./runs/pay-post-register";
+import { prcEscalateOverdue } from "./runs/prc-escalate-overdue";
+import { prcGenerateWork } from "./runs/prc-generate-work";
+import { prcNudgeRequests } from "./runs/prc-nudge-requests";
+import { taxBuild1099 } from "./runs/tax-build-1099";
+import { w9Track } from "./runs/w9-track";
 import { arApplyPayments } from "./runs/ar-apply-payments";
 import { arBuildStatements } from "./runs/ar-build-statements";
 import { arChargeLateFees } from "./runs/ar-charge-latefees";
@@ -112,6 +121,64 @@ export const registry: readonly RegistryEntry[] = [
   entry(rptFlagVariances),
   entry(rptRebuildForecast),
   entry(rptComposeNarrative),
+  // Module 9 tax compilation. Both runs compile. Neither issues, files,
+  // submits, or transmits anything, and neither contacts a payee.
+  entry(taxBuild1099),
+  entry(w9Track),
+  // Module 10 practice management, in the order PRACTICE_ORDER explains.
+  entry(prcGenerateWork),
+  entry(prcEscalateOverdue),
+  entry(prcNudgeRequests),
+  // D5 payroll. Approval is review and posting is bookkeeping. Neither one
+  // disburses, and the constraint on the row says so in the database.
+  entry(payApproveRun),
+  entry(payPostRegister),
+  // D5 and D9 deliverables. Both build an archive into the vault and neither
+  // sends anything anywhere.
+  entry(cpaBuildHandoff),
+  entry(offboardBuildExport),
+];
+
+/**
+ * Module 9 execution order.
+ *
+ * W-9 tracking comes first, because the 1099 compilation reads the W-9 status
+ * of every payee to decide whether the backup withholding flag belongs on the
+ * line. Compiling first and tracking second would produce a data set whose
+ * flags describe the paperwork as it was before the run that refreshed it.
+ */
+export const TAX_ORDER: readonly string[] = ["TAX-TRACK-W9", "TAX-BUILD-1099"];
+
+/**
+ * Module 10 execution order.
+ *
+ * Generation comes first because there is nothing to escalate until the
+ * workload exists. Escalation comes second. Nudging is last and independent of
+ * the first two, placed here because a document request that a nudge is about
+ * is usually the thing blocking a task the escalation just fired on, and
+ * reading the escalations before deciding what to chase is the useful order.
+ */
+export const PRACTICE_ORDER: readonly string[] = [
+  "PRAC-GENERATE-TASKS",
+  "PRAC-ESCALATE-OVERDUE",
+  "PRAC-NUDGE-REQUESTS",
+];
+
+/**
+ * The deliverable order.
+ *
+ * Payroll approval before payroll posting, because posting refuses without an
+ * approved run. The 1099 compilation before the CPA handoff, because the
+ * handoff attaches the data set the compilation produced and will not build one
+ * itself. The offboarding export last, because it is the only one that covers
+ * the whole history and should see everything the others wrote.
+ */
+export const DELIVERABLE_ORDER: readonly string[] = [
+  "PAY-APPROVE-RUN",
+  "PAY-POST-REGISTER",
+  "TAX-BUILD-1099",
+  "CPA-BUILD-HANDOFF",
+  "OFFBOARD-BUILD-EXPORT",
 ];
 
 /**

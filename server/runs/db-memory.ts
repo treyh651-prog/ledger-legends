@@ -7,7 +7,9 @@
  *
  *   1. Insert only run log tables, matching the do instead nothing rules.
  *   2. The manual override guard, matching ledger.guard_manual_override.
- *   3. The period lock guard on ledger writes, matching ledger.enforce_period_lock.
+ *   3. The period lock guard on ledger writes, matching ledger.enforce_period_lock,
+ *      and the named check constraints migration 0017 puts on the payroll and
+ *      offboarding tables, so a compliance test can assert one by name.
  *   4. Two key advisory locks that release when the transaction ends, plus a
  *      write write conflict check that raises a serialization failure.
  *
@@ -16,6 +18,7 @@
  */
 
 import {
+  CheckViolation,
   ImmutableLogError,
   LockedPeriodError,
   OverrideProtectedError,
@@ -61,6 +64,19 @@ import {
   type CashForecastRunRow,
   type CashForecastWeekRow,
   type PayrollApprovalRow,
+  type TaxThresholdRow,
+  type TaxDataSetRow,
+  type TaxDataLineRow,
+  type W9StateRow,
+  type PracticeTaskCatalogRow,
+  type PracticeTaskRow,
+  type PracticeEscalationRow,
+  type WorkloadNoticeRow,
+  type RequestNudgeRow,
+  type PayRunRow,
+  type PayRegisterEntryRow,
+  type CpaHandoffRow,
+  type OffboardExportRow,
   type ReportNarrativeRow,
   type ReportPackageRow,
   type ReportSectionRow,
@@ -139,6 +155,20 @@ const TABLES: TableName[] = [
   "report_narratives",
   "payroll_approvals",
   "report_audit_events",
+  "tax_thresholds",
+  "tax_data_sets",
+  "tax_data_lines",
+  "w9_states",
+  "practice_states",
+  "practice_task_catalog",
+  "practice_tasks",
+  "practice_escalations",
+  "workload_notices",
+  "request_nudges",
+  "pay_runs",
+  "pay_register_entries",
+  "cpa_handoffs",
+  "offboard_exports",
   "run_log",
   "run_log_items",
   "run_log_events",
@@ -309,6 +339,7 @@ class MemoryTx implements RunTx {
         throw new UniqueViolation(`${table}_pkey`);
       }
       this.guardLedgerDate(table, r);
+      this.guardChecks(table, r);
       this.guardIdempotency(table, r);
       this.guardBankTransactionId(table, r);
       const k = key(table, r.id);
@@ -338,11 +369,29 @@ class MemoryTx implements RunTx {
     }
     this.guardOverride(table, current, next, rowId);
     this.guardLedgerDate(table, next);
+    this.guardChecks(table, next as AnyRow);
     const k = key(table, rowId);
     if (!this.readVersions.has(k)) {
       this.readVersions.set(k, this.db.versionOf(table, rowId));
     }
     this.writes.set(k, next as AnyRow);
+  }
+
+  /**
+   * Mirrors the named check constraints in migration 0017.
+   *
+   * D5 is the reason the first one exists. A pay run records a review and can
+   * never carry disbursement authority, and the database refuses the row rather
+   * than trusting every future caller to remember. D9 is the reason for the
+   * second: the production window is fifteen business days and is not a knob.
+   */
+  private guardChecks(table: TableName, row: AnyRow): void {
+    if (table === "pay_runs" && row.authorizesDisbursement !== false) {
+      throw new CheckViolation("pay_run_no_disbursement_authority", table);
+    }
+    if (table === "offboard_exports" && row.productionDays !== 15) {
+      throw new CheckViolation("export_production_days", table);
+    }
   }
 
   /** Mirrors ledger.guard_manual_override. */
@@ -1391,6 +1440,212 @@ class MemoryTx implements RunTx {
           .filter((r) => r.firmId === p.firmId && r.clientId === p.clientId)
           .sort(byId)
           .map(clone);
+      }
+      /*
+       * Modules 9 and 10. Every case below is a read. The sort orders are the
+       * ones doc 02 names, because a run that iterated in an arbitrary order
+       * would derive its ordinals differently between two executions and the
+       * derived id contract would stop holding.
+       */
+      case "tax_thresholds_for_firm": {
+        const p = rawParams as QueryCatalog["tax_thresholds_for_firm"]["params"];
+        return this.view("tax_thresholds")
+          .map((r) => r as unknown as TaxThresholdRow)
+          .filter((r) => r.firmId === p.firmId)
+          .sort((a, b) =>
+            a.effectiveFrom !== b.effectiveFrom
+              ? a.effectiveFrom < b.effectiveFrom
+                ? -1
+                : 1
+              : byId(a, b),
+          )
+          .map((r) => clone(r as unknown as AnyRow));
+      }
+      case "tax_data_sets_for_client": {
+        const p = rawParams as QueryCatalog["tax_data_sets_for_client"]["params"];
+        return this.view("tax_data_sets")
+          .map((r) => r as unknown as TaxDataSetRow)
+          .filter((r) => r.firmId === p.firmId && r.clientId === p.clientId)
+          .sort((a, b) =>
+            a.taxYear !== b.taxYear ? a.taxYear - b.taxYear : byId(a, b),
+          )
+          .map((r) => clone(r as unknown as AnyRow));
+      }
+      case "tax_data_lines_for_set": {
+        const p = rawParams as QueryCatalog["tax_data_lines_for_set"]["params"];
+        return this.view("tax_data_lines")
+          .map((r) => r as unknown as TaxDataLineRow)
+          .filter(
+            (r) =>
+              r.firmId === p.firmId &&
+              r.clientId === p.clientId &&
+              r.dataSetId === p.dataSetId,
+          )
+          .sort((a, b) =>
+            a.payeeName !== b.payeeName
+              ? a.payeeName < b.payeeName
+                ? -1
+                : 1
+              : a.boxCode !== b.boxCode
+                ? a.boxCode < b.boxCode
+                  ? -1
+                  : 1
+                : byId(a, b),
+          )
+          .map((r) => clone(r as unknown as AnyRow));
+      }
+      case "w9_states_for_client": {
+        const p = rawParams as QueryCatalog["w9_states_for_client"]["params"];
+        return this.view("w9_states")
+          .map((r) => r as unknown as W9StateRow)
+          .filter((r) => r.firmId === p.firmId && r.clientId === p.clientId)
+          .sort((a, b) =>
+            a.vendorName !== b.vendorName
+              ? a.vendorName < b.vendorName
+                ? -1
+                : 1
+              : byId(a, b),
+          )
+          .map((r) => clone(r as unknown as AnyRow));
+      }
+      case "practice_state_for_client": {
+        const p = rawParams as QueryCatalog["practice_state_for_client"]["params"];
+        return this.view("practice_states")
+          .filter((r) => r.firmId === p.firmId && r.clientId === p.clientId)
+          .sort(byId)
+          .map(clone);
+      }
+      case "practice_catalog_for_client": {
+        const p = rawParams as QueryCatalog["practice_catalog_for_client"]["params"];
+        return this.view("practice_task_catalog")
+          .map((r) => r as unknown as PracticeTaskCatalogRow)
+          .filter((r) => r.firmId === p.firmId && r.clientId === p.clientId)
+          .sort((a, b) =>
+            a.catalogCode !== b.catalogCode
+              ? a.catalogCode < b.catalogCode
+                ? -1
+                : 1
+              : byId(a, b),
+          )
+          .map((r) => clone(r as unknown as AnyRow));
+      }
+      case "practice_tasks_for_client": {
+        const p = rawParams as QueryCatalog["practice_tasks_for_client"]["params"];
+        return this.view("practice_tasks")
+          .map((r) => r as unknown as PracticeTaskRow)
+          .filter((r) => r.firmId === p.firmId && r.clientId === p.clientId)
+          .sort((a, b) =>
+            a.periodStart !== b.periodStart
+              ? a.periodStart < b.periodStart
+                ? -1
+                : 1
+              : a.catalogCode !== b.catalogCode
+                ? a.catalogCode < b.catalogCode
+                  ? -1
+                  : 1
+                : byId(a, b),
+          )
+          .map((r) => clone(r as unknown as AnyRow));
+      }
+      case "practice_escalations_for_client": {
+        const p = rawParams as QueryCatalog["practice_escalations_for_client"]["params"];
+        return this.view("practice_escalations")
+          .map((r) => r as unknown as PracticeEscalationRow)
+          .filter((r) => r.firmId === p.firmId && r.clientId === p.clientId)
+          .sort((a, b) =>
+            a.asOfDate !== b.asOfDate
+              ? a.asOfDate < b.asOfDate
+                ? -1
+                : 1
+              : byId(a, b),
+          )
+          .map((r) => clone(r as unknown as AnyRow));
+      }
+      case "workload_notices_for_client": {
+        const p = rawParams as QueryCatalog["workload_notices_for_client"]["params"];
+        return this.view("workload_notices")
+          .map((r) => r as unknown as WorkloadNoticeRow)
+          .filter((r) => r.firmId === p.firmId && r.clientId === p.clientId)
+          .sort((a, b) =>
+            a.asOfDate !== b.asOfDate
+              ? a.asOfDate < b.asOfDate
+                ? -1
+                : 1
+              : byId(a, b),
+          )
+          .map((r) => clone(r as unknown as AnyRow));
+      }
+      case "request_nudges_for_client": {
+        const p = rawParams as QueryCatalog["request_nudges_for_client"]["params"];
+        return this.view("request_nudges")
+          .map((r) => r as unknown as RequestNudgeRow)
+          .filter((r) => r.firmId === p.firmId && r.clientId === p.clientId)
+          .sort((a, b) =>
+            a.requestId !== b.requestId
+              ? a.requestId < b.requestId
+                ? -1
+                : 1
+              : a.nudgeNumber !== b.nudgeNumber
+                ? a.nudgeNumber - b.nudgeNumber
+                : byId(a, b),
+          )
+          .map((r) => clone(r as unknown as AnyRow));
+      }
+      case "pay_runs_for_client": {
+        const p = rawParams as QueryCatalog["pay_runs_for_client"]["params"];
+        return this.view("pay_runs")
+          .map((r) => r as unknown as PayRunRow)
+          .filter((r) => r.firmId === p.firmId && r.clientId === p.clientId)
+          .sort((a, b) =>
+            a.payDate !== b.payDate
+              ? a.payDate < b.payDate
+                ? -1
+                : 1
+              : a.providerName !== b.providerName
+                ? a.providerName < b.providerName
+                  ? -1
+                  : 1
+                : byId(a, b),
+          )
+          .map((r) => clone(r as unknown as AnyRow));
+      }
+      case "pay_register_entries_for_client": {
+        const p = rawParams as QueryCatalog["pay_register_entries_for_client"]["params"];
+        return this.view("pay_register_entries")
+          .map((r) => r as unknown as PayRegisterEntryRow)
+          .filter((r) => r.firmId === p.firmId && r.clientId === p.clientId)
+          .sort((a, b) =>
+            a.payDate !== b.payDate ? (a.payDate < b.payDate ? -1 : 1) : byId(a, b),
+          )
+          .map((r) => clone(r as unknown as AnyRow));
+      }
+      case "cpa_handoffs_for_client": {
+        const p = rawParams as QueryCatalog["cpa_handoffs_for_client"]["params"];
+        return this.view("cpa_handoffs")
+          .map((r) => r as unknown as CpaHandoffRow)
+          .filter((r) => r.firmId === p.firmId && r.clientId === p.clientId)
+          .sort((a, b) =>
+            a.periodStart !== b.periodStart
+              ? a.periodStart < b.periodStart
+                ? -1
+                : 1
+              : byId(a, b),
+          )
+          .map((r) => clone(r as unknown as AnyRow));
+      }
+      case "offboard_exports_for_client": {
+        const p = rawParams as QueryCatalog["offboard_exports_for_client"]["params"];
+        return this.view("offboard_exports")
+          .map((r) => r as unknown as OffboardExportRow)
+          .filter((r) => r.firmId === p.firmId && r.clientId === p.clientId)
+          .sort((a, b) =>
+            a.requestedOn !== b.requestedOn
+              ? a.requestedOn < b.requestedOn
+                ? -1
+                : 1
+              : byId(a, b),
+          )
+          .map((r) => clone(r as unknown as AnyRow));
       }
       default: {
         const exhaustive: never = name;
