@@ -90,6 +90,13 @@ const PHYSICAL_TABLES: Partial<Record<TableName, string>> = {
   writeoff_proposals: "subledger.writeoff_proposals",
   bills: "subledger.bills",
   vendor_credits: "subledger.vendor_credits",
+  close_periods: "close.periods",
+  sub_tieouts: "close.sub_tieouts",
+  substantiation_records: "close.substantiation_records",
+  document_requests: "close.document_requests",
+  close_gate_results: "close.close_gate_results",
+  opening_balances: "close.opening_balances",
+  closing_entries: "close.closing_entries",
 };
 
 function physical(table: TableName): string {
@@ -188,6 +195,18 @@ const CENTS_FIELDS: Record<string, readonly string[]> = {
     "creditsCents",
   ],
   vendor_credits: ["amountCents", "appliedCents"],
+  sub_tieouts: [
+    "ledgerBalanceCents",
+    "supportedBalanceCents",
+    "varianceCents",
+  ],
+  substantiation_records: ["supportedBalanceCents"],
+  opening_balances: ["openingBalanceCents"],
+  closing_entries: [
+    "closedRevenueCents",
+    "closedExpenseCents",
+    "closedNetCents",
+  ],
 };
 
 function camelToSnake(name: string): string {
@@ -632,6 +651,86 @@ const REC_BATCH_COLUMNS = `
   opened_by_run_id as "openedByRunId", closed_at::text as "closedAt",
   closed_by_run_id as "closedByRunId", version`;
 
+const CLOSE_PERIOD_COLUMNS = `
+  id, firm_id as "firmId", client_id as "clientId", version,
+  period_start::text as "periodStart", period_end::text as "periodEnd",
+  fiscal_year_start::text as "fiscalYearStart",
+  fiscal_year_end::text as "fiscalYearEnd",
+  status, opened_by_run_id as "openedByRunId", opened_at::text as "openedAt",
+  locked_by_run_id as "lockedByRunId", locked_at::text as "lockedAt",
+  rolled_from_period_start::text as "rolledFromPeriodStart",
+  manual_override as "manualOverride"
+`;
+
+const SUB_TIEOUT_COLUMNS = `
+  id, firm_id as "firmId", client_id as "clientId", version,
+  period_start::text as "periodStart", period_end::text as "periodEnd",
+  account_number as "accountNumber", account_name as "accountName",
+  source_kind as "sourceKind", source_ref as "sourceRef",
+  ledger_balance_cents::text as "ledgerBalanceCents",
+  supported_balance_cents::text as "supportedBalanceCents",
+  variance_cents::text as "varianceCents",
+  tied, wrong_side_no_reason as "wrongSideNoReason", state, detail,
+  created_by_run_id as "createdByRunId", created_at::text as "createdAt",
+  manual_override as "manualOverride"
+`;
+
+const SUBSTANTIATION_COLUMNS = `
+  id, firm_id as "firmId", client_id as "clientId", version,
+  kind, account_number as "accountNumber",
+  period_start::text as "periodStart", period_end::text as "periodEnd",
+  supported_balance_cents::text as "supportedBalanceCents",
+  source_ref as "sourceRef", prepared_by as "preparedBy",
+  prepared_on::text as "preparedOn",
+  manual_override as "manualOverride"
+`;
+
+const DOCUMENT_REQUEST_COLUMNS = `
+  id, firm_id as "firmId", client_id as "clientId", version,
+  subject_key as "subjectKey", catalog_code as "catalogCode", owner,
+  account_number as "accountNumber", period_start::text as "periodStart",
+  linked_item_id as "linkedItemId", detail, status,
+  opened_on::text as "openedOn", as_of_date::text as "asOfDate",
+  aging_days as "agingDays", escalates_on::text as "escalatesOn", escalation,
+  owner_changed_on::text as "ownerChangedOn",
+  last_refreshed_on::text as "lastRefreshedOn", refresh_count as "refreshCount",
+  created_by_run_id as "createdByRunId", created_at::text as "createdAt",
+  manual_override as "manualOverride"
+`;
+
+const GATE_RESULT_COLUMNS = `
+  id, firm_id as "firmId", client_id as "clientId", version,
+  period_start::text as "periodStart", period_end::text as "periodEnd",
+  gate_code as "gateCode", gate_title as "gateTitle", outcome,
+  blocking_count as "blockingCount", payload, scope_reason as "scopeReason",
+  ledger_fingerprint as "ledgerFingerprint",
+  evaluated_at::text as "evaluatedAt",
+  evaluated_by_run_id as "evaluatedByRunId",
+  manual_override as "manualOverride", override_reason as "overrideReason"
+`;
+
+const OPENING_BALANCE_COLUMNS = `
+  id, firm_id as "firmId", client_id as "clientId", version,
+  period_start::text as "periodStart", account_number as "accountNumber",
+  opening_balance_cents::text as "openingBalanceCents",
+  source_period_start::text as "sourcePeriodStart", source_kind as "sourceKind",
+  created_by_run_id as "createdByRunId", created_at::text as "createdAt",
+  manual_override as "manualOverride"
+`;
+
+const CLOSING_ENTRY_COLUMNS = `
+  id, firm_id as "firmId", client_id as "clientId", version,
+  fiscal_year_start::text as "fiscalYearStart",
+  fiscal_year_end::text as "fiscalYearEnd",
+  entry_id as "entryId", entry_date::text as "entryDate",
+  entity_kind as "entityKind", equity_account as "equityAccount",
+  closed_revenue_cents::text as "closedRevenueCents",
+  closed_expense_cents::text as "closedExpenseCents",
+  closed_net_cents::text as "closedNetCents",
+  account_count as "accountCount", posted_by_run_id as "postedByRunId",
+  posted_at::text as "postedAt", manual_override as "manualOverride"
+`;
+
 const QUERIES: Record<QueryName, SqlSpec> = {
   bank_accounts_for_client: {
     table: "bank_accounts",
@@ -659,7 +758,11 @@ const QUERIES: Record<QueryName, SqlSpec> = {
             locked_at::text as "lockedAt", locked_by as "lockedBy",
             closed_with_exceptions as "closedWithExceptions",
             exception_note as "exceptionNote", unlocked_at::text as "unlockedAt",
-            unlocked_by as "unlockedBy", unlock_reason as "unlockReason"
+            unlocked_by as "unlockedBy", unlock_reason as "unlockReason",
+            status, gate_results_snapshot as "gateResultsSnapshot",
+            trial_balance_snapshot as "trialBalanceSnapshot",
+            ledger_fingerprint as "ledgerFingerprint",
+            locked_by_run_id as "lockedByRunId"
           from ${SCHEMA}.period_locks
           where firm_id = $1 and client_id = $2 and unlocked_at is null
           order by period_start asc, id asc`,
@@ -952,7 +1055,8 @@ const QUERIES: Record<QueryName, SqlSpec> = {
             default_category_id as "defaultCategoryId",
             default_category_version as "defaultCategoryVersion",
             is_active as "isActive",
-            early_discount_rule as "earlyDiscountRule"
+            early_discount_rule as "earlyDiscountRule",
+            w9_on_file as "w9OnFile", w9_expires_on::text as "w9ExpiresOn"
           from subledger.vendors
           where firm_id = $1 and client_id = $2
           order by id asc`,
@@ -991,7 +1095,14 @@ const QUERIES: Record<QueryName, SqlSpec> = {
             functional_currency as "functionalCurrency",
             capitalize_over::text as "capitalizeOverCents",
             gross_at_sale_time as "grossAtSaleTime",
-            cleanup_engagement as "cleanupEngagement"
+            cleanup_engagement as "cleanupEngagement",
+            entity_kind as "entityKind",
+            retained_earnings_account as "retainedEarningsAccount",
+            net_assets_without_restrictions_account
+              as "netAssetsWithoutRestrictionsAccount",
+            net_assets_with_restrictions_account
+              as "netAssetsWithRestrictionsAccount",
+            fiscal_year_end_month as "fiscalYearEndMonth"
           from ${SCHEMA}.client_policies
           where firm_id = $1 and client_id = $2
           order by id asc`,
@@ -1267,6 +1378,119 @@ const QUERIES: Record<QueryName, SqlSpec> = {
           where firm_id = $1 and client_id = $2
           order by bill_date asc, id asc`,
     params: (p) => [p.firmId, p.clientId],
+  },
+  chart_accounts_for_client: {
+    table: "chart_accounts",
+    sql: `select id, firm_id as "firmId", client_id as "clientId",
+            account_number as "accountNumber", name
+          from ${SCHEMA}.chart_accounts
+          where firm_id = $1 and client_id = $2
+          order by account_number asc, id asc`,
+    params: (p) => [p.firmId, p.clientId],
+  },
+  close_periods_for_client: {
+    table: "close_periods",
+    sql: `select ${CLOSE_PERIOD_COLUMNS}
+          from close.periods
+          where firm_id = $1 and client_id = $2
+          order by period_start asc, id asc`,
+    params: (p) => [p.firmId, p.clientId],
+  },
+  sub_tieouts_for_period: {
+    table: "sub_tieouts",
+    sql: `select ${SUB_TIEOUT_COLUMNS}
+          from close.sub_tieouts
+          where firm_id = $1 and client_id = $2 and period_start = $3
+          order by account_number asc, id asc`,
+    params: (p) => [p.firmId, p.clientId, p.periodStart],
+  },
+  substantiation_records_for_period: {
+    table: "substantiation_records",
+    sql: `select ${SUBSTANTIATION_COLUMNS}
+          from close.substantiation_records
+          where firm_id = $1 and client_id = $2 and period_start = $3
+          order by id asc`,
+    params: (p) => [p.firmId, p.clientId, p.periodStart],
+  },
+  document_requests_for_client: {
+    table: "document_requests",
+    sql: `select ${DOCUMENT_REQUEST_COLUMNS}
+          from close.document_requests
+          where firm_id = $1 and client_id = $2
+          order by subject_key asc, id asc`,
+    params: (p) => [p.firmId, p.clientId],
+  },
+  close_gate_results_for_period: {
+    table: "close_gate_results",
+    sql: `select ${GATE_RESULT_COLUMNS}
+          from close.close_gate_results
+          where firm_id = $1 and client_id = $2 and period_start = $3
+          order by gate_code asc, id asc`,
+    params: (p) => [p.firmId, p.clientId, p.periodStart],
+  },
+  opening_balances_for_period: {
+    table: "opening_balances",
+    sql: `select ${OPENING_BALANCE_COLUMNS}
+          from close.opening_balances
+          where firm_id = $1 and client_id = $2 and period_start = $3
+          order by account_number asc, id asc`,
+    params: (p) => [p.firmId, p.clientId, p.periodStart],
+  },
+  closing_entries_for_client: {
+    table: "closing_entries",
+    sql: `select ${CLOSING_ENTRY_COLUMNS}
+          from close.closing_entries
+          where firm_id = $1 and client_id = $2
+          order by fiscal_year_end asc, id asc`,
+    params: (p) => [p.firmId, p.clientId],
+  },
+  rec_batches_in_window: {
+    table: "rec_batches",
+    sql: `select ${REC_BATCH_COLUMNS}
+          from ${SCHEMA}.rec_batches
+          where firm_id = $1 and client_id = $2
+            and period_end >= $3 and period_start <= $4
+          order by id asc`,
+    params: (p) => [p.firmId, p.clientId, p.from, p.to],
+  },
+  suspense_items_for_client: {
+    table: "suspense_items",
+    sql: `select id, firm_id as "firmId", client_id as "clientId",
+            transaction_id as "transactionId", reason_code as "reasonCode",
+            account_number as "accountNumber", detail,
+            related_ids as "relatedIds", created_by_run_id as "createdByRunId",
+            withdrawn_by_run_id as "withdrawnByRunId"
+          from ${SCHEMA}.suspense_items
+          where firm_id = $1 and client_id = $2
+          order by id asc`,
+    params: (p) => [p.firmId, p.clientId],
+  },
+  documentation_exceptions_for_client: {
+    table: "documentation_exceptions",
+    sql: `select id, firm_id as "firmId", client_id as "clientId",
+            transaction_id as "transactionId", kind,
+            category_id as "categoryId", detail, status,
+            created_by_run_id as "createdByRunId", opened_at::text as "openedAt"
+          from ${SCHEMA}.documentation_exceptions
+          where firm_id = $1 and client_id = $2
+          order by id asc`,
+    params: (p) => [p.firmId, p.clientId],
+  },
+  journal_entries_for_client: {
+    table: "journal_entries",
+    sql: `select ${JE_COLUMNS}
+          from ${SCHEMA}.journal_entries
+          where firm_id = $1 and client_id = $2
+          order by entry_date asc, id asc`,
+    params: (p) => [p.firmId, p.clientId],
+  },
+  run_log_for_period: {
+    table: "run_log",
+    sql: `select ${RUN_LOG_COLUMNS}
+          from ${SCHEMA}.run_log
+          where firm_id = $1 and client_id = $2 and period_start = $3
+          order by started_at asc, id asc`,
+    params: (p) => [p.firmId, p.clientId, p.periodStart],
   },
   vendor_credits_for_client: {
     table: "vendor_credits",

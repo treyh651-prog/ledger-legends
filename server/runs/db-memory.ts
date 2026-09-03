@@ -49,6 +49,14 @@ import {
   type LoanScheduleRow,
   type RemittanceLineRow,
   type StatementItemRow,
+  type ChartAccountRow,
+  type ClosePeriodRow,
+  type CloseGateResultRow,
+  type DocumentRequestRow,
+  type OpeningBalanceRow,
+  type RecBatchRow,
+  type SubTieoutRow,
+  type SubstantiationRecordRow,
   type RunLogRow,
   type StagedRowRow,
   type StatementLineRow,
@@ -106,6 +114,13 @@ const TABLES: TableName[] = [
   "writeoff_proposals",
   "bills",
   "vendor_credits",
+  "close_periods",
+  "sub_tieouts",
+  "substantiation_records",
+  "document_requests",
+  "close_gate_results",
+  "opening_balances",
+  "closing_entries",
   "run_log",
   "run_log_items",
   "run_log_events",
@@ -1096,12 +1111,189 @@ class MemoryTx implements RunTx {
           .sort(byId)
           .map(clone);
       }
+      case "chart_accounts_for_client": {
+        const p = rawParams as QueryCatalog["chart_accounts_for_client"]["params"];
+        return this.view("chart_accounts")
+          .map((r) => r as unknown as ChartAccountRow)
+          .filter((r) => r.firmId === p.firmId && r.clientId === p.clientId)
+          .sort(compareChartAccounts)
+          .map((r) => clone(r as unknown as AnyRow));
+      }
+      case "close_periods_for_client": {
+        const p = rawParams as QueryCatalog["close_periods_for_client"]["params"];
+        return this.view("close_periods")
+          .map((r) => r as unknown as ClosePeriodRow)
+          .filter((r) => r.firmId === p.firmId && r.clientId === p.clientId)
+          .sort(comparePeriods)
+          .map((r) => clone(r as unknown as AnyRow));
+      }
+      case "sub_tieouts_for_period": {
+        const p = rawParams as QueryCatalog["sub_tieouts_for_period"]["params"];
+        return this.view("sub_tieouts")
+          .map((r) => r as unknown as SubTieoutRow)
+          .filter(
+            (r) =>
+              r.firmId === p.firmId &&
+              r.clientId === p.clientId &&
+              r.periodStart === p.periodStart,
+          )
+          .sort(compareTieouts)
+          .map((r) => clone(r as unknown as AnyRow));
+      }
+      case "substantiation_records_for_period": {
+        const p =
+          rawParams as QueryCatalog["substantiation_records_for_period"]["params"];
+        return this.view("substantiation_records")
+          .map((r) => r as unknown as SubstantiationRecordRow)
+          .filter(
+            (r) =>
+              r.firmId === p.firmId &&
+              r.clientId === p.clientId &&
+              r.periodStart === p.periodStart,
+          )
+          .sort(byId)
+          .map((r) => clone(r as unknown as AnyRow));
+      }
+      case "document_requests_for_client": {
+        const p =
+          rawParams as QueryCatalog["document_requests_for_client"]["params"];
+        return this.view("document_requests")
+          .map((r) => r as unknown as DocumentRequestRow)
+          .filter((r) => r.firmId === p.firmId && r.clientId === p.clientId)
+          .sort(compareRequests)
+          .map((r) => clone(r as unknown as AnyRow));
+      }
+      case "close_gate_results_for_period": {
+        const p =
+          rawParams as QueryCatalog["close_gate_results_for_period"]["params"];
+        return this.view("close_gate_results")
+          .map((r) => r as unknown as CloseGateResultRow)
+          .filter(
+            (r) =>
+              r.firmId === p.firmId &&
+              r.clientId === p.clientId &&
+              r.periodStart === p.periodStart,
+          )
+          .sort(compareGateResults)
+          .map((r) => clone(r as unknown as AnyRow));
+      }
+      case "opening_balances_for_period": {
+        const p =
+          rawParams as QueryCatalog["opening_balances_for_period"]["params"];
+        return this.view("opening_balances")
+          .map((r) => r as unknown as OpeningBalanceRow)
+          .filter(
+            (r) =>
+              r.firmId === p.firmId &&
+              r.clientId === p.clientId &&
+              r.periodStart === p.periodStart,
+          )
+          .sort(compareOpeningBalances)
+          .map((r) => clone(r as unknown as AnyRow));
+      }
+      case "closing_entries_for_client": {
+        const p =
+          rawParams as QueryCatalog["closing_entries_for_client"]["params"];
+        return this.view("closing_entries")
+          .filter((r) => r.firmId === p.firmId && r.clientId === p.clientId)
+          .sort(byId)
+          .map(clone);
+      }
+      case "rec_batches_in_window": {
+        const p = rawParams as QueryCatalog["rec_batches_in_window"]["params"];
+        return this.view("rec_batches")
+          .map((r) => r as unknown as RecBatchRow)
+          .filter(
+            (r) =>
+              r.firmId === p.firmId &&
+              r.clientId === p.clientId &&
+              r.periodEnd >= p.from &&
+              r.periodStart <= p.to,
+          )
+          .sort(byId)
+          .map((r) => clone(r as unknown as AnyRow));
+      }
+      case "suspense_items_for_client": {
+        const p = rawParams as QueryCatalog["suspense_items_for_client"]["params"];
+        return this.view("suspense_items")
+          .filter((r) => r.firmId === p.firmId && r.clientId === p.clientId)
+          .sort(byId)
+          .map(clone);
+      }
+      case "documentation_exceptions_for_client": {
+        const p =
+          rawParams as QueryCatalog["documentation_exceptions_for_client"]["params"];
+        return this.view("documentation_exceptions")
+          .filter((r) => r.firmId === p.firmId && r.clientId === p.clientId)
+          .sort(byId)
+          .map(clone);
+      }
+      case "journal_entries_for_client": {
+        const p = rawParams as QueryCatalog["journal_entries_for_client"]["params"];
+        return this.view("journal_entries")
+          .map((r) => r as unknown as JournalEntryRow)
+          .filter((r) => r.firmId === p.firmId && r.clientId === p.clientId)
+          .sort(compareEntries)
+          .map((r) => clone(r as unknown as AnyRow));
+      }
+      case "run_log_for_period": {
+        const p = rawParams as QueryCatalog["run_log_for_period"]["params"];
+        return this.view("run_log")
+          .map((r) => r as unknown as RunLogRow)
+          .filter(
+            (r) =>
+              r.firmId === p.firmId &&
+              r.clientId === p.clientId &&
+              r.periodStart === p.periodStart,
+          )
+          .sort((a, b) => (a.startedAt < b.startedAt ? -1 : a.startedAt > b.startedAt ? 1 : byId(a, b)))
+          .map((r) => clone(r as unknown as AnyRow));
+      }
       default: {
         const exhaustive: never = name;
         throw new Error(`unknown query ${String(exhaustive)}`);
       }
     }
   }
+}
+
+function compareChartAccounts(a: ChartAccountRow, b: ChartAccountRow): number {
+  if (a.accountNumber !== b.accountNumber) {
+    return a.accountNumber < b.accountNumber ? -1 : 1;
+  }
+  return byId(a, b);
+}
+
+function comparePeriods(a: ClosePeriodRow, b: ClosePeriodRow): number {
+  if (a.periodStart !== b.periodStart) return a.periodStart < b.periodStart ? -1 : 1;
+  return byId(a, b);
+}
+
+function compareTieouts(a: SubTieoutRow, b: SubTieoutRow): number {
+  if (a.accountNumber !== b.accountNumber) {
+    return a.accountNumber < b.accountNumber ? -1 : 1;
+  }
+  return byId(a, b);
+}
+
+function compareRequests(a: DocumentRequestRow, b: DocumentRequestRow): number {
+  if (a.subjectKey !== b.subjectKey) return a.subjectKey < b.subjectKey ? -1 : 1;
+  return byId(a, b);
+}
+
+function compareGateResults(a: CloseGateResultRow, b: CloseGateResultRow): number {
+  if (a.gateCode !== b.gateCode) return a.gateCode < b.gateCode ? -1 : 1;
+  return byId(a, b);
+}
+
+function compareOpeningBalances(
+  a: OpeningBalanceRow,
+  b: OpeningBalanceRow,
+): number {
+  if (a.accountNumber !== b.accountNumber) {
+    return a.accountNumber < b.accountNumber ? -1 : 1;
+  }
+  return byId(a, b);
 }
 
 function clone(row: AnyRow): AnyRow {

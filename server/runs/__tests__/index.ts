@@ -76,6 +76,14 @@ import "./ap-apply-earlydiscount";
 import "./ar-writeoff-uncollectible";
 import "./arap-pipeline";
 
+import "./close-tieouts";
+import "./close-requests";
+import "./close-gates";
+import "./close-lock";
+import "./close-rollforward";
+import "./close-yearend";
+import "./close-pipeline";
+
 type Outcome = Awaited<ReturnType<typeof execute<PairTransfersScope, Proposal>>>;
 
 function run(

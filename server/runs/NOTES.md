@@ -950,3 +950,183 @@ particular rows in the fixture.
     module this task was not asked to touch, and every one of those callers is
     already passing its dates in order. The variant is three lines and the
     aging test that found the bug now pins it.
+
+## Module 6, substantiation and close
+
+82. **Run type ids do not match the file names.** The brief names the files
+    `sub-tie-balances.ts` through `cls-post-yearend.ts` and doc 02 names the runs
+    SUB-TIE-BALANCES through CLS-POST-YEAREND, while the registry in this repo
+    already uses a verb style prefix per module (`TXN-`, `REC-`, `PER-`, `ARAP-`).
+    Options: use the doc names verbatim as run types, rename the files to match
+    the types, use the doc names for types and the brief names for files, or
+    invent a third naming scheme. Chosen: keep the brief file names and register
+    the types in this repo's own style, `SUB-TIEOUT-ACCOUNTS`,
+    `SUB-RAISE-REQUESTS`, `CLOSE-CHECK-GATES`, `CLOSE-LOCK-PERIOD`,
+    `CLOSE-ROLL-FORWARD`, `CLOSE-POST-YEAREND`. A run type is an idempotency key
+    ingredient and a log value that people read across modules, so consistency
+    inside the registry matters more than matching a file name, and the file names
+    stay exactly where the brief said to put them.
+
+83. **The task gate list and doc 00 Part 5 disagree.** Doc 00 carries an older
+    table with a shorter gate set and slightly different wording. Options: follow
+    doc 00, follow the task list, merge both into a longer set, or implement doc
+    00 and add the task gates as warnings. Chosen: the task list of nineteen
+    gates G01 through G19 exactly as written. It is the newer statement, it is the
+    thing the tests are specified against, and doc 00 is read only for this task
+    so the two cannot be reconciled in one place anyway.
+
+84. **G01 and the 1900 account.** Doc 00 lists the clearing block as 1910 through
+    1990 in one place and the brief names 1900, 1910, 1920, 1930 and 1990.
+    Options: use the brief's five, use doc 00's four, sweep the whole 1900 to 1999
+    block, or make the set a policy column. Chosen: the brief's five, stated once
+    as `CLEARING_ACCOUNTS` in `close-shared.ts`. Sweeping the whole block would
+    catch an account a firm deliberately uses as a real asset, and a policy column
+    is a schema decision doc 04 has not made.
+
+85. **Cents inside a jsonb snapshot cannot be bigint.** The Postgres parameter
+    encoder runs `JSON.stringify`, which throws on a bigint, and the gate payloads
+    and the trial balance snapshot both carry money. Options: store numbers and
+    accept the precision loss above 2^53, store decimal strings, store cents in a
+    side table, or keep bigint and write a custom encoder. Chosen: decimal
+    strings, produced by `centsText`. The strings round trip exactly, they sort
+    the way a person expects for a fixed width figure, and nothing in the codebase
+    does arithmetic on a snapshot: it is evidence, not an input.
+
+86. **One substantiation table or one per source.** The tie out run needs an
+    inventory count, a payroll register, and room for whatever a later source
+    turns out to be. Options: a table per source kind, one
+    `substantiation_records` table with a kind discriminator, columns on
+    `sub_tieouts` itself, or reading each source from wherever it already lives.
+    Chosen: one `substantiation_records` table with a kind, plus reading the
+    sources that already exist elsewhere in the schema, which is the aging
+    snapshots, the loan and deferral schedules, the fixed asset rows and the
+    reconciliation batches. A table per kind would be six migrations for one
+    concept, and columns on the tie out row would mean rewriting evidence every
+    time a variance is recomputed.
+
+87. **Where the W-9 facts live.** SUB-RAISE-REQUESTS asks for a W-9 that is
+    absent or expired. Options: a new `vendor_documents` table, two columns on
+    `subledger.vendors`, a row in `substantiation_records`, or infer it from the
+    document vault. Chosen: `w9_on_file` and `w9_expires_on` on the vendor.
+    Whether a vendor's paperwork is current is a fact about the vendor, the
+    request run only ever needs the answer rather than the history, and a table
+    for two booleans would be answered by a join on every close.
+
+88. **Proving the gate set is newer than the last ledger write.** A journal row in
+    this schema carries no created at column, so there is no timestamp to compare
+    a gate evaluation against. Options: add a created at column to the journal
+    tables, compare the gate evaluation time to the newest run log row that wrote
+    the ledger, store a fingerprint of the ledger on each gate result and compare
+    it, or trust the operator to rerun the gates. Chosen: the fingerprint. It is a
+    hash over every journal line in the period and it is exact: any posting,
+    reversal or redating moves it, and CLOSE-LOCK-PERIOD refuses with
+    `CLOSE_GATE_SET_STALE` when the gates were judged against a different ledger.
+    Adding a column would touch a module this task may not change, and a run log
+    comparison would miss a hand correction that did not go through a run.
+
+89. **The escalation ladder is not in the specs.** Doc 02 says a request escalates
+    by age and does not say when. Options: seven, fourteen and thirty days, a
+    single thirty day threshold, a policy column per client, or escalate on every
+    refresh. Chosen: seven, fourteen and thirty, stated once as
+    `ESCALATION_DAYS`. Seven matches the fastest close cadence the practice runs
+    support, thirty is the same threshold G17 uses for an orphan request so the
+    two never disagree, and a policy column can wrap this constant later without
+    changing any run.
+
+90. **What CLOSE-POST-YEAREND closes.** Doc 00 Part 1 puts income tax expense in
+    the 9000 memo block and says that block never reaches a published statement.
+    Options: close the whole 4000 through 9999 range, close 4000 through 8999 and
+    leave the memo block, close only 4000 through 7999, or make the range a
+    policy. Chosen: 4000 through 8999, which is revenue, cost of goods, operating
+    expense and other income and expense, and the 9000 block is left where it is.
+    Closing a memo tax figure to equity would be taking a tax position, and we are
+    not CPAs. Nothing in this run computes a tax, prepares a return, or files
+    anything.
+
+91. **G18 and the gate run's own log row.** The preparer versus approver gate
+    reads the run log, and the gate evaluation run writes a row to that log. Its
+    own apply row exists while the gate reads the log during apply and does not
+    exist during preview, so including it made the run refuse itself with
+    STALE_PREVIEW every time. Options: read the log as of the preview time,
+    exclude the gate run's own type, exclude the current execution id, or move G18
+    to a reporting run outside the gate set. Chosen: exclude
+    `CLOSE-CHECK-GATES` rows by type. Evaluating gates writes nothing anybody acts
+    on, so it is a measurement rather than a preparer and approver event, and
+    excluding by execution id would still leave a previous evaluation of the same
+    period flagging itself.
+
+92. **The lock has to record who locked it.** `locked_by` is the person and the
+    preview and the apply of a two person close are two different people, which is
+    the entire point of D4. Stamping `ctx.actor.userId` into the proposal made
+    apply refuse itself. Options: record the preview actor, record the apply actor
+    through a placeholder the writer resolves, drop the column, or exclude the
+    field from the preview comparison. Chosen: a third placeholder,
+    `ACTOR_PLACEHOLDER`, alongside `RUN_ID_PLACEHOLDER` and `NOW_PLACEHOLDER` in
+    `apply-writer.ts`, resolved at the moment of the write. It is the same problem
+    those two solve and the same solution, and the row ends up naming the person
+    who actually locked the period.
+
+93. **The gate run's scope hash was the same in every execution.** Its candidate
+    set is the same nineteen derived ids for a period and the gate versions never
+    move, so a second evaluation after a posting or after a blocker was fixed
+    deduplicated to the first one and handed back stale answers. Options: add the
+    ledger fingerprint to the discriminator, add the versions of every row every
+    gate reads, hash the answers the gates give and use that, or make the run non
+    idempotent. Chosen: hash the answers. The fingerprint alone misses a change
+    outside the ledger, such as somebody picking up a stale document request, and
+    enumerating the versions of every input means listing a dozen tables that will
+    grow. The gates are pure functions of the loaded data, so evaluating them
+    twice per execution is cheap and the hash moves exactly when an answer moves.
+    CLOSE-LOCK-PERIOD carries the ledger fingerprint in its own discriminator for
+    the same reason.
+
+94. **G14 read literally.** The gate says no journal line is dated in a locked
+    period, and the framework deliberately posts corrections into locked periods
+    with `redated_from_locked_period` set. Options: fail on every line inside a
+    lock, fail only on lines with no redating marker, fail only on lines whose
+    entry date and redating marker disagree, or scope the gate to the period being
+    closed. Chosen: fail on any line inside an active lock that carries no
+    redating marker. That is the literal reading with the one exception the
+    framework itself creates, and a redated entry is by construction a line the
+    lock already knows about.
+
+95. **G15 judges the lines it can judge.** Not every posted line comes from a
+    transaction. A depreciation line, an accrual reversal and a year end closing
+    line have a cascade level of null by construction. Options: fail every line
+    with no cascade level, judge only lines whose source is the transactions
+    table, judge every line and treat a run written line as level zero, or drop
+    the gate. Chosen: judge only lines whose `source_table` is `transactions`,
+    where a cascade level and a rule id or a written override reason is the thing
+    doc 00 actually promises. A manual override with a reason passes, which is the
+    exception the gate text names.
+
+96. **Sign conventions for a supported balance.** A schedule states a remaining
+    balance as a positive figure and the ledger states a liability as a credit.
+    Options: compare absolute values, negate the schedule for liability accounts,
+    store a sign on the substantiation row, or compare in the natural side of each
+    account. Chosen: every supported balance is stated debit positive, so a
+    liability schedule is negated before the comparison, and the variance is
+    always ledger minus supported. Comparing absolute values would hide a balance
+    sitting on the wrong side, which is a condition the tie out row reports
+    separately as `wrong_side_no_reason`.
+
+97. **G19 without a second set of books.** D3 says cash basis is derived, so
+    there is no cash basis ledger to compare against. Options: build a full cash
+    basis trial balance in the gate, compare the in period movement of the income
+    statement against the movement of the two control accounts, compare only
+    against cash touching entries, or mark the gate not applicable for an accrual
+    client. Chosen: the movement comparison. Accrual net less the change in
+    receivables less the change in payables is the derived cash figure D3
+    describes, and the gate fails when an income statement line moved through
+    neither cash nor a control account, which is the state that makes the
+    derivation wrong.
+
+98. **`close.periods` already had a claim on the name.** The close needs a period
+    row with a status a person opens and closes, and `ledger.period_locks` already
+    records the lock. Options: put the status on `period_locks`, add a
+    `close.periods` table, infer the status from the presence of a lock, or add a
+    status column to a client level table. Chosen: `close.periods` for the period
+    and its status, and `period_locks` keeps the lock event with its snapshots. A
+    lock is something that happened at a moment and a period is a thing with a
+    current state, and inferring the state from a lock row leaves no way to say a
+    period is open, reopened, or being worked.

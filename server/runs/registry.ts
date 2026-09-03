@@ -1,7 +1,7 @@
 /**
  * The run registry. One entry per implemented run type.
  *
- * The 49 run types in the contract are the target. Twenty six are implemented so
+ * The 49 run types in the contract are the target. Thirty two are implemented so
  * far. IMPORT-PARSE-FEED and IMPORT-COMMIT-BATCH are the front door: nothing the
  * other runs read exists until a feed has been parsed and a batch committed. The
  * nine module 2 coding runs then take the register from a raw descriptor to a
@@ -18,6 +18,10 @@ import { arBuildStatements } from "./runs/ar-build-statements";
 import { arChargeLateFees } from "./runs/ar-charge-latefees";
 import { arapRefreshAging } from "./runs/ar-refresh-aging";
 import { arWriteoffUncollectible } from "./runs/ar-writeoff-uncollectible";
+import { clsEvaluateGates } from "./runs/cls-evaluate-gates";
+import { clsLockPeriod } from "./runs/cls-lock-period";
+import { clsPostYearEnd } from "./runs/cls-post-yearend";
+import { clsRollForward } from "./runs/cls-roll-forward";
 import { importCommitBatch } from "./runs/import-commit-batch";
 import { perAmortizePrepaids } from "./runs/per-amortize-prepaids";
 import { perPostAccruals } from "./runs/per-post-accruals";
@@ -27,6 +31,8 @@ import { perReverseAccruals } from "./runs/per-reverse-accruals";
 import { perSplitLoan } from "./runs/per-split-loan";
 import { importParseFeed } from "./runs/import-parse-feed";
 import { recClearMatched } from "./runs/rec-clear-matched";
+import { subRaiseRequests } from "./runs/sub-raise-requests";
+import { subTieBalances } from "./runs/sub-tie-balances";
 import { recFlagStale } from "./runs/rec-flag-stale";
 import { recMatchTiered } from "./runs/rec-match-tiered";
 import { txnApplyRecurring } from "./runs/txn-apply-recurring";
@@ -90,6 +96,41 @@ export const registry: readonly RegistryEntry[] = [
   entry(arWriteoffUncollectible),
   entry(arapRefreshAging),
   entry(arBuildStatements),
+  // Module 6 substantiation and close, in the order CLOSE_ORDER explains.
+  entry(subTieBalances),
+  entry(subRaiseRequests),
+  entry(clsEvaluateGates),
+  entry(clsLockPeriod),
+  entry(clsRollForward),
+  entry(clsPostYearEnd),
+];
+
+/**
+ * Module 6 execution order.
+ *
+ * Tie outs come first because every later step reads them. A gate that asks
+ * whether the AR subledger equals its control account is answering a question
+ * the tie out already computed, and a request raised for an unresolved variance
+ * cannot be raised before the variance exists.
+ *
+ * Requests come second so that the open items a close is waiting on are on
+ * record before the gates report the period as blocked. The list of who owes
+ * what is the useful half of a failed close.
+ *
+ * Gates come third, the lock fourth, and the lock refuses when the gates it
+ * reads are not all pass or not applicable.
+ *
+ * Roll forward and the year end close come after the lock because both write
+ * into the period that follows, and the figure they carry forward is only
+ * settled once the period behind them is closed.
+ */
+export const CLOSE_ORDER: readonly string[] = [
+  "SUB-TIEOUT-ACCOUNTS",
+  "SUB-RAISE-REQUESTS",
+  "CLOSE-CHECK-GATES",
+  "CLOSE-LOCK-PERIOD",
+  "CLOSE-ROLL-FORWARD",
+  "CLOSE-POST-YEAREND",
 ];
 
 /**

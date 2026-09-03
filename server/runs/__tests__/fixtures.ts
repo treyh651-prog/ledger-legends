@@ -210,6 +210,11 @@ export function lock(
     unlockedAt: null,
     unlockedBy: null,
     unlockReason: null,
+    status: "locked",
+    gateResultsSnapshot: [],
+    trialBalanceSnapshot: [],
+    ledgerFingerprint: "",
+    lockedByRunId: null,
   };
 }
 

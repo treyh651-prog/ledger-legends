@@ -34,7 +34,15 @@ import type {
   StatementItemRow,
   VendorCreditRow,
   WriteoffProposalRow,
+  ClosePeriodRow,
+  CloseGateResultRow,
+  ClosingEntryRow,
+  DocumentRequestRow,
   DocumentationExceptionRow,
+  OpeningBalanceRow,
+  PeriodLockRow,
+  SubTieoutRow,
+  SubstantiationRecordRow,
   ImportBatchRow,
   JournalEntryRow,
   JournalLineRow,
@@ -59,6 +67,14 @@ import type {
  */
 export const RUN_ID_PLACEHOLDER = "$run_execution_id";
 export const NOW_PLACEHOLDER = "$now";
+/**
+ * The person the write is recorded against. The same reasoning as the two above:
+ * a preview and its apply are often run by two different people, which is the
+ * point of the preparer and approver split in D4, so a run that stamped the
+ * actor id into a proposal would refuse itself on every honest two person close.
+ * CLOSE-LOCK-PERIOD writes this and the writer resolves it. See NOTES.md entry 92.
+ */
+export const ACTOR_PLACEHOLDER = "$actor_user_id";
 
 function materialize(
   values: Record<string, unknown>,
@@ -68,6 +84,7 @@ function materialize(
   for (const [key, value] of Object.entries(values)) {
     if (value === RUN_ID_PLACEHOLDER) out[key] = ctx.runExecutionId;
     else if (value === NOW_PLACEHOLDER) out[key] = ctx.now.toISOString();
+    else if (value === ACTOR_PLACEHOLDER) out[key] = ctx.actor.userId;
     else out[key] = value;
   }
   return out;
@@ -311,6 +328,28 @@ async function writeField(
     case "vendor_credits":
       await tx.update("vendor_credits", rowId, after);
       return;
+    // Doc 02 module 6. The close runs refresh a tie out row, a document request,
+    // a gate result, a period status, and a lock. Every one of these is a row a
+    // person can override, and the override guard in the store is what stops the
+    // write, not a branch here.
+    case "sub_tieouts":
+      await tx.update("sub_tieouts", rowId, after);
+      return;
+    case "document_requests":
+      await tx.update("document_requests", rowId, after);
+      return;
+    case "close_gate_results":
+      await tx.update("close_gate_results", rowId, after);
+      return;
+    case "close_periods":
+      await tx.update("close_periods", rowId, after);
+      return;
+    case "period_locks":
+      await tx.update("period_locks", rowId, after);
+      return;
+    case "opening_balances":
+      await tx.update("opening_balances", rowId, after);
+      return;
     default:
       throw new ProposalWriteError(
         "UNKNOWN_WRITE_TABLE",
@@ -409,6 +448,43 @@ async function insertRow(
       await tx.insert("vendor_credits", [
         withId as unknown as VendorCreditRow,
       ]);
+      return;
+    // Doc 02 module 6. Substantiation and close write derived rows: the tie out
+    // per account, the request per open item, the gate result per gate, the
+    // period, the lock, the opening balance, and the year end claim.
+    case "close_periods":
+      await tx.insert("close_periods", [withId as unknown as ClosePeriodRow]);
+      return;
+    case "sub_tieouts":
+      await tx.insert("sub_tieouts", [withId as unknown as SubTieoutRow]);
+      return;
+    case "substantiation_records":
+      await tx.insert("substantiation_records", [
+        withId as unknown as SubstantiationRecordRow,
+      ]);
+      return;
+    case "document_requests":
+      await tx.insert("document_requests", [
+        withId as unknown as DocumentRequestRow,
+      ]);
+      return;
+    case "close_gate_results":
+      await tx.insert("close_gate_results", [
+        withId as unknown as CloseGateResultRow,
+      ]);
+      return;
+    case "opening_balances":
+      await tx.insert("opening_balances", [
+        withId as unknown as OpeningBalanceRow,
+      ]);
+      return;
+    case "closing_entries":
+      await tx.insert("closing_entries", [
+        withId as unknown as ClosingEntryRow,
+      ]);
+      return;
+    case "period_locks":
+      await tx.insert("period_locks", [withId as unknown as PeriodLockRow]);
       return;
     default:
       throw new ProposalWriteError(

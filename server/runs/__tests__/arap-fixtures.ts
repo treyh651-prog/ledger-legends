@@ -250,6 +250,8 @@ export function vendor(id: string, extra: Partial<VendorRow> = {}): VendorRow {
     defaultCategoryVersion: null,
     isActive: true,
     earlyDiscountRule: null,
+    w9OnFile: true,
+    w9ExpiresOn: null,
     ...extra,
   };
 }

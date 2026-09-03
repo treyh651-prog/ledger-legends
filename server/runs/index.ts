@@ -46,10 +46,18 @@ export * from "./runs/ar-apply-payments";
 export * from "./runs/ar-charge-latefees";
 export * from "./runs/ap-apply-earlydiscount";
 export * from "./runs/ar-writeoff-uncollectible";
+export * from "./runs/close-shared";
+export * from "./runs/sub-tie-balances";
+export * from "./runs/sub-raise-requests";
+export * from "./runs/cls-evaluate-gates";
+export * from "./runs/cls-lock-period";
+export * from "./runs/cls-roll-forward";
+export * from "./runs/cls-post-yearend";
 export {
   registry,
   lookupRun,
   AR_AP_ORDER,
+  CLOSE_ORDER,
   CODING_CASCADE_ORDER,
   RECONCILIATION_ORDER,
   cascadePosition,

@@ -277,7 +277,35 @@ export interface PeriodLockRow {
   unlockedAt: string | null;
   unlockedBy: Ulid | null;
   unlockReason: string | null;
+  /** Migration 0015. 'locked' while the lock holds, 'unlocked' once lifted. */
+  status: "locked" | "unlocked";
+  /**
+   * Migration 0015. The gate result set CLOSE-LOCK-PERIOD read, frozen onto the
+   * lock. Cents inside a snapshot are decimal strings rather than bigints,
+   * because a snapshot column is jsonb and JSON has no bigint.
+   */
+  gateResultsSnapshot: GateSnapshotEntry[];
+  /** Migration 0015. The trial balance the lock froze, which nets to zero. */
+  trialBalanceSnapshot: TrialBalanceEntry[];
+  /** Migration 0015. Hash of the ledger rows in the period at lock time. */
+  ledgerFingerprint: string;
+  lockedByRunId: string | null;
 }
+
+/** One line of a frozen trial balance. Cents as a decimal string, see above. */
+export interface TrialBalanceEntry {
+  accountNumber: string;
+  balanceCents: string;
+}
+
+/** One line of a frozen gate result set. */
+export interface GateSnapshotEntry {
+  gateCode: string;
+  outcome: GateOutcome;
+  blockingCount: number;
+}
+
+export type GateOutcome = "pass" | "fail" | "not_applicable";
 
 export interface TransferPairRow {
   id: Ulid;
@@ -500,6 +528,13 @@ export interface VendorRow {
    * preference, so AP-APPLY-EARLYDISCOUNT reads it rather than deciding.
    */
   earlyDiscountRule: "purchase_discount_income" | "vendor_credit" | null;
+  /**
+   * Migration 0015. Whether a W-9 is on file and the day it stops being
+   * current. SUB-RAISE-REQUESTS asks for one that is absent or expired, and
+   * both facts belong to the vendor rather than to the request.
+   */
+  w9OnFile: boolean;
+  w9ExpiresOn: string | null;
 }
 
 /**
@@ -554,6 +589,17 @@ export interface ClientPolicyRow {
   grossAtSaleTime: boolean;
   /** Doc 02 Part D rule promotion condition 5. */
   cleanupEngagement: boolean;
+  /**
+   * Migration 0015. Doc 00 Part 6. A nonprofit closes to the two net asset
+   * classes and a for profit closes to retained earnings, and which one a
+   * client is cannot be guessed from its chart.
+   */
+  entityKind: "for_profit" | "nonprofit";
+  retainedEarningsAccount: string | null;
+  netAssetsWithoutRestrictionsAccount: string | null;
+  netAssetsWithRestrictionsAccount: string | null;
+  /** 12 for a calendar fiscal year. Read, never assumed. */
+  fiscalYearEndMonth: number;
 }
 
 /** A document linked to a transaction. The receipt check reads only this. */
@@ -1233,6 +1279,178 @@ export interface RunSequenceRow {
 }
 
 /** Every table the port knows about, mapped to its row shape. */
+
+// ---------------------------------------------------------------------------
+// Module 6 substantiation and close, migration 0015.
+// ---------------------------------------------------------------------------
+
+/**
+ * A period with an identity. Before migration 0015 an open period was the
+ * absence of a lock row, which is a fact nobody can open or point at.
+ */
+export interface ClosePeriodRow {
+  id: Ulid;
+  firmId: Ulid;
+  clientId: Ulid;
+  version: number;
+  periodStart: string;
+  periodEnd: string;
+  fiscalYearStart: string;
+  fiscalYearEnd: string;
+  status: "open" | "locked";
+  openedByRunId: string | null;
+  openedAt: string | null;
+  lockedByRunId: string | null;
+  lockedAt: string | null;
+  rolledFromPeriodStart: string | null;
+  manualOverride: boolean;
+}
+
+/** One substantiated balance sheet account for one period. */
+export interface SubTieoutRow {
+  id: Ulid;
+  firmId: Ulid;
+  clientId: Ulid;
+  version: number;
+  periodStart: string;
+  periodEnd: string;
+  accountNumber: string;
+  accountName: string;
+  sourceKind: TieoutSourceKind;
+  sourceRef: string | null;
+  ledgerBalanceCents: Cents;
+  supportedBalanceCents: Cents | null;
+  /** Ledger minus supported, signed. Null when there is no source at all. */
+  varianceCents: Cents | null;
+  tied: boolean;
+  wrongSideNoReason: boolean;
+  state: "computed_tied" | "unsupported" | "variance_open";
+  detail: string;
+  createdByRunId: string | null;
+  createdAt: string;
+  manualOverride: boolean;
+}
+
+export type TieoutSourceKind =
+  | "statement_balance"
+  | "aging_total"
+  | "schedule_remaining"
+  | "roll_forward_net"
+  | "physical_count"
+  | "register_total"
+  | "none";
+
+/** A supporting figure produced outside the ledger, such as a stock count. */
+export interface SubstantiationRecordRow {
+  id: Ulid;
+  firmId: Ulid;
+  clientId: Ulid;
+  version: number;
+  kind: "inventory_count" | "payroll_register" | "other";
+  accountNumber: string;
+  periodStart: string;
+  periodEnd: string;
+  supportedBalanceCents: Cents;
+  sourceRef: string | null;
+  preparedBy: Ulid | null;
+  preparedOn: string | null;
+  manualOverride: boolean;
+}
+
+/** One open item, deduplicated by subject key and refreshed in place. */
+export interface DocumentRequestRow {
+  id: Ulid;
+  firmId: Ulid;
+  clientId: Ulid;
+  version: number;
+  subjectKey: string;
+  catalogCode: string;
+  owner: "firm" | "client" | "system";
+  accountNumber: string | null;
+  periodStart: string;
+  linkedItemId: Ulid | null;
+  detail: string;
+  status: "open" | "satisfied" | "waived";
+  openedOn: string;
+  asOfDate: string;
+  agingDays: number;
+  escalatesOn: string;
+  escalation: "none" | "first" | "second" | "final";
+  ownerChangedOn: string | null;
+  lastRefreshedOn: string | null;
+  refreshCount: number;
+  createdByRunId: string | null;
+  createdAt: string;
+  manualOverride: boolean;
+}
+
+/** One row of the blocking evidence a gate kept. */
+export interface GateBlockingRow {
+  rowId: string | null;
+  label: string;
+  detail: string;
+  /** Decimal string, because the payload column is jsonb. */
+  amountCents: string | null;
+}
+
+/** One gate, one period, one outcome, with the blocking rows frozen. */
+export interface CloseGateResultRow {
+  id: Ulid;
+  firmId: Ulid;
+  clientId: Ulid;
+  version: number;
+  periodStart: string;
+  periodEnd: string;
+  gateCode: string;
+  gateTitle: string;
+  outcome: GateOutcome;
+  blockingCount: number;
+  payload: GateBlockingRow[];
+  scopeReason: string | null;
+  ledgerFingerprint: string;
+  evaluatedAt: string;
+  evaluatedByRunId: string | null;
+  manualOverride: boolean;
+  overrideReason: string | null;
+}
+
+/** An opening balance copied forward from the prior period snapshot. */
+export interface OpeningBalanceRow {
+  id: Ulid;
+  firmId: Ulid;
+  clientId: Ulid;
+  version: number;
+  periodStart: string;
+  accountNumber: string;
+  openingBalanceCents: Cents;
+  sourcePeriodStart: string;
+  sourceKind: string;
+  createdByRunId: string | null;
+  createdAt: string;
+  manualOverride: boolean;
+}
+
+/** The claim that a fiscal year was closed to equity. One row per year. */
+export interface ClosingEntryRow {
+  id: Ulid;
+  firmId: Ulid;
+  clientId: Ulid;
+  version: number;
+  fiscalYearStart: string;
+  fiscalYearEnd: string;
+  entryId: Ulid;
+  entryDate: string;
+  entityKind: "for_profit" | "nonprofit";
+  equityAccount: string;
+  closedRevenueCents: Cents;
+  closedExpenseCents: Cents;
+  closedNetCents: Cents;
+  accountCount: number;
+  postedByRunId: string | null;
+  postedAt: string;
+  manualOverride: boolean;
+}
+
 export interface RowMap {
   bank_accounts: BankAccountRow;
   chart_accounts: ChartAccountRow;
@@ -1278,6 +1496,13 @@ export interface RowMap {
   writeoff_proposals: WriteoffProposalRow;
   bills: BillRow;
   vendor_credits: VendorCreditRow;
+  close_periods: ClosePeriodRow;
+  sub_tieouts: SubTieoutRow;
+  substantiation_records: SubstantiationRecordRow;
+  document_requests: DocumentRequestRow;
+  close_gate_results: CloseGateResultRow;
+  opening_balances: OpeningBalanceRow;
+  closing_entries: ClosingEntryRow;
   run_log: RunLogRow;
   run_log_items: RunLogItemRow;
   run_log_events: RunLogEventRow;
@@ -1356,4 +1581,23 @@ export const OVERRIDE_WATCHED_FIELDS: readonly string[] = [
   "openBalanceCents",
   "tieDifferenceCents",
   "authority",
+  /**
+   * Module 6 adds the substantiation and close columns. A person who marked a
+   * tie out as agreeing, changed the owner of a document request, overrode a
+   * gate, or set an opening balance by hand has made a decision, and invariant
+   * 8 says a run may not write over it. The outcome column is on the list
+   * because a gate outcome is the decision itself.
+   */
+  "supportedBalanceCents",
+  "varianceCents",
+  "tied",
+  "state",
+  "outcome",
+  "blockingCount",
+  "owner",
+  "escalation",
+  "escalatesOn",
+  "openingBalanceCents",
+  "status",
+  "equityAccount",
 ];

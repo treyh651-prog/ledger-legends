@@ -220,6 +220,8 @@ export function vendor(
     defaultCategoryVersion: 1,
     isActive: true,
     earlyDiscountRule: null,
+    w9OnFile: true,
+    w9ExpiresOn: null,
     ...extra,
   };
 }
@@ -275,6 +277,11 @@ export function clientPolicy(
     capitalizeOverCents: BigInt(250000),
     grossAtSaleTime: false,
     cleanupEngagement: false,
+    entityKind: "for_profit" as const,
+    retainedEarningsAccount: "3200",
+    netAssetsWithoutRestrictionsAccount: null,
+    netAssetsWithRestrictionsAccount: null,
+    fiscalYearEndMonth: 12,
     ...extra,
   };
 }

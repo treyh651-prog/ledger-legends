@@ -38,6 +38,14 @@ import type {
   LoanScheduleRow,
   ChartAccountRow,
   ClientPolicyRow,
+  ClosePeriodRow,
+  CloseGateResultRow,
+  ClosingEntryRow,
+  DocumentationExceptionRow,
+  DocumentRequestRow,
+  OpeningBalanceRow,
+  SubTieoutRow,
+  SubstantiationRecordRow,
   DocumentLinkRow,
   ImportBatchRow,
   JournalEntryRow,
@@ -456,6 +464,92 @@ export interface QueryCatalog {
     params: { firmId: Ulid; clientId: Ulid };
     row: WriteoffProposalRow;
   };
+  // Doc 02 module 6. Everything below is read by the six close runs.
+
+  /**
+   * The whole chart of one client, account number ascending. Module 6 iterates
+   * the chart rather than a candidate list, because a tie out is a statement
+   * about every substantiated account and an account nobody looked at is the
+   * one that hides the variance.
+   */
+  chart_accounts_for_client: {
+    params: { firmId: Ulid; clientId: Ulid };
+    row: ChartAccountRow;
+  };
+  /** Every period of a client, period start ascending. */
+  close_periods_for_client: {
+    params: { firmId: Ulid; clientId: Ulid };
+    row: ClosePeriodRow;
+  };
+  /** The tie out rows an earlier execution wrote for one period. */
+  sub_tieouts_for_period: {
+    params: { firmId: Ulid; clientId: Ulid; periodStart: string };
+    row: SubTieoutRow;
+  };
+  /** Counts and registers that substantiate an account from outside the books. */
+  substantiation_records_for_period: {
+    params: { firmId: Ulid; clientId: Ulid; periodStart: string };
+    row: SubstantiationRecordRow;
+  };
+  /**
+   * Every document request of a client, not only the open ones. A satisfied
+   * request is what makes a rerun refrain from asking again, so filtering it out
+   * here would make the run repeat itself.
+   */
+  document_requests_for_client: {
+    params: { firmId: Ulid; clientId: Ulid };
+    row: DocumentRequestRow;
+  };
+  /** The gate result set for one period, gate code ascending. */
+  close_gate_results_for_period: {
+    params: { firmId: Ulid; clientId: Ulid; periodStart: string };
+    row: CloseGateResultRow;
+  };
+  opening_balances_for_period: {
+    params: { firmId: Ulid; clientId: Ulid; periodStart: string };
+    row: OpeningBalanceRow;
+  };
+  closing_entries_for_client: {
+    params: { firmId: Ulid; clientId: Ulid };
+    row: ClosingEntryRow;
+  };
+  /**
+   * Reconciliation batches whose period overlaps a window. Gates G02 and G03
+   * read this, and so does the cash tie out, because the statement balance a
+   * batch carries is the substantiation source for a bank account.
+   */
+  rec_batches_in_window: {
+    params: { firmId: Ulid; clientId: Ulid; from: string; to: string };
+    row: RecBatchRow;
+  };
+  /** Every suspense item of a client, withdrawn ones included. */
+  suspense_items_for_client: {
+    params: { firmId: Ulid; clientId: Ulid };
+    row: SuspenseItemRow;
+  };
+  documentation_exceptions_for_client: {
+    params: { firmId: Ulid; clientId: Ulid };
+    row: DocumentationExceptionRow;
+  };
+  /**
+   * Every posted entry of a client, entry date ascending. Gate G14 asks whether
+   * anything is dated inside a locked period, and that question cannot be asked
+   * of one window.
+   */
+  journal_entries_for_client: {
+    params: { firmId: Ulid; clientId: Ulid };
+    row: JournalEntryRow;
+  };
+  /**
+   * Run log rows whose period start matches, ordered by start time. Gate G18
+   * compares the actor who previewed a run against the actor who applied it, so
+   * it needs the log and not the ledger.
+   */
+  run_log_for_period: {
+    params: { firmId: Ulid; clientId: Ulid; periodStart: string };
+    row: RunLogRow;
+  };
+
   /** Bill date ascending then bill id ascending. */
   bills_for_client: {
     params: { firmId: Ulid; clientId: Ulid };
