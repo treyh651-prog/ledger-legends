@@ -45,7 +45,7 @@ export default function FirmOverview() {
     const out: { client: Client; text: string; tone: "watch" | "risk"; href: string }[] = [];
     for (const { client, roll } of rollups) {
       if (roll.needsReview)
-        out.push({ client, text: `${roll.needsReview} transactions waiting on a category`, tone: "watch", href: "/transactions" });
+        out.push({ client, text: `${roll.needsReview} transactions parked in 1990 suspense`, tone: "watch", href: "/transactions" });
       if (roll.unreconciled)
         out.push({ client, text: `${roll.unreconciled} bank account not reconciled for ${fmtPeriod(period)}`, tone: "risk", href: "/reconcile" });
       const subs = substantiationViews(ds, client.id, period).filter((s) => s.status !== "tied");
@@ -86,7 +86,7 @@ export default function FirmOverview() {
           tone={avgProgress > 80 ? "good" : avgProgress > 50 ? "watch" : "risk"}
           testId="kpi-progress"
         />
-        <Kpi label="Waiting on category" value={totals.needsReview} hint="Transactions with no account" tone={totals.needsReview ? "watch" : "good"} testId="kpi-review" />
+        <Kpi label="Waiting in suspense" value={totals.needsReview} hint="Parked in 1990 with a reason code" tone={totals.needsReview ? "watch" : "good"} testId="kpi-review" />
         <Kpi label="Tie out exceptions" value={totals.tieOut} hint={`${totals.openItems} document requests open`} tone={totals.tieOut ? "risk" : "good"} testId="kpi-tieout" />
       </div>
 
@@ -155,7 +155,7 @@ export default function FirmOverview() {
               mobile: "row",
               render: (r) => (
                 <div className="flex flex-wrap gap-1">
-                  {r.roll.needsReview ? <Pill tone="watch">{r.roll.needsReview} to code</Pill> : null}
+                  {r.roll.needsReview ? <Pill tone="watch">{r.roll.needsReview} in suspense</Pill> : null}
                   {r.roll.unreconciled ? <Pill tone="risk">{r.roll.unreconciled} rec open</Pill> : null}
                   {r.roll.tieOutIssues ? <Pill tone="risk">{r.roll.tieOutIssues} tie out</Pill> : null}
                   {r.roll.openItems ? <Pill tone="info">{r.roll.openItems} requests</Pill> : null}

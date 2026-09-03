@@ -261,7 +261,7 @@ function PortalTierBand() {
   const { ds, activeClientId, hasClients } = useApp();
   if (!hasClients) {
     return (
-      <div className="border-b border-border bg-primary/5 px-4 py-2.5">
+      <div className="shrink-0 border-b border-border bg-primary/5 px-4 py-2.5">
         <p className="text-[11px] uppercase tracking-[0.12em] text-muted-foreground">Client portal</p>
         <p className="mt-0.5 text-sm font-medium">No engagement loaded</p>
       </div>
@@ -270,7 +270,7 @@ function PortalTierBand() {
   const client = ds.clients.find((c) => c.id === activeClientId);
   const ent = entitlementFor(ds, activeClientId);
   return (
-    <div className="border-b border-border bg-primary/5 px-4 py-2.5" data-testid="band-portal-tier">
+    <div className="shrink-0 border-b border-border bg-primary/5 px-4 py-2.5" data-testid="band-portal-tier">
       <p className="text-[11px] uppercase tracking-[0.12em] text-muted-foreground">Client portal</p>
       <p className="mt-0.5 truncate text-sm font-medium">{client?.dba}</p>
       <p className="mt-0.5 text-xs text-muted-foreground">{tierMeta(ent.tier).name} service level</p>
@@ -315,13 +315,16 @@ export function AppShell({ children }: { children: ReactNode }) {
       </aside>
 
       <Sheet open={mobileNav} onOpenChange={setMobileNav}>
-        <SheetContent side="left" className="w-[264px] overflow-y-auto p-0">
-          <div className="flex h-14 items-center border-b border-border px-4">
+        {/* Column layout, not a single scrolling box. Scrolling the whole drawer pushed the data source control to roughly 960px, off the bottom of a 812px viewport. Only the nav scrolls now, so the control stays pinned and visible. */}
+        <SheetContent side="left" className="flex w-[264px] flex-col p-0">
+          <div className="flex h-14 shrink-0 items-center border-b border-border px-4">
             <Logo />
           </div>
           {plane === "portal" ? <PortalTierBand /> : null}
-          <NavList onNavigate={() => setMobileNav(false)} />
-          <div className="border-t border-border px-3 py-3">
+          <div className="min-h-0 flex-1 overflow-y-auto" style={{ overscrollBehavior: "contain" }}>
+            <NavList onNavigate={() => setMobileNav(false)} />
+          </div>
+          <div className="shrink-0 border-t border-border px-3 py-3">
             <p className="px-1 pb-1.5 text-[10px] uppercase tracking-[0.12em] text-muted-foreground">Data source</p>
             <Select value={loadMode} onValueChange={(v) => setLoadMode(v as typeof loadMode)}>
               <SelectTrigger className="h-8 text-xs" data-testid="select-loadmode-mobile">

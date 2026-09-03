@@ -71,7 +71,7 @@ export default function PortalOpenPeriod() {
             <Kpi
               label="Still with us"
               value={String(pending.length)}
-              hint="Waiting on a category or a receipt"
+              hint="Held in suspense pending a category or a receipt"
               tone={pending.length > 0 ? "watch" : "good"}
               testId="kpi-portal-open-pending"
             />

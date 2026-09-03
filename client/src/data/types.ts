@@ -164,6 +164,10 @@ export interface Txn {
   ruleId?: string;
   isMirror?: boolean;
   memo?: string;
+  /** Doc 00 Part 4 reason code, required while the amount sits in account 1990. */
+  suspenseReason?: string;
+  /** Date the item was parked in suspense, used for the escalation clock. */
+  suspenseOpenedOn?: string;
 }
 
 export interface Rule {

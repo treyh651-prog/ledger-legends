@@ -5,7 +5,9 @@ import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { DataGrid, EmptyState, Kpi, Meter, PageHeader, Pill, SectionCard } from "@/components/kit";
 import { useApp } from "@/store";
-import { balanceSheet, clientRollup, reconSummary, substantiationViews, trialBalance } from "@/data/derive";
+import { balanceSheet, clientRollup, netBalances, reconSummary, substantiationViews, trialBalance } from "@/data/derive";
+import { acctLabel, G01_ACCOUNT_IDS, SUSPENSE_ACCOUNT_ID } from "@/data/coa";
+import { suspenseReasonLabel } from "@/data/suspense";
 import { SCOPE_LABELS, TASK_STATUSES } from "@/data/labels";
 import { fmtPeriod, usd } from "@/lib/money";
 import { TODAY } from "@/data/seed";
@@ -24,8 +26,25 @@ export default function CloseChecklist() {
   const needsReview = ds.txns.filter((t) => t.clientId === activeClientId && t.status === "needs_review").length;
   const openRequests = ds.openItems.filter((o) => o.clientId === activeClientId && o.status !== "accepted").length;
 
+  // Gate G01, doc 00 Part 5. Clearing and suspense have to be flat before a period closes.
+  const netsThrough = useMemo(() => netBalances(ds, activeClientId, { through: period }), [ds, activeClientId, period]);
+  const suspenseBalance = netsThrough[SUSPENSE_ACCOUNT_ID] || 0;
+  const clearingOffenders = G01_ACCOUNT_IDS.filter((id) => (netsThrough[id] || 0) !== 0);
+  const suspenseRows = ds.txns.filter(
+    (t) => t.clientId === activeClientId && t.period === period && t.categoryAccountId === SUSPENSE_ACCOUNT_ID,
+  );
+
   const gates = [
-    { label: "Every transaction has a category", ok: needsReview === 0, detail: needsReview ? `${needsReview} rows still sitting in review` : "Nothing in the review queue", href: "/transactions" },
+    {
+      label: "G01 clearing and suspense sit at zero",
+      ok: clearingOffenders.length === 0,
+      detail: clearingOffenders.length
+        ? `${usd(suspenseBalance)} is parked in 1990 Suspense and ${clearingOffenders.length === 1 ? "that account blocks" : `${clearingOffenders.length} clearing accounts block`} the close: ${clearingOffenders.map((id) => `${acctLabel(id)} at ${usd(netsThrough[id] || 0)}`).join(", ")}`
+        : "Accounts 1910, 1920, 1930, and 1990 are all flat, so nothing unresolved carries into the close",
+      href: "/transactions",
+      testId: "gate-g01",
+    },
+    { label: "Every transaction is coded out of suspense", testId: "gate-review", ok: needsReview === 0, detail: needsReview ? `${needsReview} rows are still waiting in 1990 Suspense with a reason code` : "Nothing is waiting in suspense", href: "/transactions" },
     {
       label: "Every account reconciles to zero",
       ok: banks.every((b) => reconSummary(ds, activeClientId, b.id, period).difference === 0),
@@ -88,7 +107,7 @@ export default function CloseChecklist() {
                 <p className="mt-0.5 text-xs text-muted-foreground">{g.detail}</p>
               </div>
               {!g.ok ? (
-                <Button size="sm" variant="ghost" className="h-7 shrink-0 px-2" onClick={() => navigate(g.href)} data-testid={`button-gate-${g.href.slice(1)}`}>
+                <Button size="sm" variant="ghost" className="h-7 shrink-0 px-2" onClick={() => navigate(g.href)} data-testid={`button-${g.testId || `gate-${g.href.slice(1)}`}`}>
                   Fix
                   <ArrowUpRight className="ml-1 h-3.5 w-3.5" />
                 </Button>
@@ -98,6 +117,42 @@ export default function CloseChecklist() {
             </li>
           ))}
         </ul>
+      </SectionCard>
+
+      <SectionCard
+        title="What is parked in 1990 Suspense"
+        description="Gate G01 holds the close until this balance is zero. Every line carries a reason code from the conventions doc."
+        bodyClassName="p-0"
+        testId="card-suspense-g01"
+      >
+        <div className="flex flex-wrap items-baseline justify-between gap-2 border-b border-border px-4 py-3">
+          <p className="text-sm font-medium">Balance in {acctLabel(SUSPENSE_ACCOUNT_ID)}</p>
+          <div className="flex items-center gap-2">
+            <span className="tnum text-sm font-semibold" data-testid="text-suspense-balance">{usd(suspenseBalance)}</span>
+            {suspenseBalance === 0 ? (
+              <Pill tone="good" testId="pill-g01">G01 clear</Pill>
+            ) : (
+              <Pill tone="risk" testId="pill-g01">G01 blocks the close</Pill>
+            )}
+          </div>
+        </div>
+        {suspenseRows.length ? (
+          <ul className="divide-y divide-border">
+            {suspenseRows.map((t) => (
+              <li key={t.id} className="flex flex-col gap-1 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-medium">{t.description}</p>
+                  <p className="mt-0.5 text-xs text-muted-foreground" data-testid={`text-g01-reason-${t.id}`}>
+                    {suspenseReasonLabel(t.suspenseReason)}
+                  </p>
+                </div>
+                <span className="tnum shrink-0 text-sm">{usd(t.baseAmountCents)}</span>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="px-4 py-3 text-xs text-muted-foreground">Nothing is parked in suspense for {fmtPeriod(period)}.</p>
+        )}
       </SectionCard>
 
       <SectionCard

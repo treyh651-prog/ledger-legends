@@ -65,7 +65,7 @@ export default function ClientBook() {
         <Kpi
           label="Open work"
           value={roll.tasksOpen}
-          hint={`${roll.openItems} client requests, ${roll.needsReview} to code`}
+          hint={`${roll.openItems} client requests, ${roll.needsReview} in suspense`}
           tone={roll.tasksOverdue ? "risk" : roll.tasksOpen ? "watch" : "good"}
           testId="kpi-client-work"
         />

@@ -103,7 +103,7 @@ export default function Rules() {
             "An exact vendor match on an active rule wins first and posts with full confidence.",
             "A description match on an active rule comes next and carries the rule name into the audit trail.",
             "If no rule fires, the engine looks at how the same vendor was coded in the last six months and offers that as a suggestion.",
-            "Anything still unmatched lands in Uncategorized expense so it shows up on the review list instead of quietly hiding in the statements.",
+            "Anything still unmatched is parked in 1990 Suspense on the balance sheet with a reason code, so it shows up on the review list and blocks the close instead of quietly reducing profit.",
           ].map((t, i) => (
             <li key={i} className="flex gap-3">
               <span className="tnum mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-sm bg-muted text-xs font-medium">{i + 1}</span>

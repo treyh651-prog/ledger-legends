@@ -1,4 +1,4 @@
-import { acct } from "./coa";
+import { acct, SUSPENSE_ACCOUNT_ID } from "./coa";
 import type {
   AuditRow,
   BankAccount,
@@ -540,7 +540,7 @@ const SCOPE_TASKS: Record<string, { title: string; hours: number }[]> = {
   ],
   cleanup: [
     { title: "Rebuild prior period transaction coding", hours: 6 },
-    { title: "Clear suspense and uncategorized balances", hours: 3 },
+    { title: "Clear account 1990 suspense to zero for gate G01", hours: 3 },
   ],
 };
 
@@ -655,6 +655,8 @@ export function buildDataset(): Dataset {
     memo?: string;
     ruleId?: string;
     cleared?: boolean;
+    suspenseReason?: string;
+    suspenseOpenedOn?: string;
   }
 
   function txn(a: TxnArgs): Txn {
@@ -703,6 +705,8 @@ export function buildDataset(): Dataset {
       isMirror: a.isMirror,
       memo: a.memo,
       ruleId: a.ruleId,
+      suspenseReason: a.suspenseReason,
+      suspenseOpenedOn: a.suspenseOpenedOn,
     };
     ds.txns.push(t);
     return t;
@@ -880,7 +884,12 @@ export function buildDataset(): Dataset {
         txn({
           clientId: c.id, date: dayOf(period, 6 + k * 4), description: shown.desc, vendor: shown.vendor,
           amountCents: -shownAmt, bankAccountId: card.id, glAccountId: "2010",
-          categoryAccountId: needsReview ? "6900" : cv.account,
+          // Level 9 of the coding cascade. The vendor is recognized but the purpose is
+          // not, so the amount waits in 1990 on the balance sheet with SUS-03 rather
+          // than landing in an expense account nobody questions.
+          categoryAccountId: needsReview ? SUSPENSE_ACCOUNT_ID : cv.account,
+          suspenseReason: needsReview ? "SUS-03" : undefined,
+          suspenseOpenedOn: needsReview ? dayOf(period, 6 + k * 4) : undefined,
           suggestedAccountId: needsReview ? shown.account : undefined,
           suggestionReason: needsReview ? `Matches ${shown.vendor} history on this card` : undefined,
           confidence: needsReview ? ri(71, 94) : 0,
@@ -1116,9 +1125,10 @@ export function buildDataset(): Dataset {
         const guess = pick(p.cardVendors);
         txn({
           clientId: c.id, date: dayOf(period, 16), description: "SQ *UNKNOWN MERCHANT 4021", vendor: "Unidentified",
-          amountCents: -ri(18400, 74200), bankAccountId: checking.id, glAccountId: "1010", categoryAccountId: "6900",
+          amountCents: -ri(18400, 74200), bankAccountId: checking.id, glAccountId: "1010", categoryAccountId: SUSPENSE_ACCOUNT_ID,
           suggestedAccountId: guess.account, suggestionReason: "Description pattern is close to prior supply purchases",
           confidence: ri(52, 68), status: "needs_review",
+          suspenseReason: "SUS-01", suspenseOpenedOn: dayOf(period, 16),
           klass: klassMain, location: loc, job: genJob, cleared: false,
         });
       }
@@ -1264,7 +1274,7 @@ export function buildDataset(): Dataset {
   const openSeed: Omit<OpenItem, "id">[] = [
     { clientId: "bramble", accountId: "2010", period: "2026-07", title: "July card statement for Roastery card 8842", detail: "The July PDF is not in the portal yet, so the card cannot be reconciled.", docType: "Credit card statement", requestedFrom: "Nora Bramble", dueDate: "2026-08-18", status: "not_started", documentIds: [] },
     { clientId: "bramble", accountId: "1150", period: "2026-07", title: "Green coffee count sheet backup", detail: "The count came in below the ledger by 1,847.25. Send the tally sheet so the adjustment can be supported.", docType: "Other", requestedFrom: "Isaac Bean", dueDate: "2026-08-19", status: "under_review", documentIds: [], amountCents: 184725 },
-    { clientId: "bramble", period: "2026-07", title: "Receipt for the unknown Square charge on July 16", detail: "One checking charge is sitting in Uncategorized Expense until there is a receipt.", docType: "Receipt", requestedFrom: "Devon Ruiz", dueDate: "2026-08-17", status: "uploaded", documentIds: [] },
+    { clientId: "bramble", period: "2026-07", title: "Receipt for the unknown Square charge on July 16", detail: "One checking charge is parked in 1990 Suspense under SUS-01 unknown vendor, money out, until there is a receipt.", docType: "Receipt", requestedFrom: "Devon Ruiz", dueDate: "2026-08-17", status: "uploaded", documentIds: [] },
     { clientId: "bramble", period: "2026-07", title: "W-9 for Cedar Freight Lines", detail: "Payments crossed the 1099 threshold and there is no W-9 on file.", docType: "W-9", requestedFrom: "Nora Bramble", dueDate: "2026-08-22", status: "not_started", documentIds: [] },
     { clientId: "northgate", accountId: "1010", period: "2026-07", title: "July operating statement for checking 7712", detail: "The bank feed dropped on July 24 and the statement is needed to finish the reconciliation.", docType: "Bank statement", requestedFrom: "Alicia Fenn", dueDate: "2026-08-16", status: "uploaded", documentIds: [] },
     { clientId: "northgate", period: "2026-07", title: "Signed change order for the Vista Apartments job", detail: "Billing exceeds the original contract value by 18,400.00 and needs the change order for support.", docType: "Other", requestedFrom: "Marcus Keel", dueDate: "2026-08-20", status: "rejected", rejectionReason: "The file uploaded was the unsigned draft copy.", documentIds: [] },
@@ -1454,7 +1464,8 @@ export function buildDataset(): Dataset {
   const spread = [104, 96, 112, 91, 100, 108, 94, 87, 103];
   Object.entries(actualByKey).forEach(([key, actual], i) => {
     const [clientId, accountId, period] = key.split("|");
-    if (accountId === "6900") return;
+    // Suspense is a balance sheet holding account, so it is never budgeted.
+    if (accountId === SUSPENSE_ACCOUNT_ID) return;
     const factor = spread[(i + accountId.charCodeAt(3)) % spread.length];
     ds.budgets.push({
       clientId,

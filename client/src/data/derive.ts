@@ -184,7 +184,9 @@ export function balanceSheet(ds: Dataset, clientId: string, period: string): Bal
     return { key, label, rows, total: rows.reduce((s, r) => s + r.amount, 0) };
   };
   const assetGroups = [
-    group("current_assets", "Current assets", ["Cash and equivalents", "Receivables", "Inventory", "Other current assets"], "asset"),
+    // Keep this list in step with BS_SECTIONS in coa.ts. The clearing and suspense
+    // block sits in current assets, which is where an unresolved amount belongs.
+    group("current_assets", "Current assets", ["Cash and equivalents", "Clearing and suspense", "Receivables", "Inventory", "Other current assets"], "asset"),
     group("fixed_assets", "Property and equipment", ["Fixed assets"], "asset"),
   ];
   const liabilityGroups = [
@@ -638,7 +640,7 @@ export function monthlyNarrative(ds: Dataset, clientId: string, period = CURRENT
   if (varianceSubs.length) flags.push(`${varianceSubs[0].accountName} has an unexplained variance of ${fmt(varianceSubs[0].varianceCents)}`);
   if (unsupported.length) flags.push(`${unsupported.length} balance sheet account${unsupported.length > 1 ? "s" : ""} still need support`);
   const review = ds.txns.filter((t) => t.clientId === clientId && t.status === "needs_review").length;
-  if (review) flags.push(`${review} transaction${review > 1 ? "s" : ""} waiting on categorization`);
+  if (review) flags.push(`${review} transaction${review > 1 ? "s" : ""} parked in 1990 suspense`);
   const missingW9 = vendorViews(ds, clientId).filter((v) => v.reportable && !v.w9OnFile).length;
   if (missingW9) flags.push(`${missingW9} reportable vendor${missingW9 > 1 ? "s" : ""} without a W-9 on file`);
   const openReq = ds.openItems.filter((o) => o.clientId === clientId && o.status !== "accepted").length;

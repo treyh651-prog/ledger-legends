@@ -14,6 +14,7 @@ import {
   netBalances,
 } from "../client/src/data/derive";
 import { acct } from "../client/src/data/coa";
+import { SUSPENSE_REASON_BY_CODE } from "../client/src/data/suspense";
 
 const ds = buildDataset();
 let fail = 0;
@@ -71,8 +72,23 @@ for (const c of ds.clients) {
   if (fc.length !== 13) bad(`${c.id} forecast weeks ${fc.length}`);
   const nar = monthlyNarrative(ds, c.id);
   if (nar.length < 5) bad(`${c.id} narrative points ${nar.length}`);
-  const suspense = nets["6900"] || 0;
+  const suspense = nets["1990"] || 0;
   console.log(`  suspense balance ${c.id}: ${(suspense / 100).toFixed(2)}, needs review txns ${ds.txns.filter((t) => t.clientId === c.id && t.status === "needs_review").length}`);
+  // Doc 00 Part 1. Suspense is an asset on the balance sheet, never an expense.
+  const suspenseAcct = acct("1990");
+  if (!suspenseAcct || suspenseAcct.type !== "asset" || !suspenseAcct.suspense) bad("1990 must be the asset suspense account");
+  if (acct("6900")) bad("6900 uncategorized expense must not exist");
+  for (const id of ["1900", "1910", "1920", "1930"]) if (!acct(id)) bad(`clearing account ${id} missing from the chart`);
+  // Every amount parked in suspense carries a reason code from doc 00 Part 4.
+  for (const t of ds.txns.filter((t) => t.clientId === c.id && t.categoryAccountId === "1990")) {
+    if (!t.suspenseReason) bad(`${t.id} sits in suspense with no reason code`);
+    else if (!SUSPENSE_REASON_BY_CODE[t.suspenseReason]) bad(`${t.id} has unknown suspense reason ${t.suspenseReason}`);
+    if (!t.suspenseOpenedOn) bad(`${t.id} sits in suspense with no opened date`);
+  }
+  // No transaction may point at an expense account for unresolved work.
+  for (const t of ds.txns.filter((t) => t.clientId === c.id && t.status === "needs_review")) {
+    if (t.categoryAccountId !== "1990") bad(`${t.id} needs review but is coded to ${t.categoryAccountId}`);
+  }
 }
 
 // Sanity: no account outside the chart

@@ -201,7 +201,7 @@ export function openPeriodFact(ds: Dataset, clientId: string): TruthfulFact {
     supporting: [
       { label: "Money in so far", cents: inflow, tone: "good" },
       { label: "Money out so far", cents: outflow, tone: "watch" },
-      { label: "Still waiting on a category or a receipt", count: uncategorized, tone: uncategorized > 0 ? "watch" : "good" },
+      { label: "Still held in suspense pending a category or a receipt", count: uncategorized, tone: uncategorized > 0 ? "watch" : "good" },
     ],
     lockedDetail: "The draft profit and loss, balance sheet, and cash position for " + open + " before it closes.",
     basis: "Counted from your own transactions dated inside " + open + ".",

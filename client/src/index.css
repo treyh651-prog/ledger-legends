@@ -100,7 +100,8 @@
     from hsl(var(--destructive)) h s calc(l + var(--opaque-button-border-intensity)) / alpha
   );
 
-  --warning: 32 90% 40%;
+  /* Darkened from 40% to 30% lightness. At 40% the warning text sat at 3.44 to 1 on warning-soft, below the 4.5 to 1 floor. At 30% it reads 5.52 on warning-soft and 6.19 on card, and white still reads 6.19 on the solid fill. */
+  --warning: 32 90% 30%;
   --warning-foreground: 0 0% 100%;
   --warning-soft: 40 92% 92%;
   --positive: 160 60% 28%;
@@ -138,8 +139,9 @@
   --muted-foreground: 214 14% 68%;
   --accent: 215 20% 17%;
   --accent-foreground: 210 22% 96%;
-  --destructive: 352 66% 52%;
-  --destructive-foreground: 0 0% 100%;
+  /* Lightened from 52% to 68% lightness. At 52% a negative money value read 3.64 to 1 on card and 3.16 to 1 inside a danger soft pill, both below the 4.5 to 1 floor. At 68% it reads 6.01 on card, 5.02 on muted and 5.21 on danger soft. The paired foreground moves to the near black already used by warning-foreground in this theme so a solid destructive button still reads 6.46 to 1. */
+  --destructive: 352 66% 68%;
+  --destructive-foreground: 215 40% 8%;
   --input: 215 16% 32%;
   --ring: 174 56% 42%;
   --chart-1: 174 56% 46%;

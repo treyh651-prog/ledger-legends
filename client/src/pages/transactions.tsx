@@ -9,12 +9,23 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { useToast } from "@/hooks/use-toast";
 import { DataGrid, EmptyState, Kpi, Money, PageHeader, Pill, SectionCard } from "@/components/kit";
 import { useApp } from "@/store";
-import { ACCOUNTS, acct } from "@/data/coa";
+import { ACCOUNTS, acct, SUSPENSE_ACCOUNT_ID } from "@/data/coa";
+import { suspenseReason, suspenseReasonLabel } from "@/data/suspense";
 import { netBalances } from "@/data/derive";
 import { fmtPeriod, fmtShortDate, usd } from "@/lib/money";
 import type { Txn } from "@/data/types";
 
-const CATEGORY_CHOICES = ACCOUNTS.filter((a) => a.type === "expense" || a.type === "revenue" || a.subtype === "Other current assets" || a.subtype === "Inventory");
+// 1990 Suspense is in the list on purpose. An item that cannot be resolved has to be
+// parkable somewhere the balance sheet shows it, and every row already sitting there
+// needs a value the picker can render.
+const CATEGORY_CHOICES = ACCOUNTS.filter(
+  (a) =>
+    a.type === "expense" ||
+    a.type === "revenue" ||
+    a.subtype === "Other current assets" ||
+    a.subtype === "Inventory" ||
+    a.subtype === "Clearing and suspense",
+);
 
 export default function Transactions() {
   const { ds, activeClient, activeClientId, period, loading, loadError, reload, categorize, acceptSuggestion, rejectSuggestion, excludeTxns, createRuleFromTxn } = useApp();
@@ -52,7 +63,7 @@ export default function Transactions() {
   }, [ds, activeClientId, period, scope, status, bank, klass, q]);
 
   const needsReview = ds.txns.filter((t) => t.clientId === activeClientId && t.status === "needs_review");
-  const suspense = netBalances(ds, activeClientId, { through: period })["6900"] || 0;
+  const suspense = netBalances(ds, activeClientId, { through: period })[SUSPENSE_ACCOUNT_ID] || 0;
   const allSelected = rows.length > 0 && selected.length === rows.length;
 
   const bankName = (id: string) => banks.find((b) => b.id === id)?.nickname || id;
@@ -72,19 +83,19 @@ export default function Transactions() {
             }}
             data-testid="button-jump-review"
           >
-            Show what needs a category
+            Show what is waiting in suspense
           </Button>
         }
       />
 
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <Kpi label="Rows in view" value={rows.length} hint={scope === "period" ? fmtPeriod(period) : "All periods"} testId="kpi-rows" />
-        <Kpi label="Waiting on a category" value={needsReview.length} tone={needsReview.length ? "watch" : "good"} hint="Across every period" testId="kpi-needsreview" />
+        <Kpi label="Waiting in suspense" value={needsReview.length} tone={needsReview.length ? "watch" : "good"} hint="Across every period" testId="kpi-needsreview" />
         <Kpi
           label="Sitting in suspense"
           value={usd(suspense)}
           tone={suspense ? "risk" : "good"}
-          hint="Uncategorized expense, account 6900"
+          hint="Account 1990 Suspense, an asset. Gate G01 holds the close until it is zero."
           testId="kpi-suspense"
         />
         <Kpi label="Money in view" value={usd(rows.reduce((s, t) => s + t.baseAmountCents, 0))} hint="Net of the filtered rows" testId="kpi-net" />
@@ -105,7 +116,18 @@ export default function Transactions() {
                     <p className="truncate text-sm font-medium">{t.description}</p>
                     <span className="tnum text-sm text-muted-foreground">{usd(t.baseAmountCents)}</span>
                     <Pill tone="watch">{fmtShortDate(t.date)}</Pill>
+                    {t.categoryAccountId === SUSPENSE_ACCOUNT_ID ? (
+                      <Pill tone="risk" testId={`pill-suspense-${t.id}`}>{suspenseReasonLabel(t.suspenseReason)}</Pill>
+                    ) : null}
                   </div>
+                  {t.categoryAccountId === SUSPENSE_ACCOUNT_ID ? (
+                    <p className="mt-1 text-xs text-muted-foreground" data-testid={`text-suspense-owner-${t.id}`}>
+                      Held in 1990 Suspense since {fmtShortDate(t.suspenseOpenedOn || t.date)}.{" "}
+                      {suspenseReason(t.suspenseReason)
+                        ? `${suspenseReason(t.suspenseReason)!.owner} owns it: ${suspenseReason(t.suspenseReason)!.resolution.charAt(0).toLowerCase()}${suspenseReason(t.suspenseReason)!.resolution.slice(1)}.`
+                        : "No reason code on file, which doc 00 does not allow."}
+                    </p>
+                  ) : null}
                   <p className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground">
                     <Sparkles className="h-3.5 w-3.5 shrink-0 text-primary" />
                     {t.suggestedAccountId ? (
@@ -142,7 +164,7 @@ export default function Transactions() {
                     variant="ghost"
                     onClick={() => {
                       setRuleFor(t);
-                      setRuleName(`${t.vendor} to ${acct(t.suggestedAccountId || "6900").name}`);
+                      setRuleName(`${t.vendor} to ${acct(t.suggestedAccountId || SUSPENSE_ACCOUNT_ID).name}`);
                       setRuleAccount(t.suggestedAccountId || "");
                     }}
                     data-testid={`button-makerule-${t.id}`}
@@ -174,7 +196,7 @@ export default function Transactions() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">Every status</SelectItem>
-                <SelectItem value="needs_review">Needs a category</SelectItem>
+                <SelectItem value="needs_review">Waiting in suspense</SelectItem>
                 <SelectItem value="categorized">Categorized</SelectItem>
                 <SelectItem value="excluded">Excluded</SelectItem>
               </SelectContent>
@@ -410,7 +432,10 @@ export default function Transactions() {
               mobile: "row",
               render: (t) => (
                 <div className="flex flex-wrap items-center justify-end gap-1">
-                  {t.status === "needs_review" ? <Pill tone="watch">Needs a category</Pill> : null}
+                  {t.status === "needs_review" ? <Pill tone="watch">Waiting in suspense</Pill> : null}
+                  {t.categoryAccountId === SUSPENSE_ACCOUNT_ID && t.suspenseReason ? (
+                    <Pill tone="risk" testId={`pill-suspense-code-${t.id}`}>{t.suspenseReason}</Pill>
+                  ) : null}
                   {t.status === "excluded" ? <Pill>Excluded</Pill> : null}
                   {t.status === "categorized" ? <Pill tone="good">Coded</Pill> : null}
                   {t.cleared ? <Pill tone="info">Cleared</Pill> : null}

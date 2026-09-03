@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import type { ReactNode } from "react";
 import { CURRENT_PERIOD, datasetForMode, tasksForScope, TODAY } from "./data/seed";
 import type { DataMode, Dataset } from "./data/seed";
+import { SUSPENSE_ACCOUNT_ID } from "./data/coa";
 import type {
   AuditAction,
   Client,
@@ -322,8 +323,20 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (tags?.klass) txn.klass = tags.klass;
     if (tags?.location) txn.location = tags.location;
     if (tags?.job) txn.job = tags.job;
-    txn.status = "categorized";
-    txn.confidence = 100;
+    if (accountId === SUSPENSE_ACCOUNT_ID) {
+      // Moving something back into 1990 keeps it unresolved, so it keeps a reason code
+      // and the close gate keeps seeing it.
+      txn.status = "needs_review";
+      txn.confidence = 0;
+      txn.suspenseReason = txn.suspenseReason || "SUS-03";
+      txn.suspenseOpenedOn = txn.suspenseOpenedOn || txn.date;
+    } else {
+      txn.status = "categorized";
+      txn.confidence = 100;
+      // Out of suspense means the reason code no longer applies.
+      txn.suspenseReason = undefined;
+      txn.suspenseOpenedOn = undefined;
+    }
     if (!je || je.lines.length !== 2) return;
     const bankLine = je.lines.find((l) => l.accountId === txn.glAccountId);
     const other = je.lines.find((l) => l !== bankLine);

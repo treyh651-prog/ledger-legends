@@ -11,6 +11,14 @@ export const ACCOUNTS: Account[] = [
   { id: "1200", code: "1200", name: "Prepaid Expenses", type: "asset", subtype: "Other current assets" },
   { id: "1500", code: "1500", name: "Equipment and Fixtures", type: "asset", subtype: "Fixed assets" },
   { id: "1510", code: "1510", name: "Accumulated Depreciation", type: "asset", subtype: "Fixed assets", contra: true },
+  // Clearing and suspense block, doc 00 Part 1. These are balance sheet holding
+  // accounts. Work that is not resolved waits here where the close can see it,
+  // never in an expense account where it would quietly reduce net income.
+  { id: "1900", code: "1900", name: "Undeposited Funds", type: "asset", subtype: "Clearing and suspense" },
+  { id: "1910", code: "1910", name: "Payment Processor Clearing", type: "asset", subtype: "Clearing and suspense" },
+  { id: "1920", code: "1920", name: "Transfer Clearing", type: "asset", subtype: "Clearing and suspense" },
+  { id: "1930", code: "1930", name: "Payroll Clearing", type: "asset", subtype: "Clearing and suspense" },
+  { id: "1990", code: "1990", name: "Suspense", type: "asset", subtype: "Clearing and suspense", suspense: true },
   { id: "2010", code: "2010", name: "Business Credit Card", type: "liability", subtype: "Current liabilities" },
   { id: "2100", code: "2100", name: "Accounts Payable", type: "liability", subtype: "Current liabilities" },
   { id: "2200", code: "2200", name: "Sales Tax Payable", type: "liability", subtype: "Current liabilities" },
@@ -43,9 +51,14 @@ export const ACCOUNTS: Account[] = [
   { id: "6210", code: "6210", name: "Meals", type: "expense", subtype: "Operating expenses" },
   { id: "6220", code: "6220", name: "Travel", type: "expense", subtype: "Operating expenses" },
   { id: "6300", code: "6300", name: "Depreciation", type: "expense", subtype: "Operating expenses" },
-  { id: "6900", code: "6900", name: "Uncategorized Expense", type: "expense", subtype: "Operating expenses", suspense: true },
   { id: "7000", code: "7000", name: "Interest Expense", type: "expense", subtype: "Other expense" },
 ];
+
+// The one suspense account. Doc 00 puts unresolved work in 1990 on the balance sheet.
+export const SUSPENSE_ACCOUNT_ID = "1990";
+
+// Accounts gate G01 requires at zero before a period can close.
+export const G01_ACCOUNT_IDS = ["1910", "1920", "1930", "1990"];
 
 export const ACCOUNT_BY_ID: Record<string, Account> = Object.fromEntries(
   ACCOUNTS.map((a) => [a.id, a]),
@@ -65,6 +78,11 @@ export const CASH_FLOW_CLASS: Record<string, "operating" | "investing" | "financ
   "1100": "operating",
   "1150": "operating",
   "1200": "operating",
+  "1900": "operating",
+  "1910": "operating",
+  "1920": "operating",
+  "1930": "operating",
+  "1990": "operating",
   "1500": "investing",
   "1510": "investing",
   "2010": "operating",
@@ -85,7 +103,7 @@ export function cashFlowClass(accountId: string): "operating" | "investing" | "f
 }
 
 export const BS_SECTIONS: { key: string; label: string; subtypes: string[] }[] = [
-  { key: "current_assets", label: "Current assets", subtypes: ["Cash and equivalents", "Receivables", "Inventory", "Other current assets"] },
+  { key: "current_assets", label: "Current assets", subtypes: ["Cash and equivalents", "Clearing and suspense", "Receivables", "Inventory", "Other current assets"] },
   { key: "fixed_assets", label: "Fixed assets", subtypes: ["Fixed assets"] },
   { key: "current_liabilities", label: "Current liabilities", subtypes: ["Current liabilities"] },
   { key: "long_term", label: "Long term liabilities", subtypes: ["Long term liabilities"] },
