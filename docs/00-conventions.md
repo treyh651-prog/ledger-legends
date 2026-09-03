@@ -187,7 +187,7 @@ Client owned codes generate portal requests. That is the bridge between the acco
 
 ## Part 5. Close gates
 
-The current build has six gates. This is the full set. Gates marked conditional only apply when the named item is in the client's engagement scope, which the intake wizard already captures.
+The current build has six gates. This is the full set. Document 05 added G18 and G19 and restated the source for G11. Gates marked conditional only apply when the named item is in the client's engagement scope, which the intake wizard already captures.
 
 | Gate | Assertion | Conditional on |
 |---|---|---|
@@ -201,13 +201,15 @@ The current build has six gates. This is the full set. Gates marked conditional 
 | G08 | 1900 undeposited funds agrees to the deposits in transit list | If undeposited funds is used |
 | G09 | Inventory subledger equals the inventory control account | Inventory in scope |
 | G10 | Sales tax payable agrees to the filed or computed return | Sales tax in scope |
-| G11 | Payroll liabilities agree to the payroll provider report | Payroll in scope |
+| G11 | Payroll liabilities agree to the linked payroll provider register in the vault | Payroll in scope |
 | G12 | Depreciation and amortization have been run for the period | Fixed asset register in scope |
 | G13 | Prepaid releases and accruals for the period are posted | Prepaid or accrual schedules exist |
 | G14 | Due to and due from related parties net to zero across the group | Related entities in scope |
 | G15 | No account has a balance on the wrong side of its normal side without a stated reason | Always |
 | G16 | Net assets with donor restrictions reconciles, and functional expense allocation is applied | Nonprofit only |
 | G17 | Every client document request older than its escalation age is satisfied or explicitly waived | Always |
+| G18 | The person approving the close is not the person who prepared it | Always |
+| G19 | Every line marked as a cash effect carries a cash event date that does not fall in a period locked ahead of it | Reporting basis is cash or both |
 
 ### Gate behavior
 
