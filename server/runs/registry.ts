@@ -13,6 +13,12 @@
 
 import type { Proposal, Run } from "./contract";
 import { importCommitBatch } from "./runs/import-commit-batch";
+import { perAmortizePrepaids } from "./runs/per-amortize-prepaids";
+import { perPostAccruals } from "./runs/per-post-accruals";
+import { perPostDepreciation } from "./runs/per-post-depreciation";
+import { perPostRecurring } from "./runs/per-post-recurring";
+import { perReverseAccruals } from "./runs/per-reverse-accruals";
+import { perSplitLoan } from "./runs/per-split-loan";
 import { importParseFeed } from "./runs/import-parse-feed";
 import { recClearMatched } from "./runs/rec-clear-matched";
 import { recFlagStale } from "./runs/rec-flag-stale";
@@ -62,6 +68,42 @@ export const registry: readonly RegistryEntry[] = [
   entry(recMatchTiered),
   entry(recClearMatched),
   entry(recFlagStale),
+  // Module 4 period end, in the order doc 02 requires. Reversal comes first
+  // because it belongs to the period being opened and clears last period's
+  // accruals off the books before anything is added to this one.
+  entry(perReverseAccruals),
+  entry(perPostRecurring),
+  entry(perAmortizePrepaids),
+  entry(perSplitLoan),
+  entry(perPostAccruals),
+  entry(perPostDepreciation),
+];
+
+/**
+ * Module 4 execution order.
+ *
+ * Reversal runs first. It undoes the accruals the previous period posted, and
+ * running it after this period's accruals would leave two periods of the same
+ * obligation on the books at once while the rest of the module computed against
+ * them.
+ *
+ * Recurring, prepaids, and the loan split come next in any order among
+ * themselves, since none reads what another writes. They are listed in the
+ * order doc 02 lists them.
+ *
+ * Accruals run after the loan split so that the interest the split posted is
+ * already on the books when the double count guard looks for it.
+ *
+ * Depreciation runs last because it is the one step that reads no other
+ * subledger and produces no input for anything else in the module.
+ */
+export const PERIOD_END_ORDER: readonly string[] = [
+  "PER-REVERSE-ACCRUALS",
+  "PER-POST-RECURRING",
+  "PER-AMORTIZE-PREPAID",
+  "PER-SPLIT-LOANPAYMENT",
+  "PER-POST-ACCRUALS",
+  "PER-POST-DEPRECIATION",
 ];
 
 /**

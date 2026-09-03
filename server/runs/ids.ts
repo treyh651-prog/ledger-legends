@@ -176,12 +176,26 @@ export function idempotencyKeyFor(args: {
 export function scopeHashFor(args: {
   candidateIds: readonly string[];
   versions: readonly { id: string; version: number }[];
+  /**
+   * An optional discriminator for a run whose candidate set does not name the
+   * work on its own. The period end runs need it: two months usually see the
+   * same rows at the same versions, and a hash that cannot tell the months
+   * apart would let the second month key to the first and be deduplicated.
+   *
+   * It is left out of the hashed object entirely when it is absent, so every
+   * hash a run computed before this argument existed is unchanged.
+   */
+  period?: string;
 }): string {
   const versions = args.versions
     .slice()
     .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : a.version - b.version));
   return sha256Hex(
-    canonicalJson({ candidateIds: args.candidateIds, versions }),
+    canonicalJson({
+      candidateIds: args.candidateIds,
+      versions,
+      ...(args.period === undefined ? {} : { period: args.period }),
+    }),
   );
 }
 

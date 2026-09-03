@@ -166,6 +166,13 @@ export function template(
     dayWindow: 5,
     splitMode: "single",
     isActive: true,
+    cadence: null,
+    startDate: null,
+    endDate: null,
+    postingDateRule: "period_end",
+    driverAmountCents: null,
+    entryMemoTemplate: null,
+    manualOverride: false,
     ...extra,
   };
 }

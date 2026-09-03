@@ -299,6 +299,20 @@ export interface JournalEntryRow {
   reversalOf: Ulid | null;
   reversedByEntryId: Ulid | null;
   redatedFromLockedPeriod: string | null;
+  /**
+   * Migration 0013. The day an auto reversing accrual undoes itself, which is
+   * the first day of the following period. Null on every entry that is not an
+   * accrual, and PER-REVERSE-ACCRUALS selects on exactly this column.
+   */
+  reversesOn: string | null;
+  /**
+   * Migration 0013. The real bill or invoice that arrived and made the accrual
+   * unnecessary. Set means the accrual was superseded and must not reverse,
+   * because the document already carries the amount.
+   */
+  linkedDocumentId: Ulid | null;
+  /** Migration 0013. Which accrual template produced the entry. */
+  accrualTemplateId: Ulid | null;
   sourceTable: string;
   sourceRowId: Ulid;
   sourceVersion: number;
@@ -403,7 +417,14 @@ export interface RuleRow {
   autoPostCeilingCents: Cents;
 }
 
-/** subledger.recurring_templates, doc 04 Part 6. */
+/**
+ * subledger.recurring_templates, doc 04 Part 6, plus the generated entry
+ * columns migration 0013 added. One table carries both shapes: a template that
+ * recognizes a transaction already on the register, and a template that
+ * generates a journal entry for a period whether or not a transaction exists.
+ * matchKind is what tells the two apart, and PER-POST-RECURRING reads only the
+ * generated_entry rows.
+ */
 export interface RecurringTemplateRow {
   id: Ulid;
   firmId: Ulid;
@@ -422,6 +443,23 @@ export interface RecurringTemplateRow {
   dayWindow: number;
   splitMode: "single" | "fixed_amount" | "fixed_percent";
   isActive: boolean;
+  /** Generated entry columns. Null on a transaction_match template. */
+  cadence:
+    | "weekly"
+    | "semi_monthly"
+    | "monthly"
+    | "quarterly"
+    | "semi_annual"
+    | "annual"
+    | null;
+  startDate: string | null;
+  endDate: string | null;
+  /** Doc 02 PER-POST-RECURRING. The last day of the period, or a stated day. */
+  postingDateRule: "period_end" | "day_n";
+  /** The amount basis point split lines are applied to. Migration 0013. */
+  driverAmountCents: Cents | null;
+  entryMemoTemplate: string | null;
+  manualOverride: boolean;
 }
 
 /** subledger.recurring_splits, doc 04 Part 6. */
@@ -557,6 +595,227 @@ export interface DocumentationExceptionRow {
   openedAt: string;
 }
 
+/**
+ * subledger.fixed_assets, doc 04 Part 4, plus the three columns migration 0013
+ * added. The cost account and the accumulated depreciation account are stored
+ * on the row rather than inferred from the plus 100 convention, so the run can
+ * skip an asset whose contra account is missing instead of guessing one.
+ *
+ * The method is a bookkeeping mechanic. It is not a tax position, and nothing
+ * that reads this row computes a tax liability.
+ */
+export interface FixedAssetRow {
+  id: Ulid;
+  firmId: Ulid;
+  clientId: Ulid;
+  tag: string | null;
+  description: string;
+  assetClass: string;
+  costAccount: string;
+  accumAccount: string;
+  expenseAccount: string;
+  acquiredOn: string;
+  placedInServiceOn: string;
+  costCents: Cents;
+  salvageCents: Cents;
+  /** Generated in the database as cost minus salvage. Never recomputed here. */
+  depreciableBaseCents: Cents;
+  method:
+    | "straight_line"
+    | "ddb"
+    | "ddb_150"
+    | "macrs"
+    | "sum_of_years"
+    | "units_of_production"
+    | "none";
+  lifeMonths: number | null;
+  /** Basis points, so 20000 is a factor of two. Migration 0013. */
+  ddbFactorBps: number | null;
+  /** MACRS recovery period in years. Migration 0013. */
+  macrsRecoveryYears: number | null;
+  unitsTotal: number | null;
+  convention:
+    | "full_month"
+    | "mid_month"
+    | "mid_quarter"
+    | "mid_year"
+    | "actual_days";
+  /** Migration 0013. Half a month in the acquisition and disposal months. */
+  halfMonthConvention: boolean;
+  status: "active" | "fully_depreciated" | "disposed" | "written_off";
+  disposedOn: string | null;
+  manualOverride: boolean;
+  version: number;
+}
+
+/** subledger.depreciation_schedule, doc 04 Part 4. One row per asset period. */
+export interface DepreciationScheduleRow {
+  id: Ulid;
+  firmId: Ulid;
+  clientId: Ulid;
+  assetId: Ulid;
+  periodStart: string;
+  periodEnd: string;
+  periodNumber: number;
+  scheduleVersion: number;
+  /** Always positive. The sign is applied when the entry is built. */
+  amountCents: Cents;
+  accumulatedAfterCents: Cents;
+  nbvAfterCents: Cents;
+  status: "scheduled" | "posted" | "skipped" | "superseded";
+  postedEntryId: Ulid | null;
+  postedRunId: string | null;
+  postedAt: string | null;
+  manualOverride: boolean;
+  version: number;
+}
+
+/**
+ * subledger.deferral_schedules, doc 04 Part 3. Prepaids, intangible
+ * amortization, deferred revenue, and stored accruals all share this shape.
+ */
+export interface DeferralScheduleRow {
+  id: Ulid;
+  firmId: Ulid;
+  clientId: Ulid;
+  kind: "prepaid" | "intangible_amortization" | "deferred_revenue" | "accrual";
+  description: string;
+  /** 13xx prepaid, 17xx intangible, 25xx deferred revenue, 22xx accrual. */
+  balanceAccount: string;
+  /** Where the release lands: 6xxx expense, or 4xxx revenue. */
+  releaseAccount: string;
+  accumAccount: string | null;
+  totalCents: Cents;
+  serviceStart: string;
+  serviceEnd: string;
+  method: "straight_line_monthly" | "straight_line_daily" | "custom";
+  periods: number;
+  status: "active" | "complete" | "cancelled" | "superseded";
+  sourceTransactionId: Ulid | null;
+  sourceDocumentId: Ulid | null;
+  /** Migration 0013. The document that superseded this schedule, if any. */
+  linkedDocumentId: Ulid | null;
+  manualOverride: boolean;
+  version: number;
+}
+
+/**
+ * subledger.deferral_lines. The allocation table, computed once when the
+ * schedule was created and never recomputed, per doc 02 PER-AMORTIZE-PREPAID.
+ */
+export interface DeferralLineRow {
+  id: Ulid;
+  firmId: Ulid;
+  clientId: Ulid;
+  scheduleId: Ulid;
+  scheduleVersion: number;
+  periodNumber: number;
+  periodStart: string;
+  periodEnd: string;
+  amountCents: Cents;
+  remainingAfterCents: Cents;
+  status: "scheduled" | "posted" | "skipped" | "superseded";
+  postedEntryId: Ulid | null;
+  postedRunId: string | null;
+  postedAt: string | null;
+  reversalEntryId: Ulid | null;
+  linkedDocumentId: Ulid | null;
+  manualOverride: boolean;
+  version: number;
+}
+
+/** subledger.loans, doc 04 Part 7. */
+export interface LoanRow {
+  id: Ulid;
+  firmId: Ulid;
+  clientId: Ulid;
+  lenderName: string;
+  loanType: string;
+  /** 27xx long term debt. */
+  principalAccountLt: string;
+  /** 26xx current portion, optional. */
+  principalAccountCp: string | null;
+  /** 8xxx interest expense. */
+  interestAccount: string;
+  /** 10xx cash that received the proceeds and pays the note. */
+  fundingAccount: string | null;
+  /** 1xxx or 2xxx escrow holding account, null when the loan has no escrow. */
+  escrowAccount: string | null;
+  originalPrincipalCents: Cents;
+  originationDate: string;
+  firstPaymentDate: string;
+  termMonths: number;
+  annualRateBps: number;
+  paymentCents: Cents | null;
+  status: "active" | "paid_off" | "refinanced" | "written_off";
+  manualOverride: boolean;
+  version: number;
+}
+
+/**
+ * subledger.loan_schedule. The amortization table is authoritative. Doc 02
+ * PER-SPLIT-LOANPAYMENT is explicit that interest is never recomputed from a
+ * rate, because a lender's rounding is the lender's rounding.
+ */
+export interface LoanScheduleRow {
+  id: Ulid;
+  firmId: Ulid;
+  clientId: Ulid;
+  loanId: Ulid;
+  scheduleVersion: number;
+  paymentNumber: number;
+  dueDate: string;
+  paymentCents: Cents;
+  principalCents: Cents;
+  interestCents: Cents;
+  escrowCents: Cents;
+  feesCents: Cents;
+  balanceAfterCents: Cents;
+  status: "scheduled" | "posted" | "skipped" | "superseded";
+  matchedTransactionId: Ulid | null;
+  postedEntryId: Ulid | null;
+  postedRunId: string | null;
+  postedAt: string | null;
+  manualOverride: boolean;
+  version: number;
+}
+
+/**
+ * subledger.accrual_templates, migration 0013. Doc 02 PER-POST-ACCRUALS names
+ * four calculation bases and no others, so the union is closed.
+ */
+export interface AccrualTemplateRow {
+  id: Ulid;
+  firmId: Ulid;
+  clientId: Ulid;
+  version: number;
+  name: string;
+  accrualKind:
+    | "bill_received_not_entered"
+    | "wages_earned_not_paid"
+    | "revenue_earned_not_billed"
+    | "other";
+  basis:
+    | "fixed_amount"
+    | "from_document"
+    | "daily_rate_x_days"
+    | "percent_of_base";
+  debitAccount: string;
+  creditAccount: string;
+  categoryId: string | null;
+  fixedAmountCents: Cents | null;
+  sourceDocumentId: Ulid | null;
+  sourceDocumentAmountCents: Cents | null;
+  dailyRateCents: Cents | null;
+  dayCount: number | null;
+  baseCents: Cents | null;
+  percentBps: number | null;
+  entryMemo: string;
+  autoReverse: boolean;
+  isActive: boolean;
+  manualOverride: boolean;
+}
+
 export interface RunLogRow {
   id: string; // "RUNX-" plus ULID
   firmId: Ulid;
@@ -665,6 +924,13 @@ export interface RowMap {
   document_links: DocumentLinkRow;
   portal_requests: PortalRequestRow;
   documentation_exceptions: DocumentationExceptionRow;
+  fixed_assets: FixedAssetRow;
+  depreciation_schedule: DepreciationScheduleRow;
+  deferral_schedules: DeferralScheduleRow;
+  deferral_lines: DeferralLineRow;
+  loans: LoanRow;
+  loan_schedule: LoanScheduleRow;
+  accrual_templates: AccrualTemplateRow;
   run_log: RunLogRow;
   run_log_items: RunLogItemRow;
   run_log_events: RunLogEventRow;
@@ -706,4 +972,20 @@ export const OVERRIDE_WATCHED_FIELDS: readonly string[] = [
   "classId",
   "locationId",
   "programId",
+  /**
+   * Module 4 adds the subledger columns the six period end runs write. A person
+   * who marks a depreciation line posted by hand, or fixes a loan split, has
+   * made a decision, and invariant 8 says a run may not write over it. Every
+   * status change these runs make travels with a posted entry id, so watching
+   * the posting columns covers the status column as well.
+   */
+  "postedEntryId",
+  "postedRunId",
+  "postedAt",
+  "matchedTransactionId",
+  "accumulatedAfterCents",
+  "nbvAfterCents",
+  "remainingAfterCents",
+  "linkedDocumentId",
+  "reversalEntryId",
 ];

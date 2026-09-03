@@ -34,9 +34,14 @@ import {
   OVERRIDE_WATCHED_FIELDS,
   type ImportBatchRow,
   type JournalEntryRow,
+  type JournalLineRow,
   type MappingProfileRow,
   type PeriodLockRow,
   type RowMap,
+  type DeferralLineRow,
+  type DeferralScheduleRow,
+  type DepreciationScheduleRow,
+  type LoanScheduleRow,
   type RunLogRow,
   type StagedRowRow,
   type StatementLineRow,
@@ -74,6 +79,13 @@ const TABLES: TableName[] = [
   "document_links",
   "portal_requests",
   "documentation_exceptions",
+  "fixed_assets",
+  "depreciation_schedule",
+  "deferral_schedules",
+  "deferral_lines",
+  "loans",
+  "loan_schedule",
+  "accrual_templates",
   "run_log",
   "run_log_items",
   "run_log_events",
@@ -795,6 +807,145 @@ class MemoryTx implements RunTx {
           .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
           .map((r) => clone(r as unknown as AnyRow));
       }
+
+      // Doc 02 module 4, the period end reads.
+
+      case "journal_entries_in_window": {
+        const p = rawParams as QueryCatalog["journal_entries_in_window"]["params"];
+        return this.view("journal_entries")
+          .map((r) => r as unknown as JournalEntryRow)
+          .filter(
+            (r) =>
+              r.firmId === p.firmId &&
+              r.clientId === p.clientId &&
+              r.entryDate >= p.from &&
+              r.entryDate <= p.to,
+          )
+          .sort(compareEntries)
+          .map((r) => clone(r as unknown as AnyRow));
+      }
+      case "journal_entries_awaiting_reversal": {
+        const p =
+          rawParams as QueryCatalog["journal_entries_awaiting_reversal"]["params"];
+        return this.view("journal_entries")
+          .map((r) => r as unknown as JournalEntryRow)
+          .filter(
+            (r) =>
+              r.firmId === p.firmId &&
+              r.clientId === p.clientId &&
+              r.reversesOn !== null &&
+              r.reversesOn >= p.from &&
+              r.reversesOn <= p.to,
+          )
+          .sort(compareEntries)
+          .map((r) => clone(r as unknown as AnyRow));
+      }
+      case "journal_lines_for_entries": {
+        const p =
+          rawParams as QueryCatalog["journal_lines_for_entries"]["params"];
+        return this.view("journal_lines")
+          .map((r) => r as unknown as JournalLineRow)
+          .filter(
+            (r) =>
+              r.firmId === p.firmId &&
+              r.clientId === p.clientId &&
+              p.entryIds.includes(r.entryId),
+          )
+          .sort(compareLines)
+          .map((r) => clone(r as unknown as AnyRow));
+      }
+      case "deferral_schedules_for_client": {
+        const p =
+          rawParams as QueryCatalog["deferral_schedules_for_client"]["params"];
+        return this.view("deferral_schedules")
+          .map((r) => r as unknown as DeferralScheduleRow)
+          .filter(
+            (r) =>
+              r.firmId === p.firmId &&
+              r.clientId === p.clientId &&
+              p.kinds.includes(r.kind),
+          )
+          .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+          .map((r) => clone(r as unknown as AnyRow));
+      }
+      case "deferral_lines_for_schedules": {
+        const p =
+          rawParams as QueryCatalog["deferral_lines_for_schedules"]["params"];
+        return this.view("deferral_lines")
+          .map((r) => r as unknown as DeferralLineRow)
+          .filter(
+            (r) =>
+              r.firmId === p.firmId &&
+              r.clientId === p.clientId &&
+              p.scheduleIds.includes(r.scheduleId),
+          )
+          .sort(compareDeferralLines)
+          .map((r) => clone(r as unknown as AnyRow));
+      }
+      case "loans_for_client": {
+        const p = rawParams as QueryCatalog["loans_for_client"]["params"];
+        return this.view("loans")
+          .filter((r) => r.firmId === p.firmId && r.clientId === p.clientId)
+          .sort(byId)
+          .map(clone);
+      }
+      case "loan_schedule_for_client": {
+        const p =
+          rawParams as QueryCatalog["loan_schedule_for_client"]["params"];
+        return this.view("loan_schedule")
+          .map((r) => r as unknown as LoanScheduleRow)
+          .filter(
+            (r) =>
+              r.firmId === p.firmId &&
+              r.clientId === p.clientId &&
+              r.dueDate >= p.from &&
+              r.dueDate <= p.to,
+          )
+          .sort(compareLoanSchedule)
+          .map((r) => clone(r as unknown as AnyRow));
+      }
+      case "loan_schedule_for_loans": {
+        const p = rawParams as QueryCatalog["loan_schedule_for_loans"]["params"];
+        return this.view("loan_schedule")
+          .map((r) => r as unknown as LoanScheduleRow)
+          .filter(
+            (r) =>
+              r.firmId === p.firmId &&
+              r.clientId === p.clientId &&
+              p.loanIds.includes(r.loanId),
+          )
+          .sort(compareLoanSchedule)
+          .map((r) => clone(r as unknown as AnyRow));
+      }
+      case "fixed_assets_for_client": {
+        const p = rawParams as QueryCatalog["fixed_assets_for_client"]["params"];
+        return this.view("fixed_assets")
+          .filter((r) => r.firmId === p.firmId && r.clientId === p.clientId)
+          .sort(byId)
+          .map(clone);
+      }
+      case "depreciation_schedule_for_assets": {
+        const p =
+          rawParams as QueryCatalog["depreciation_schedule_for_assets"]["params"];
+        return this.view("depreciation_schedule")
+          .map((r) => r as unknown as DepreciationScheduleRow)
+          .filter(
+            (r) =>
+              r.firmId === p.firmId &&
+              r.clientId === p.clientId &&
+              p.assetIds.includes(r.assetId),
+          )
+          .sort(compareDepreciationLines)
+          .map((r) => clone(r as unknown as AnyRow));
+      }
+      case "accrual_templates_for_client": {
+        const p =
+          rawParams as QueryCatalog["accrual_templates_for_client"]["params"];
+        return this.view("accrual_templates")
+          .filter((r) => r.firmId === p.firmId && r.clientId === p.clientId)
+          .sort(byId)
+          .map(clone);
+      }
       default: {
         const exhaustive: never = name;
         throw new Error(`unknown query ${String(exhaustive)}`);
@@ -858,6 +1009,55 @@ function compareStatementLines(a: StatementLineRow, b: StatementLineRow): number
 function compareSettlements(a: SettlementRowRow, b: SettlementRowRow): number {
   if (a.payoutDate !== b.payoutDate) return a.payoutDate < b.payoutDate ? -1 : 1;
   if (a.payoutId !== b.payoutId) return a.payoutId < b.payoutId ? -1 : 1;
+  return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+}
+
+/**
+ * Doc 02 module 4 iteration order for anything read out of the ledger by date:
+ * entry date ascending then id ascending, so a rerun sees the same order the
+ * first run saw.
+ */
+function compareEntries(a: JournalEntryRow, b: JournalEntryRow): number {
+  if (a.entryDate !== b.entryDate) return a.entryDate < b.entryDate ? -1 : 1;
+  return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+}
+
+function compareLines(a: JournalLineRow, b: JournalLineRow): number {
+  if (a.entryId !== b.entryId) return a.entryId < b.entryId ? -1 : 1;
+  if (a.accountNumber !== b.accountNumber) {
+    return a.accountNumber < b.accountNumber ? -1 : 1;
+  }
+  return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+}
+
+function compareDeferralLines(a: DeferralLineRow, b: DeferralLineRow): number {
+  if (a.scheduleId !== b.scheduleId) return a.scheduleId < b.scheduleId ? -1 : 1;
+  if (a.periodNumber !== b.periodNumber) {
+    return a.periodNumber < b.periodNumber ? -1 : 1;
+  }
+  return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+}
+
+function compareDepreciationLines(
+  a: DepreciationScheduleRow,
+  b: DepreciationScheduleRow,
+): number {
+  if (a.assetId !== b.assetId) return a.assetId < b.assetId ? -1 : 1;
+  if (a.periodStart !== b.periodStart) {
+    return a.periodStart < b.periodStart ? -1 : 1;
+  }
+  return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+}
+
+/**
+ * Doc 02 PER-SPLIT-LOANPAYMENT iteration order: due date ascending, then
+ * payment number ascending, then id.
+ */
+function compareLoanSchedule(a: LoanScheduleRow, b: LoanScheduleRow): number {
+  if (a.dueDate !== b.dueDate) return a.dueDate < b.dueDate ? -1 : 1;
+  if (a.paymentNumber !== b.paymentNumber) {
+    return a.paymentNumber < b.paymentNumber ? -1 : 1;
+  }
   return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
 }
 

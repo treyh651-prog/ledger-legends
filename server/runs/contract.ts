@@ -154,6 +154,17 @@ export interface ProposedJournalEntry {
   sourceRef: { table: string; rowId: Ulid; version: number };
   /** Set when doc 03 Part 7 dating moved the entry out of a locked period. */
   redatedFromLockedPeriod?: string;
+  /**
+   * Doc 02 PER-POST-ACCRUALS. The day this entry reverses itself, which is the
+   * first day of the following period. Carried on the proposal rather than
+   * derived at write time so that a preview shows the reversal date a person
+   * will actually see, and so PER-REVERSE-ACCRUALS has one column to select on.
+   */
+  reversesOn?: string;
+  /** The real bill or invoice that superseded an accrual, once it arrives. */
+  linkedDocumentId?: Ulid;
+  /** Which accrual template produced this entry. */
+  accrualTemplateId?: Ulid;
 }
 
 export interface ProposedFieldWrite {

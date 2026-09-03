@@ -25,6 +25,8 @@ import {
 import type { RunTx } from "./db";
 import { ulid } from "./ids";
 import type {
+  DeferralLineRow,
+  DepreciationScheduleRow,
   DocumentationExceptionRow,
   ImportBatchRow,
   JournalEntryRow,
@@ -138,6 +140,12 @@ export async function applyProposals(
         reversalOf: p.reversalOf ?? null,
         reversedByEntryId: null,
         redatedFromLockedPeriod: p.redatedFromLockedPeriod ?? null,
+        // Doc 02 module 4. An accrual carries the day it undoes itself and,
+        // once the real document arrives, a link to it. Both travel on the
+        // proposal so preview and apply describe the same entry.
+        reversesOn: p.reversesOn ?? null,
+        linkedDocumentId: p.linkedDocumentId ?? null,
+        accrualTemplateId: p.accrualTemplateId ?? null,
         sourceTable: p.sourceRef.table,
         sourceRowId: p.sourceRef.rowId,
         sourceVersion: p.sourceRef.version,
@@ -245,6 +253,24 @@ async function writeField(
     case "portal_requests":
       await tx.update("portal_requests", rowId, after);
       return;
+    // Doc 02 module 4. Each of the six period end runs marks the subledger row
+    // it consumed. That mark is what makes a rerun report the work as already
+    // done instead of posting the same amount a second time.
+    case "deferral_lines":
+      await tx.update("deferral_lines", rowId, after);
+      return;
+    case "deferral_schedules":
+      await tx.update("deferral_schedules", rowId, after);
+      return;
+    case "loan_schedule":
+      await tx.update("loan_schedule", rowId, after);
+      return;
+    case "depreciation_schedule":
+      await tx.update("depreciation_schedule", rowId, after);
+      return;
+    case "fixed_assets":
+      await tx.update("fixed_assets", rowId, after);
+      return;
     default:
       throw new ProposalWriteError(
         "UNKNOWN_WRITE_TABLE",
@@ -294,6 +320,17 @@ async function insertRow(
       return;
     case "settlement_rows":
       await tx.insert("settlement_rows", [withId as unknown as SettlementRowRow]);
+      return;
+    // Doc 02 PER-AMORTIZE-PREPAID writes the allocation table when the schedule
+    // was created without one, and PER-POST-DEPRECIATION records the period it
+    // posted. Both are inserts of a subledger row, not of a ledger entry.
+    case "deferral_lines":
+      await tx.insert("deferral_lines", [withId as unknown as DeferralLineRow]);
+      return;
+    case "depreciation_schedule":
+      await tx.insert("depreciation_schedule", [
+        withId as unknown as DepreciationScheduleRow,
+      ]);
       return;
     default:
       throw new ProposalWriteError(

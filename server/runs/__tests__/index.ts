@@ -59,6 +59,14 @@ import "./rec-match-tiered";
 import "./rec-clear-matched";
 import "./rec-flag-stale";
 import "./rec-pipeline";
+// The module 4 period end suites, one file per run plus the pipeline test.
+import "./per-post-recurring";
+import "./per-amortize-prepaids";
+import "./per-split-loan";
+import "./per-post-accruals";
+import "./per-reverse-accruals";
+import "./per-post-depreciation";
+import "./per-pipeline";
 
 type Outcome = Awaited<ReturnType<typeof execute<PairTransfersScope, Proposal>>>;
 

@@ -13,9 +13,16 @@
 
 import type { Cents, Ulid } from "./contract";
 import type {
+  AccrualTemplateRow,
   BankAccountRow,
   BankCodeMappingRow,
   CategoryRow,
+  DeferralLineRow,
+  DeferralScheduleRow,
+  DepreciationScheduleRow,
+  FixedAssetRow,
+  LoanRow,
+  LoanScheduleRow,
   ChartAccountRow,
   ClientPolicyRow,
   DocumentLinkRow,
@@ -292,6 +299,75 @@ export interface QueryCatalog {
       statementId: Ulid;
     };
     row: TransactionRow;
+  };
+
+  // Doc 02 module 4. Everything below is read by the six period end runs.
+
+  /**
+   * Every posted entry dated inside a window. Three of the six runs need this
+   * for the same reason: an entry that already exists is the only honest test
+   * of whether the period has already been posted. Ordered by entry date then
+   * id so a rerun sees the same order.
+   */
+  journal_entries_in_window: {
+    params: { firmId: Ulid; clientId: Ulid; from: string; to: string };
+    row: JournalEntryRow;
+  };
+  /**
+   * Auto reversing entries whose reversal day falls inside a window. This is
+   * the whole candidate set of PER-REVERSE-ACCRUALS, and the reversal day is
+   * deliberately the selection key rather than the original entry date,
+   * because an accrual moved by hand has to reverse on the day a person put
+   * on it.
+   */
+  journal_entries_awaiting_reversal: {
+    params: { firmId: Ulid; clientId: Ulid; from: string; to: string };
+    row: JournalEntryRow;
+  };
+  /** The lines of a named set of entries, in entry then account order. */
+  journal_lines_for_entries: {
+    params: { firmId: Ulid; clientId: Ulid; entryIds: Ulid[] };
+    row: JournalLineRow;
+  };
+  /** Deferral schedules of one kind, prepaid unless the caller says otherwise. */
+  deferral_schedules_for_client: {
+    params: { firmId: Ulid; clientId: Ulid; kinds: string[] };
+    row: DeferralScheduleRow;
+  };
+  /** The stored allocation table, ordered by schedule then period number. */
+  deferral_lines_for_schedules: {
+    params: { firmId: Ulid; clientId: Ulid; scheduleIds: Ulid[] };
+    row: DeferralLineRow;
+  };
+  loans_for_client: {
+    params: { firmId: Ulid; clientId: Ulid };
+    row: LoanRow;
+  };
+  /**
+   * The amortization table. Doc 02 iteration order for the loan split is due
+   * date ascending then payment number ascending, applied in the query so the
+   * run never sorts a second time.
+   */
+  loan_schedule_for_client: {
+    params: { firmId: Ulid; clientId: Ulid; from: string; to: string };
+    row: LoanScheduleRow;
+  };
+  /** Every scheduled row of a loan, used to walk the balance forward. */
+  loan_schedule_for_loans: {
+    params: { firmId: Ulid; clientId: Ulid; loanIds: Ulid[] };
+    row: LoanScheduleRow;
+  };
+  fixed_assets_for_client: {
+    params: { firmId: Ulid; clientId: Ulid };
+    row: FixedAssetRow;
+  };
+  depreciation_schedule_for_assets: {
+    params: { firmId: Ulid; clientId: Ulid; assetIds: Ulid[] };
+    row: DepreciationScheduleRow;
+  };
+  accrual_templates_for_client: {
+    params: { firmId: Ulid; clientId: Ulid };
+    row: AccrualTemplateRow;
   };
 }
 

@@ -627,3 +627,136 @@ particular rows in the fixture.
     already nullable, so the change lines the TypeScript type up with the schema
     rather than against it. All ninety six existing framework tests pass unchanged
     after it.
+
+## Module 4, period end
+
+54. **A defect in the framework, found by the second month.** `scopeHashFor`
+    hashed the candidate ids and their versions and nothing else. Every period
+    end run takes a scope of client plus period, and in January and February a
+    client usually has the same twelve rows at the same versions, so February
+    hashed to the same scope as January, the execution log said the work was
+    already applied, and the run posted nothing. Options: leave the hash alone
+    and give every run its own dedupe query, hash the whole scope object, add
+    the period as a named optional field, put the period in the derived entry id
+    only, or make the period part of the candidate id list. Chosen: an optional
+    `period` on `scopeHashFor`, spread into the hashed object only when it is
+    defined. Hashing the whole scope would change every existing hash and break
+    the idempotence of the modules already shipped. Per run dedupe queries move
+    a framework invariant into six places where it can rot separately. The
+    derived entry id already carries the period, so the entries were unique, but
+    the execution log short circuited before it ever reached them, which is the
+    worse failure because it reports success. The named field leaves every
+    pre-existing hash byte identical, which the ninety six framework tests
+    confirm.
+
+55. **Run type ids do not match their filenames in two places.**
+    `per-amortize-prepaids.ts` declares `PER-AMORTIZE-PREPAID` and
+    `per-split-loan.ts` declares `PER-SPLIT-LOANPAYMENT`. Options: rename the
+    files to match the type ids, rename the type ids to match the files, keep
+    the spec's type ids and the task's filenames, or add an alias table.
+    Chosen: keep both as given. The type id is written into every row in the
+    execution log and every journal entry's `runType`, so it is data and
+    renaming it orphans history. The filename is what the task asked for and is
+    only a path. An alias table is a second source of truth for a string. The
+    registry is the one place both appear, so the mismatch is visible where it
+    matters and nowhere else.
+
+56. **Accruals: the spec proposes drafts, the task says post.** Doc 02 describes
+    `PER-POST-ACCRUALS` producing draft entries for review. The task says post
+    them. Options: post, draft, post only when the template is marked trusted,
+    or draft with an auto approve flag on the scope. Chosen: post. A draft
+    accrual that nobody approves leaves the period understated, which is the
+    failure the run exists to prevent, and the accrual is reversed on the first
+    of the next period anyway, so a wrong accrual costs one month of a wrong
+    number and not a permanent one. The template is the review: a person wrote
+    it, and `isActive` and `manualOverride` are the two switches that stop it.
+
+57. **The half month convention and MACRS at the same time.** Options: apply the
+    convention inside each method, apply it as a uniform pass over the monthly
+    series after the method has run, ignore it for MACRS because the published
+    tables already assume a half year convention, or refuse the combination.
+    Chosen: a uniform last pass. The method decides how much of the base belongs
+    to each month, and the convention decides how much of the first and last
+    month the asset was actually in service, so they are two separate questions
+    and folding one into the other means writing it three times. The pass halves
+    the first month and appends the carried half as an extra trailing month, so
+    the series always sums to the depreciable base exactly. Refusing the
+    combination would leave a real asset with no schedule.
+
+58. **Depreciation stops at the base, not at the formula.** Declining balance
+    never reaches zero and MACRS tables are rounded, so the arithmetic and the
+    ledger disagree in the last month by a few cents. Options: post the formula
+    and let the asset go past the base, post the formula and post a correcting
+    entry at disposal, cap the last month at what is left, or spread the rounding
+    across the life. Chosen: cap the last month. Cost minus salvage is the whole
+    of what can ever be written off, and an asset with negative book value is a
+    number no one can explain. `evenSplit` carries the residual to the last
+    month for the same reason.
+
+59. **The loan split requires a cleared payment.** The spec matches a schedule
+    row to a register row on amount and date. The task adds that an uncleared
+    payment is skipped. Options: post on the schedule date regardless, post when
+    a register row exists in any state, require cleared, or require cleared only
+    for the cash line and accrue the rest. Chosen: require cleared, with the
+    skip reason `missing_prerequisite` and the detail `payment_not_cleared`. The
+    entry credits cash, and cash the bank has not confirmed is a payment that may
+    still bounce or be reissued. The fourth option would post interest expense
+    against a suspense account and then need a second run to clean it up, which
+    is more moving parts for a payment that clears two days later anyway.
+
+60. **What the split debits when the loan has both a current and a long term
+    account.** Options: debit the long term account, debit the current portion,
+    split the principal between them by the twelve month rule, or refuse when
+    both are set. Chosen: the long term account, `principalAccountLt`. The
+    current portion reclass is a period end presentation entry driven by the
+    remaining schedule, not by one payment, so a run that splits one payment does
+    not know the answer, and computing it here would produce twelve small
+    reclasses a year instead of one. `principalAccountCp` stays for the reclass
+    run that belongs to a later module.
+
+61. **A bank amount that disagrees with the schedule goes to a person.** Options:
+    plug the difference to interest expense, plug it to principal, prorate it,
+    post the schedule and let the bank line stay unreconciled, or route to
+    suspense and post nothing. Chosen: route to suspense with `SUS-14` and post
+    nothing. A rate reset, an extra principal payment and a late fee all look
+    identical at this level, and each one wants a different entry. Plugging to
+    interest hides a principal payment and misstates the note balance for the
+    rest of the term. A schedule row whose own components do not foot is the
+    same class of problem and gets `SUS-17`, which is also the code used when the
+    running balance column contradicts the split. In that last case the split
+    still posts, because the components are internally consistent and only the
+    memo column disagrees.
+
+62. **Detecting an accrual that was already reversed.** Options: write
+    `reversedByEntryId` back onto the original when the reversal posts, query for
+    an entry whose `reversalOf` points at the original, keep a separate
+    reversals table, or trust the execution log. Chosen: the query, through
+    `journal_entries_referencing`. Writing back to a posted entry means a run
+    mutating a row in a closed period, which invariant 6 exists to prevent, and
+    the log is scoped to a run type and version so a reversal a person posted by
+    hand would be invisible to it. The query sees every reversal however it got
+    there, which is the point: the run's job is to make sure the accrual is gone,
+    not to be the one that removed it.
+
+63. **The prepaid allocation table when `deferral_lines` is empty.** Options:
+    refuse until a schedule run has written the lines, compute the allocation in
+    memory and post from it without persisting, compute it and propose the lines
+    as row inserts, or write the lines in a separate run first. Chosen: compute
+    and propose the inserts. The run then persists the same table it posted from,
+    so the next month reads a stored line rather than recomputing a day weighted
+    series that has to come out identical, and a person can see the whole
+    remaining schedule. Refusing would make the run depend on a module that does
+    not exist yet. Posting from memory without persisting means the answer is
+    only ever as stable as the code that derived it.
+
+64. **New entries in `OVERRIDE_WATCHED_FIELDS`, and why `status` is not one.**
+    Options: watch every column these runs write, watch the posting columns
+    only, watch the status columns too, or leave the list alone. Chosen: add the
+    posting and balance columns, `postedEntryId`, `postedRunId`, `postedAt`,
+    `matchedTransactionId`, `accumulatedAfterCents`, `nbvAfterCents`,
+    `remainingAfterCents`, `linkedDocumentId` and `reversalEntryId`, and leave
+    `status` out. Every status change these runs make travels with a posted entry
+    id, so watching the posting columns already covers it, and `status` is also
+    the column a person legitimately moves by hand when they close a loan or
+    write off an asset. Watching it would turn a normal edit into an override
+    conflict on a row nothing was going to touch again.

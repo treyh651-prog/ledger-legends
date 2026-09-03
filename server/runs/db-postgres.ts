@@ -70,6 +70,13 @@ const PHYSICAL_TABLES: Partial<Record<TableName, string>> = {
   recurring_splits: "subledger.recurring_splits",
   vendors: "subledger.vendors",
   settlement_rows: "subledger.settlement_rows",
+  fixed_assets: "subledger.fixed_assets",
+  depreciation_schedule: "subledger.depreciation_schedule",
+  deferral_schedules: "subledger.deferral_schedules",
+  deferral_lines: "subledger.deferral_lines",
+  loans: "subledger.loans",
+  loan_schedule: "subledger.loan_schedule",
+  accrual_templates: "subledger.accrual_templates",
 };
 
 function physical(table: TableName): string {
@@ -86,6 +93,30 @@ const CENTS_FIELDS: Record<string, readonly string[]> = {
     "matchAmountCents",
     "amountFloorCents",
     "amountCeilingCents",
+    "driverAmountCents",
+  ],
+  fixed_assets: ["costCents", "salvageCents", "depreciableBaseCents"],
+  depreciation_schedule: [
+    "amountCents",
+    "accumulatedAfterCents",
+    "nbvAfterCents",
+  ],
+  deferral_schedules: ["totalCents"],
+  deferral_lines: ["amountCents", "remainingAfterCents"],
+  loans: ["originalPrincipalCents", "paymentCents"],
+  loan_schedule: [
+    "paymentCents",
+    "principalCents",
+    "interestCents",
+    "escrowCents",
+    "feesCents",
+    "balanceAfterCents",
+  ],
+  accrual_templates: [
+    "fixedAmountCents",
+    "sourceDocumentAmountCents",
+    "dailyRateCents",
+    "baseCents",
   ],
   recurring_splits: ["fixedAmountCents"],
   settlement_rows: ["grossCents", "feeCents", "netCents"],
@@ -240,7 +271,102 @@ const JE_COLUMNS = `
   redated_from_locked_period::text as "redatedFromLockedPeriod",
   source_table as "sourceTable", source_row_id as "sourceRowId",
   source_version as "sourceVersion", created_by_run_id as "createdByRunId",
-  run_type as "runType", run_version as "runVersion"`;
+  run_type as "runType", run_version as "runVersion",
+  reverses_on::text as "reversesOn",
+  linked_document_id as "linkedDocumentId",
+  accrual_template_id as "accrualTemplateId"`;
+
+const JL_COLUMNS = `
+  id, firm_id as "firmId", client_id as "clientId",
+  entry_id as "entryId", account_number as "accountNumber",
+  category_id as "categoryId", amount_cents::text as "amountCents",
+  memo, entry_date::text as "entryDate", class_id as "classId",
+  location_id as "locationId", program_id as "programId", restriction`;
+
+const FIXED_ASSET_COLUMNS = `
+  id, firm_id as "firmId", client_id as "clientId", tag, description,
+  asset_class as "assetClass", cost_account as "costAccount",
+  accum_account as "accumAccount", expense_account as "expenseAccount",
+  acquired_on::text as "acquiredOn",
+  placed_in_service_on::text as "placedInServiceOn",
+  cost_cents::text as "costCents", salvage_cents::text as "salvageCents",
+  depreciable_base_cents::text as "depreciableBaseCents",
+  method, life_months as "lifeMonths", ddb_factor_bps as "ddbFactorBps",
+  macrs_recovery_years as "macrsRecoveryYears", units_total as "unitsTotal",
+  convention, half_month_convention as "halfMonthConvention", status,
+  disposed_on::text as "disposedOn", manual_override as "manualOverride",
+  version`;
+
+const DEPRECIATION_COLUMNS = `
+  id, firm_id as "firmId", client_id as "clientId", asset_id as "assetId",
+  period_start::text as "periodStart", period_end::text as "periodEnd",
+  period_number as "periodNumber", schedule_version as "scheduleVersion",
+  amount_cents::text as "amountCents",
+  accumulated_after_cents::text as "accumulatedAfterCents",
+  nbv_after_cents::text as "nbvAfterCents", status,
+  posted_entry_id as "postedEntryId", posted_run_id as "postedRunId",
+  posted_at::text as "postedAt", manual_override as "manualOverride", version`;
+
+const DEFERRAL_SCHEDULE_COLUMNS = `
+  id, firm_id as "firmId", client_id as "clientId", kind, description,
+  balance_account as "balanceAccount", release_account as "releaseAccount",
+  accum_account as "accumAccount", total_cents::text as "totalCents",
+  service_start::text as "serviceStart", service_end::text as "serviceEnd",
+  method, periods, status,
+  source_transaction_id as "sourceTransactionId",
+  source_document_id as "sourceDocumentId",
+  linked_document_id as "linkedDocumentId",
+  manual_override as "manualOverride", version`;
+
+const DEFERRAL_LINE_COLUMNS = `
+  id, firm_id as "firmId", client_id as "clientId",
+  schedule_id as "scheduleId", schedule_version as "scheduleVersion",
+  period_number as "periodNumber", period_start::text as "periodStart",
+  period_end::text as "periodEnd", amount_cents::text as "amountCents",
+  remaining_after_cents::text as "remainingAfterCents", status,
+  posted_entry_id as "postedEntryId", posted_run_id as "postedRunId",
+  posted_at::text as "postedAt", reversal_entry_id as "reversalEntryId",
+  linked_document_id as "linkedDocumentId",
+  manual_override as "manualOverride", version`;
+
+const LOAN_COLUMNS = `
+  id, firm_id as "firmId", client_id as "clientId",
+  lender_name as "lenderName", loan_type as "loanType",
+  principal_account_lt as "principalAccountLt",
+  principal_account_cp as "principalAccountCp",
+  interest_account as "interestAccount",
+  funding_account as "fundingAccount", escrow_account as "escrowAccount",
+  original_principal_cents::text as "originalPrincipalCents",
+  origination_date::text as "originationDate",
+  first_payment_date::text as "firstPaymentDate",
+  term_months as "termMonths", annual_rate_bps as "annualRateBps",
+  payment_cents::text as "paymentCents", status,
+  manual_override as "manualOverride", version`;
+
+const LOAN_SCHEDULE_COLUMNS = `
+  id, firm_id as "firmId", client_id as "clientId", loan_id as "loanId",
+  schedule_version as "scheduleVersion", payment_number as "paymentNumber",
+  due_date::text as "dueDate", payment_cents::text as "paymentCents",
+  principal_cents::text as "principalCents",
+  interest_cents::text as "interestCents",
+  escrow_cents::text as "escrowCents", fees_cents::text as "feesCents",
+  balance_after_cents::text as "balanceAfterCents", status,
+  matched_transaction_id as "matchedTransactionId",
+  posted_entry_id as "postedEntryId", posted_run_id as "postedRunId",
+  posted_at::text as "postedAt", manual_override as "manualOverride", version`;
+
+const ACCRUAL_TEMPLATE_COLUMNS = `
+  id, firm_id as "firmId", client_id as "clientId", version, name,
+  accrual_kind as "accrualKind", basis,
+  debit_account as "debitAccount", credit_account as "creditAccount",
+  category_id as "categoryId",
+  fixed_amount_cents::text as "fixedAmountCents",
+  source_document_id as "sourceDocumentId",
+  source_document_amount_cents::text as "sourceDocumentAmountCents",
+  daily_rate_cents::text as "dailyRateCents", day_count as "dayCount",
+  base_cents::text as "baseCents", percent_bps as "percentBps",
+  entry_memo as "entryMemo", auto_reverse as "autoReverse",
+  is_active as "isActive", manual_override as "manualOverride"`;
 
 const STATEMENT_LINE_COLUMNS = `
   id, firm_id as "firmId", client_id as "clientId",
@@ -551,7 +677,13 @@ const QUERIES: Record<QueryName, SqlSpec> = {
             amount_floor_cents::text as "amountFloorCents",
             amount_ceiling_cents::text as "amountCeilingCents",
             day_of_month as "dayOfMonth", day_window as "dayWindow",
-            split_mode as "splitMode", is_active as "isActive"
+            split_mode as "splitMode", is_active as "isActive",
+            cadence, start_date::text as "startDate",
+            end_date::text as "endDate",
+            posting_date_rule as "postingDateRule",
+            driver_amount_cents::text as "driverAmountCents",
+            entry_memo_template as "entryMemoTemplate",
+            manual_override as "manualOverride"
           from subledger.recurring_templates
           where firm_id = $1 and client_id = $2
           order by id asc`,
@@ -698,6 +830,105 @@ const QUERIES: Record<QueryName, SqlSpec> = {
             and transaction_id = any($3::text[])
           order by id asc`,
     params: (p) => [p.firmId, p.clientId, p.transactionIds],
+  },
+
+  // Doc 02 module 4, the period end reads.
+
+  journal_entries_in_window: {
+    table: "journal_entries",
+    sql: `select ${JE_COLUMNS}
+          from ${SCHEMA}.journal_entries
+          where firm_id = $1 and client_id = $2
+            and entry_date >= $3::date and entry_date <= $4::date
+          order by entry_date asc, id asc`,
+    params: (p) => [p.firmId, p.clientId, p.from, p.to],
+  },
+  journal_entries_awaiting_reversal: {
+    table: "journal_entries",
+    sql: `select ${JE_COLUMNS}
+          from ${SCHEMA}.journal_entries
+          where firm_id = $1 and client_id = $2
+            and reverses_on is not null
+            and reverses_on >= $3::date and reverses_on <= $4::date
+          order by entry_date asc, id asc`,
+    params: (p) => [p.firmId, p.clientId, p.from, p.to],
+  },
+  journal_lines_for_entries: {
+    table: "journal_lines",
+    sql: `select ${JL_COLUMNS}
+          from ${SCHEMA}.journal_lines
+          where firm_id = $1 and client_id = $2
+            and entry_id = any($3::char(26)[])
+          order by entry_id asc, account_number asc, id asc`,
+    params: (p) => [p.firmId, p.clientId, p.entryIds],
+  },
+  deferral_schedules_for_client: {
+    table: "deferral_schedules",
+    sql: `select ${DEFERRAL_SCHEDULE_COLUMNS}
+          from subledger.deferral_schedules
+          where firm_id = $1 and client_id = $2 and kind = any($3::text[])
+          order by id asc`,
+    params: (p) => [p.firmId, p.clientId, p.kinds],
+  },
+  deferral_lines_for_schedules: {
+    table: "deferral_lines",
+    sql: `select ${DEFERRAL_LINE_COLUMNS}
+          from subledger.deferral_lines
+          where firm_id = $1 and client_id = $2
+            and schedule_id = any($3::char(26)[])
+          order by schedule_id asc, period_number asc, id asc`,
+    params: (p) => [p.firmId, p.clientId, p.scheduleIds],
+  },
+  loans_for_client: {
+    table: "loans",
+    sql: `select ${LOAN_COLUMNS}
+          from subledger.loans
+          where firm_id = $1 and client_id = $2
+          order by id asc`,
+    params: (p) => [p.firmId, p.clientId],
+  },
+  loan_schedule_for_client: {
+    table: "loan_schedule",
+    sql: `select ${LOAN_SCHEDULE_COLUMNS}
+          from subledger.loan_schedule
+          where firm_id = $1 and client_id = $2
+            and due_date >= $3::date and due_date <= $4::date
+          order by due_date asc, payment_number asc, id asc`,
+    params: (p) => [p.firmId, p.clientId, p.from, p.to],
+  },
+  loan_schedule_for_loans: {
+    table: "loan_schedule",
+    sql: `select ${LOAN_SCHEDULE_COLUMNS}
+          from subledger.loan_schedule
+          where firm_id = $1 and client_id = $2
+            and loan_id = any($3::char(26)[])
+          order by due_date asc, payment_number asc, id asc`,
+    params: (p) => [p.firmId, p.clientId, p.loanIds],
+  },
+  fixed_assets_for_client: {
+    table: "fixed_assets",
+    sql: `select ${FIXED_ASSET_COLUMNS}
+          from subledger.fixed_assets
+          where firm_id = $1 and client_id = $2
+          order by id asc`,
+    params: (p) => [p.firmId, p.clientId],
+  },
+  depreciation_schedule_for_assets: {
+    table: "depreciation_schedule",
+    sql: `select ${DEPRECIATION_COLUMNS}
+          from subledger.depreciation_schedule
+          where firm_id = $1 and client_id = $2
+            and asset_id = any($3::char(26)[])
+          order by asset_id asc, period_start asc, id asc`,
+    params: (p) => [p.firmId, p.clientId, p.assetIds],
+  },
+  accrual_templates_for_client: {
+    table: "accrual_templates",
+    sql: `select ${ACCRUAL_TEMPLATE_COLUMNS}
+          from subledger.accrual_templates
+          where firm_id = $1 and client_id = $2
+          order by id asc`,
+    params: (p) => [p.firmId, p.clientId],
   },
 };
 
