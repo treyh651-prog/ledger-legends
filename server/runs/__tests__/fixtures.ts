@@ -7,10 +7,14 @@ import { MemoryRunDb } from "../db-memory";
 import type {
   BankAccountRow,
   ChartAccountRow,
+  ImportBatchRow,
+  MappingProfileRow,
   PeriodLockRow,
+  StagedRowRow,
   TransactionRow,
 } from "../tables";
 import type { ExecuteOptions } from "../execute";
+import { headerFingerprintOf } from "../runs/import-parse-feed";
 
 export const FIRM_A = "FIRM-A";
 export const FIRM_B = "FIRM-B";
@@ -56,6 +60,12 @@ export interface TxnOverrides {
   manualOverride?: boolean;
   normalizedVendor?: string;
   version?: number;
+  accountNumber?: string;
+  bankTransactionId?: string | null;
+  importBatchId?: string | null;
+  cleared?: boolean;
+  status?: "active" | "reversed";
+  description?: string;
 }
 
 export function txn(
@@ -72,13 +82,27 @@ export function txn(
     firmId,
     clientId,
     bankAccountId,
+    accountNumber: extra.accountNumber ?? "1010",
     postedDate,
     amountCents,
-    description: `txn ${id}`,
+    currency: "USD",
+    description: extra.description ?? `txn ${id}`,
     normalizedVendor: extra.normalizedVendor ?? "INTERNAL TRANSFER",
+    checkNumber: null,
+    bankCode: null,
+    bankTransactionId: extra.bankTransactionId ?? null,
+    source: "import",
+    importBatchId: extra.importBatchId ?? null,
+    stagedRowId: null,
     categoryId: extra.categoryId ?? null,
+    cascadeLevel: null,
+    suspenseReason: null,
     pairedWithId: extra.pairedWithId ?? null,
     duplicateFlag: extra.duplicateFlag ?? false,
+    journalEntryId: null,
+    cleared: extra.cleared ?? false,
+    clearedDate: extra.cleared ? postedDate : null,
+    status: extra.status ?? "active",
     manualOverride: extra.manualOverride ?? false,
     manualOverrideBy: extra.manualOverride ? ACTOR : null,
     manualOverrideAt: extra.manualOverride ? NOW.toISOString() : null,
@@ -135,6 +159,123 @@ export function baseDb(): MemoryRunDb {
     bankAccount("BA-B1-SV", FIRM_B, CLIENT_B1, "1020", "B1 savings"),
   ]);
   return db;
+}
+
+/**
+ * A CSV mapping profile whose fingerprint is computed from the header cells it
+ * is built with, so a test can hand the parser a matching header or a shifted
+ * one and get the real comparison rather than a hardcoded string.
+ */
+export function mappingProfile(
+  id: string,
+  firmId: string,
+  clientId: string,
+  header: readonly string[],
+  extra: Partial<MappingProfileRow> = {},
+): MappingProfileRow {
+  return {
+    id,
+    firmId,
+    clientId,
+    version: 1,
+    institutionName: "First Bank",
+    accountNumber: "1010",
+    fileFormat: "csv",
+    headerFingerprint: headerFingerprintOf(header),
+    headerRowNumber: 1,
+    skipRows: 0,
+    dateColumn: "Date",
+    dateFormat: "MM/DD/YYYY",
+    descriptionColumn: "Description",
+    amountColumn: "Amount",
+    debitColumn: null,
+    creditColumn: null,
+    signConvention: "credit_positive",
+    currency: "USD",
+    bankIdColumn: null,
+    checkNumberColumn: null,
+    bankCodeColumn: null,
+    isActive: true,
+    ...extra,
+  };
+}
+
+export function importBatch(
+  id: string,
+  firmId: string,
+  clientId: string,
+  bankAccountId: string,
+  extra: Partial<ImportBatchRow> = {},
+): ImportBatchRow {
+  return {
+    id,
+    firmId,
+    clientId,
+    name: `batch ${id}`,
+    sourceFormat: "ofx",
+    bankAccountId,
+    accountNumber: "1010",
+    mappingProfileId: null,
+    mappingProfileVersion: null,
+    status: "parsed",
+    rejectReason: null,
+    rowCount: 0,
+    acceptedCount: 0,
+    rejectedCount: 0,
+    heldCount: 0,
+    netCents: BigInt(0),
+    parsedRunId: null,
+    committedRunId: null,
+    committedAt: null,
+    reversedRunId: null,
+    reversedAt: null,
+    reversalBlocked: false,
+    createdAt: NOW.toISOString(),
+    version: 1,
+    ...extra,
+  };
+}
+
+export function stagedRow(
+  id: string,
+  batchId: string,
+  firmId: string,
+  clientId: string,
+  bankAccountId: string,
+  rowNumber: number,
+  postedOn: string,
+  amountCents: bigint,
+  extra: Partial<StagedRowRow> = {},
+): StagedRowRow {
+  const description =
+    typeof extra.description === "string" ? extra.description : `staged ${id}`;
+  return {
+    id,
+    batchId,
+    firmId,
+    clientId,
+    rowNumber,
+    rawRow: {},
+    postedOn,
+    description,
+    normalizedDescription: description.toUpperCase(),
+    amountCents,
+    currency: "USD",
+    accountNumber: "1010",
+    bankAccountId,
+    bankTransactionId: null,
+    checkNumber: null,
+    bankCode: null,
+    dedupState: "unique",
+    duplicateOfTransactionId: null,
+    reviewState: "none",
+    committedTransactionId: null,
+    committedEntryId: null,
+    errorCode: null,
+    errorMessage: null,
+    version: 1,
+    ...extra,
+  };
 }
 
 export function opts(

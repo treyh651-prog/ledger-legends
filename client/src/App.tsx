@@ -35,37 +35,76 @@ import PortalRequests from "@/pages/portal-requests";
 import PortalSign from "@/pages/portal-sign";
 import PortalReports from "@/pages/portal-reports";
 import PortalMessages from "@/pages/portal-messages";
+import PortalStatements from "@/pages/portal-statements";
+import PortalTransactions from "@/pages/portal-transactions";
+import PortalCompare from "@/pages/portal-compare";
+import PortalBudget from "@/pages/portal-budget";
+import PortalAging from "@/pages/portal-aging";
+import PortalOpenPeriod from "@/pages/portal-open-period";
+import PortalForecast from "@/pages/portal-forecast";
+import PortalNarrative from "@/pages/portal-narrative";
+import PortalScenarios from "@/pages/portal-scenarios";
+import PortalEntities from "@/pages/portal-entities";
+import PortalTiers from "@/pages/portal-tiers";
+import { ALWAYS_RENDER, EmptyWorkspace } from "@/components/empty-workspace";
+import { useApp } from "@/store";
+
+/**
+ * One guard for every route. When the workspace has no clients, the screen renders its
+ * own empty state instead of the page body. Doing it here means no page has to compute a
+ * ratio against zero, which is the honest fix rather than sprinkling fallbacks.
+ */
+function Guard({ path, page: Page }: { path: string; page: () => JSX.Element }) {
+  const { hasClients } = useApp();
+  if (!hasClients && !ALWAYS_RENDER.includes(path)) return <EmptyWorkspace path={path} />;
+  return <Page />;
+}
+
+function guarded(path: string, page: () => JSX.Element) {
+  return () => <Guard path={path} page={page} />;
+}
 
 function AppRouter() {
   return (
     <Switch>
-      <Route path="/" component={FirmOverview} />
-      <Route path="/clients" component={ClientBook} />
-      <Route path="/intake" component={Intake} />
-      <Route path="/transactions" component={Transactions} />
-      <Route path="/rules" component={Rules} />
-      <Route path="/reconcile" component={Reconcile} />
-      <Route path="/aging" component={Aging} />
-      <Route path="/journal" component={Journal} />
-      <Route path="/substantiation" component={Substantiation} />
-      <Route path="/statements" component={Statements} />
-      <Route path="/close" component={CloseChecklist} />
-      <Route path="/board" component={Board} />
-      <Route path="/team" component={Team} />
-      <Route path="/comms" component={Comms} />
-      <Route path="/requests" component={OpenItems} />
-      <Route path="/package" component={ReportPackage} />
-      <Route path="/budget" component={Budget} />
-      <Route path="/forecast" component={Forecast} />
-      <Route path="/narrative" component={Narrative} />
-      <Route path="/tax-forms" component={TaxForms} />
-      <Route path="/portal" component={PortalHome} />
-      <Route path="/portal/upload" component={PortalUpload} />
-      <Route path="/portal/documents" component={PortalDocuments} />
-      <Route path="/portal/requests" component={PortalRequests} />
-      <Route path="/portal/sign" component={PortalSign} />
-      <Route path="/portal/reports" component={PortalReports} />
-      <Route path="/portal/messages" component={PortalMessages} />
+      <Route path="/">{guarded("/", FirmOverview)}</Route>
+      <Route path="/clients">{guarded("/clients", ClientBook)}</Route>
+      <Route path="/intake">{guarded("/intake", Intake)}</Route>
+      <Route path="/transactions">{guarded("/transactions", Transactions)}</Route>
+      <Route path="/rules">{guarded("/rules", Rules)}</Route>
+      <Route path="/reconcile">{guarded("/reconcile", Reconcile)}</Route>
+      <Route path="/aging">{guarded("/aging", Aging)}</Route>
+      <Route path="/journal">{guarded("/journal", Journal)}</Route>
+      <Route path="/substantiation">{guarded("/substantiation", Substantiation)}</Route>
+      <Route path="/statements">{guarded("/statements", Statements)}</Route>
+      <Route path="/close">{guarded("/close", CloseChecklist)}</Route>
+      <Route path="/board">{guarded("/board", Board)}</Route>
+      <Route path="/team">{guarded("/team", Team)}</Route>
+      <Route path="/comms">{guarded("/comms", Comms)}</Route>
+      <Route path="/requests">{guarded("/requests", OpenItems)}</Route>
+      <Route path="/package">{guarded("/package", ReportPackage)}</Route>
+      <Route path="/budget">{guarded("/budget", Budget)}</Route>
+      <Route path="/forecast">{guarded("/forecast", Forecast)}</Route>
+      <Route path="/narrative">{guarded("/narrative", Narrative)}</Route>
+      <Route path="/tax-forms">{guarded("/tax-forms", TaxForms)}</Route>
+      <Route path="/portal">{guarded("/portal", PortalHome)}</Route>
+      <Route path="/portal/upload">{guarded("/portal/upload", PortalUpload)}</Route>
+      <Route path="/portal/documents">{guarded("/portal/documents", PortalDocuments)}</Route>
+      <Route path="/portal/requests">{guarded("/portal/requests", PortalRequests)}</Route>
+      <Route path="/portal/sign">{guarded("/portal/sign", PortalSign)}</Route>
+      <Route path="/portal/reports">{guarded("/portal/reports", PortalReports)}</Route>
+      <Route path="/portal/messages">{guarded("/portal/messages", PortalMessages)}</Route>
+      <Route path="/portal/statements">{guarded("/portal/statements", PortalStatements)}</Route>
+      <Route path="/portal/transactions">{guarded("/portal/transactions", PortalTransactions)}</Route>
+      <Route path="/portal/compare">{guarded("/portal/compare", PortalCompare)}</Route>
+      <Route path="/portal/budget">{guarded("/portal/budget", PortalBudget)}</Route>
+      <Route path="/portal/aging">{guarded("/portal/aging", PortalAging)}</Route>
+      <Route path="/portal/open-period">{guarded("/portal/open-period", PortalOpenPeriod)}</Route>
+      <Route path="/portal/forecast">{guarded("/portal/forecast", PortalForecast)}</Route>
+      <Route path="/portal/narrative">{guarded("/portal/narrative", PortalNarrative)}</Route>
+      <Route path="/portal/scenarios">{guarded("/portal/scenarios", PortalScenarios)}</Route>
+      <Route path="/portal/entities">{guarded("/portal/entities", PortalEntities)}</Route>
+      <Route path="/portal/tiers">{guarded("/portal/tiers", PortalTiers)}</Route>
       <Route component={NotFound} />
     </Switch>
   );

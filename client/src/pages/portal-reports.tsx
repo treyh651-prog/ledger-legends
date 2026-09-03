@@ -8,6 +8,9 @@ import { DataGrid, Kpi, Money, PageHeader, PageHeader as _PH, SectionCard, ToneD
 import { useApp } from "@/store";
 import { balanceSheet, cashFlow, monthlyNarrative, monthlyTrend, profitAndLoss } from "@/data/derive";
 import { PERIODS } from "@/data/seed";
+import { entitlementFor, hasFeature } from "@/data/entitlement";
+import { narrativeFact } from "@/data/portal-facts";
+import { LockedFeature } from "@/components/portal/portal-kit";
 import { fmtPeriod, fmtPeriodShort, usd } from "@/lib/money";
 
 export default function PortalReports() {
@@ -18,7 +21,11 @@ export default function PortalReports() {
   const bs = useMemo(() => balanceSheet(ds, activeClientId, period), [ds, activeClientId, period]);
   const cf = useMemo(() => cashFlow(ds, activeClientId, period), [ds, activeClientId, period]);
   const trend = useMemo(() => monthlyTrend(ds, activeClientId), [ds, activeClientId]);
-  const points = useMemo(() => monthlyNarrative(ds, activeClientId, period), [ds, activeClientId, period]);
+  const canNarrative = hasFeature(entitlementFor(ds, activeClientId).tier, "narrative");
+  const points = useMemo(
+    () => (canNarrative ? monthlyNarrative(ds, activeClientId, period) : []),
+    [ds, activeClientId, period, canNarrative],
+  );
 
   const chart = trend.map((t) => ({
     name: fmtPeriodShort(t.period),
@@ -115,6 +122,7 @@ export default function PortalReports() {
           />
         </SectionCard>
 
+        {canNarrative ? (
         <SectionCard title="What your accountant wrote" bodyClassName="p-0" testId="card-portal-notes">
           <ul className="divide-y divide-border">
             {points.map((p) => (
@@ -128,6 +136,14 @@ export default function PortalReports() {
             ))}
           </ul>
         </SectionCard>
+        ) : (
+          <LockedFeature
+            feature="narrative"
+            fact={narrativeFact(ds, activeClientId, period)}
+            currentTier={entitlementFor(ds, activeClientId).tier}
+            testId="locked-reports-narrative"
+          />
+        )}
       </div>
 
       <SectionCard title="Past packages" bodyClassName="p-0" testId="card-portal-past">

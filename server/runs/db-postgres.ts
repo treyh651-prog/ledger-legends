@@ -56,11 +56,29 @@ interface PgErrorLike {
 
 const SCHEMA = "ledger";
 
+/**
+ * Most run tables live in the ledger schema, but the import pipeline writes to
+ * three tables that migration 0009 put in the import schema, and two of them
+ * carry a different physical name than the row map key. Qualification is a
+ * lookup rather than a prefix so the mismatch stays in one place.
+ */
+const PHYSICAL_TABLES: Partial<Record<TableName, string>> = {
+  mapping_profiles: "import.mapping_profiles",
+  import_batches: "import.batches",
+  staged_rows: "import.staged_rows",
+};
+
+function physical(table: TableName): string {
+  return PHYSICAL_TABLES[table] ?? `${SCHEMA}.${table}`;
+}
+
 /** Cents columns per table, converted from text to bigint on the way out. */
 const CENTS_FIELDS: Record<string, readonly string[]> = {
   transactions: ["amountCents"],
   journal_lines: ["amountCents"],
   run_log_events: ["netCents"],
+  import_batches: ["netCents"],
+  staged_rows: ["amountCents"],
 };
 
 function camelToSnake(name: string): string {
@@ -98,12 +116,62 @@ interface SqlSpec {
 
 const TXN_COLUMNS = `
   id, firm_id as "firmId", client_id as "clientId",
-  bank_account_id as "bankAccountId", posted_date::text as "postedDate",
-  amount_cents::text as "amountCents", description,
-  normalized_vendor as "normalizedVendor", category_id as "categoryId",
+  bank_account_id as "bankAccountId", account_number as "accountNumber",
+  posted_date::text as "postedDate",
+  amount_cents::text as "amountCents", currency, description,
+  normalized_vendor as "normalizedVendor", check_number as "checkNumber",
+  bank_code as "bankCode", bank_transaction_id as "bankTransactionId",
+  source, import_batch_id as "importBatchId", staged_row_id as "stagedRowId",
+  category_id as "categoryId", cascade_level as "cascadeLevel",
+  suspense_reason as "suspenseReason",
   paired_with_id as "pairedWithId", duplicate_flag as "duplicateFlag",
+  journal_entry_id as "journalEntryId", cleared,
+  cleared_date::text as "clearedDate", status,
   manual_override as "manualOverride", manual_override_by as "manualOverrideBy",
   manual_override_at::text as "manualOverrideAt", version`;
+
+const MAPPING_PROFILE_COLUMNS = `
+  id, firm_id as "firmId", client_id as "clientId", version,
+  institution_name as "institutionName", account_number as "accountNumber",
+  file_format as "fileFormat", header_fingerprint as "headerFingerprint",
+  header_row_number as "headerRowNumber", skip_rows as "skipRows",
+  date_column as "dateColumn", date_format as "dateFormat",
+  description_column as "descriptionColumn", amount_column as "amountColumn",
+  debit_column as "debitColumn", credit_column as "creditColumn",
+  sign_convention as "signConvention", currency,
+  bank_id_column as "bankIdColumn",
+  check_number_column as "checkNumberColumn",
+  bank_code_column as "bankCodeColumn", is_active as "isActive"`;
+
+const IMPORT_BATCH_COLUMNS = `
+  id, firm_id as "firmId", client_id as "clientId", name,
+  source_format as "sourceFormat", bank_account_id as "bankAccountId",
+  account_number as "accountNumber",
+  mapping_profile_id as "mappingProfileId",
+  mapping_profile_version as "mappingProfileVersion", status,
+  reject_reason as "rejectReason", row_count as "rowCount",
+  accepted_count as "acceptedCount", rejected_count as "rejectedCount",
+  held_count as "heldCount", net_cents::text as "netCents",
+  parsed_run_id as "parsedRunId", committed_run_id as "committedRunId",
+  committed_at::text as "committedAt", reversed_run_id as "reversedRunId",
+  reversed_at::text as "reversedAt", reversal_blocked as "reversalBlocked",
+  created_at::text as "createdAt", version`;
+
+const STAGED_ROW_COLUMNS = `
+  id, batch_id as "batchId", firm_id as "firmId", client_id as "clientId",
+  row_number as "rowNumber", raw_row as "rawRow",
+  posted_on::text as "postedOn", description,
+  normalized_description as "normalizedDescription",
+  amount_cents::text as "amountCents", currency,
+  account_number as "accountNumber", bank_account_id as "bankAccountId",
+  bank_transaction_id as "bankTransactionId",
+  check_number as "checkNumber", bank_code as "bankCode",
+  dedup_state as "dedupState",
+  duplicate_of_transaction_id as "duplicateOfTransactionId",
+  review_state as "reviewState",
+  committed_transaction_id as "committedTransactionId",
+  committed_entry_id as "committedEntryId",
+  error_code as "errorCode", error_message as "errorMessage", version`;
 
 const RUN_LOG_COLUMNS = `
   id, firm_id as "firmId", client_id as "clientId", run_type as "runType",
@@ -303,6 +371,64 @@ const QUERIES: Record<QueryName, SqlSpec> = {
           order by id asc`,
     params: (p) => [p.firmId, p.clientId, p.ids],
   },
+  active_mapping_profile: {
+    table: "mapping_profiles",
+    sql: `select ${MAPPING_PROFILE_COLUMNS}
+          from import.mapping_profiles
+          where firm_id = $1 and client_id = $2
+            and institution_name = $3 and file_format = $4
+            and is_active = true
+          order by version desc, id asc`,
+    params: (p) => [p.firmId, p.clientId, p.institutionName, p.fileFormat],
+  },
+  import_batch_by_id: {
+    table: "import_batches",
+    sql: `select ${IMPORT_BATCH_COLUMNS}
+          from import.batches
+          where firm_id = $1 and client_id = $2 and id = $3`,
+    params: (p) => [p.firmId, p.clientId, p.batchId],
+  },
+  staged_rows_by_batch: {
+    table: "staged_rows",
+    sql: `select ${STAGED_ROW_COLUMNS}
+          from import.staged_rows
+          where firm_id = $1 and client_id = $2 and batch_id = $3
+          order by row_number asc`,
+    params: (p) => [p.firmId, p.clientId, p.batchId],
+  },
+  transactions_by_bank_ids: {
+    table: "transactions",
+    sql: `select ${TXN_COLUMNS}
+          from ${SCHEMA}.transactions
+          where firm_id = $1 and client_id = $2
+            and bank_account_id = $3
+            and bank_transaction_id = any($4::text[])
+          order by posted_date asc, abs(amount_cents) asc, id asc`,
+    params: (p) => [
+      p.firmId,
+      p.clientId,
+      p.bankAccountId,
+      p.bankTransactionIds,
+    ],
+  },
+  transactions_for_account_window: {
+    table: "transactions",
+    sql: `select ${TXN_COLUMNS}
+          from ${SCHEMA}.transactions
+          where firm_id = $1 and client_id = $2
+            and bank_account_id = $3
+            and posted_date between $4::date and $5::date
+          order by posted_date asc, abs(amount_cents) asc, id asc`,
+    params: (p) => [p.firmId, p.clientId, p.bankAccountId, p.from, p.to],
+  },
+  transactions_by_batch: {
+    table: "transactions",
+    sql: `select ${TXN_COLUMNS}
+          from ${SCHEMA}.transactions
+          where firm_id = $1 and client_id = $2 and import_batch_id = $3
+          order by posted_date asc, abs(amount_cents) asc, id asc`,
+    params: (p) => [p.firmId, p.clientId, p.batchId],
+  },
 };
 
 function translateError(err: unknown): unknown {
@@ -368,7 +494,7 @@ class PostgresTx implements RunTx {
       const values = entries.map(([, v]) => encodeParam(v));
       try {
         await this.client.query(
-          `insert into ${SCHEMA}.${table} (${cols}) values (${placeholders})`,
+          `insert into ${physical(table)} (${cols}) values (${placeholders})`,
           values,
         );
       } catch (err) {
@@ -394,7 +520,7 @@ class PostgresTx implements RunTx {
     values.push(this.session.firmId);
     try {
       await this.client.query(
-        `update ${SCHEMA}.${table} set ${sets}
+        `update ${physical(table)} set ${sets}
          where id = $${values.length - 1} and firm_id = $${values.length}`,
         values,
       );

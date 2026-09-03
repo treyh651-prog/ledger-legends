@@ -24,4 +24,6 @@ export * from "./undo";
 export * from "./sequence";
 export { txnPairTransfers } from "./runs/txn-pair-transfers";
 export type { PairTransfersScope } from "./runs/txn-pair-transfers";
+export * from "./runs/import-parse-feed";
+export * from "./runs/import-commit-batch";
 export { registry, lookupRun } from "./registry";

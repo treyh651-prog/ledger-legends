@@ -59,6 +59,30 @@ export function runExecutionId(now?: Date): string {
   return `RUNX-${ulid(now)}`;
 }
 
+/**
+ * A deterministic id derived from a seed id, a kind, and an ordinal.
+ *
+ * Preview and apply must produce byte identical proposal sets, and the import
+ * pipeline proposes rows that do not exist yet, so their ids cannot come from
+ * ulid(), which carries randomness. Derived ids are stable across the two
+ * modes and across a retry, they keep the 26 character Crockford base32 shape
+ * the id columns declare, and they sort inside a batch by ordinal.
+ */
+export function derivedId(seed: string, kind: string, ordinal: number): string {
+  const digest = sha256Hex(`${seed}:${kind}`);
+  let out = "";
+  for (let i = 0; i < 16; i += 1) {
+    out += ALPHABET[parseInt(digest.slice(i * 2, i * 2 + 2), 16) % 32];
+  }
+  let value = ordinal;
+  const tail: string[] = [];
+  for (let i = 0; i < 10; i += 1) {
+    tail.unshift(ALPHABET[value % 32]);
+    value = Math.floor(value / 32);
+  }
+  return tail.join("") + out;
+}
+
 export function sha256Hex(input: string): string {
   return createHash("sha256").update(input, "utf8").digest("hex");
 }

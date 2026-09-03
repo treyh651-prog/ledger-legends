@@ -95,6 +95,8 @@ export interface Client {
   onboardingStage: "Intake" | "Cleanup" | "Live" | "Review";
   lead: string;
   color: string;
+  /** Fixture kept for self checking. Shown with a badge so it is never read as a real client. */
+  testCompany?: boolean;
 }
 
 export interface JELine {
@@ -360,4 +362,47 @@ export interface Signature {
   mode: "typed" | "drawn";
   signedAt: string;
   ip: string;
+}
+
+/* ---------------- Portal entitlement, closes, and entity groups ---------------- */
+
+/** Portal depth is bundled into the service level. There is no plan and no payment anywhere in this product. */
+export type TierId = "ledger" | "ledger_plus" | "legend";
+
+/**
+ * Effective dated entitlement sourced from the engagement, per decision D1.
+ * A row with no effectiveTo is the current grant for that client.
+ */
+export interface EntitlementGrant {
+  id: string;
+  clientId: string;
+  tierId: TierId;
+  effectiveFrom: string;
+  effectiveTo?: string;
+  setBy: string;
+  reason: string;
+}
+
+export type CloseState = "open" | "closed";
+
+/** A period close is a real record, not a checkbox. Locked follows a passed close. */
+export interface PeriodClose {
+  id: string;
+  clientId: string;
+  period: string;
+  state: CloseState;
+  preparedBy?: string;
+  reviewedBy?: string;
+  closedAt?: string;
+  locked: boolean;
+  withExceptions: boolean;
+  exceptionNote?: string;
+}
+
+/** A set of entities one portal account can see. Consolidation reads only these members. */
+export interface EntityGroup {
+  id: string;
+  name: string;
+  primaryClientId: string;
+  memberClientIds: string[];
 }

@@ -171,6 +171,28 @@ export interface ProposedFieldWrite {
   };
 }
 
+/**
+ * A new row in a table a run owns. Doc 03 Part 3 named three proposal shapes,
+ * all of which assume the row already exists, which is true for every coding
+ * run and false for the import pipeline: parsing creates staged rows and
+ * committing creates register rows. Rather than let those two runs write
+ * outside the proposal set, the set grew a fourth shape, so the proposal set
+ * stays the only channel between propose and apply.
+ */
+export interface ProposedRowInsert {
+  kind: "row_insert";
+  table: string;
+  rowId: Ulid;
+  row: Record<string, unknown>;
+  provenance: {
+    cascadeLevel: number;
+    ruleId?: string;
+    ruleVersion?: number;
+    templateId?: Ulid;
+    templateVersion?: number;
+  };
+}
+
 export interface ProposedSuspenseRouting {
   kind: "suspense";
   transactionId: Ulid;
@@ -183,6 +205,7 @@ export interface ProposedSuspenseRouting {
 export type Proposal =
   | ProposedJournalEntry
   | ProposedFieldWrite
+  | ProposedRowInsert
   | ProposedSuspenseRouting;
 
 export interface Skip {
@@ -327,4 +350,8 @@ export function isFieldWrite(p: Proposal): p is ProposedFieldWrite {
 
 export function isSuspenseRouting(p: Proposal): p is ProposedSuspenseRouting {
   return p.kind === "suspense";
+}
+
+export function isRowInsert(p: Proposal): p is ProposedRowInsert {
+  return p.kind === "row_insert";
 }

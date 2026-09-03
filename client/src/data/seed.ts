@@ -7,11 +7,14 @@ import type {
   Client,
   CommEntry,
   DocRecord,
+  EntitlementGrant,
+  EntityGroup,
   Invoice,
   JELine,
   JESource,
   JournalEntry,
   OpenItem,
+  PeriodClose,
   Rule,
   Signature,
   StatementLine,
@@ -99,8 +102,8 @@ interface Profile {
 }
 
 const TEAM: TeamMember[] = [
-  { id: "tm-1", name: "Trey Hernandez", initials: "TH", role: "Firm owner", capacityHours: 120, clients: ["bramble", "northgate", "marisol", "riverbend"] },
-  { id: "tm-2", name: "Dana Whitfield", initials: "DW", role: "Senior bookkeeper", capacityHours: 150, clients: ["bramble", "northgate"] },
+  { id: "tm-1", name: "Trey Hernandez", initials: "TH", role: "Firm owner", capacityHours: 120, clients: ["bramble", "bramble-cafe", "northgate", "marisol", "riverbend"] },
+  { id: "tm-2", name: "Dana Whitfield", initials: "DW", role: "Senior bookkeeper", capacityHours: 150, clients: ["bramble", "bramble-cafe", "northgate"] },
   { id: "tm-3", name: "Priya Raman", initials: "PR", role: "Bookkeeper", capacityHours: 150, clients: ["marisol", "riverbend"] },
   { id: "tm-4", name: "Owen Baptiste", initials: "OB", role: "Close reviewer", capacityHours: 100, clients: ["bramble", "marisol", "riverbend"] },
 ];
@@ -151,6 +154,7 @@ function profiles(): Profile[] {
         onboardingStage: "Live",
         lead: "Dana Whitfield",
         color: "hsl(174 62% 38%)",
+        testCompany: true,
       },
       banks: [
         { id: "ba-b1", clientId: "bramble", institution: "First Cascade Bank", nickname: "Operating", last4: "4471", kind: "Checking", currency: "USD", glAccountId: "1010", statementSource: "Bank feed", needsReconciling: true },
@@ -414,6 +418,81 @@ function profiles(): Profile[] {
       depreciation: 43600,
       distributions: null,
     },
+    {
+      client: {
+        id: "bramble-cafe",
+        legalName: "Bramble and Bean Cafe LLC",
+        dba: "Bramble & Bean Cafe",
+        shortName: "B&B Cafe",
+        industry: "Coffee bar and pastry counter",
+        entityType: "LLC",
+        ein: "88-2094117",
+        fiscalYearEnd: "December 31",
+        address: "221 NW Minnesota Ave, Bend, OR 97703",
+        owners: [
+          { id: "ow-6", name: "Nora Bramble", ownershipPct: 60, role: "Managing member" },
+          { id: "ow-7", name: "Isaac Bean", ownershipPct: 40, role: "Member" },
+        ],
+        contacts: [
+          { id: "cc-10", name: "Nora Bramble", email: "nora@brambleandbean.co", role: "Managing member", canApprovePayments: true, canApproveJournalEntries: true, mfaRequired: true },
+          { id: "cc-11", name: "Tomas Alderete", email: "tomas@brambleandbean.co", role: "Cafe manager", canApprovePayments: false, canApproveJournalEntries: false, mfaRequired: true },
+        ],
+        systems: [
+          { id: "sy-15", kind: "Accounting software", vendor: "QuickBooks Online Plus", accessStatus: "Admin" },
+          { id: "sy-16", kind: "Point of sale", vendor: "Square for Restaurants", accessStatus: "Read only granted" },
+          { id: "sy-17", kind: "Payroll", vendor: "Gusto", accessStatus: "Read only granted" },
+        ],
+        scope: ["ap", "sales_tax", "monthly_close"],
+        classes: ["Cafe", "Catering"],
+        locations: ["Minnesota Ave"],
+        jobs: ["General"],
+        currencies: ["USD"],
+        priorRecords: {
+          lastFinancials: "December 2025 statements prepared with the roasting company",
+          priorTrialBalance: "2025 trial balance received from the same prior bookkeeper",
+          existingCoa: "Same 44 account chart as the roasting company",
+          cleanupItems: ["Cafe purchases from the roasting company recorded as third party cost of sales"],
+          outstandingRecs: ["Cafe card 3390 not reconciled since December 2025"],
+        },
+        engagement: { monthlyFeeCents: 98000, cleanupFeeCents: 120000, startDate: "2026-01-05", signedBy: "Nora Bramble", signedAt: "2026-01-04T16:40:00", signatureMode: "typed" },
+        onboardingStage: "Live",
+        lead: "Dana Whitfield",
+        color: "hsl(196 62% 42%)",
+      },
+      banks: [
+        { id: "ba-c1", clientId: "bramble-cafe", institution: "First Cascade Bank", nickname: "Cafe operating", last4: "6620", kind: "Checking", currency: "USD", glAccountId: "1010", statementSource: "Bank feed", needsReconciling: true },
+        { id: "ba-c2", clientId: "bramble-cafe", institution: "Cascade Visa", nickname: "Cafe card", last4: "3390", kind: "Credit card", currency: "USD", glAccountId: "2010", statementSource: "PDF upload", needsReconciling: true },
+        { id: "ba-c3", clientId: "bramble-cafe", institution: "Square", nickname: "Cafe Square clearing", last4: "7740", kind: "Merchant processor", currency: "USD", glAccountId: "1050", statementSource: "Portal", needsReconciling: false },
+      ],
+      opening: { "1010": 1640000, "1150": 412000, "1200": 180000, "1500": 3120000, "1510": 742000, "2010": 186400, "2200": 62800, "3000": 2000000 },
+      rent: 312000,
+      rentPayee: "Minnesota Avenue Partners",
+      utilities: [18600, 34200],
+      utilityPayee: "Bend Electric and Water",
+      software: [
+        { vendor: "Square", desc: "SQUARE FOR RESTAURANTS", cents: 6900 },
+        { vendor: "QuickBooks", desc: "INTUIT QBO PLUS", cents: 9000 },
+      ],
+      insurance: 28400,
+      payroll: { wages: 742000, employerTax: 62800, withheld: 148600, runs: [15, 30] },
+      loan: null,
+      revenue: {
+        merchant: { perMonth: 4, min: 420000, max: 860000, account: "4000", feeBps: 265, taxBps: 0, klass: "Cafe", desc: "SQUARE PAYOUT CAFE" },
+        invoices: { customers: ["Deschutes Coworking", "Silvan Hotel Group", "Bend Athletic Club"], perMonth: 1, min: 120000, max: 340000, account: "4010", klass: "Catering" },
+      },
+      cardVendors: [
+        { vendor: "Bramble and Bean Roasting", desc: "BRAMBLE AND BEAN ROASTING", account: "5000", min: 86000, max: 164000 },
+        { vendor: "Sysco", desc: "SYSCO PORTLAND", account: "5000", min: 24000, max: 78000 },
+        { vendor: "Ace Hardware", desc: "ACE HARDWARE 2210", account: "6160", min: 3200, max: 14800 },
+      ],
+      billVendors: [
+        { vendor: "Deschutes Dairy", account: "5000", min: 38000, max: 92000, taxClass: "S corporation", w9: true, perMonth: 1 },
+        { vendor: "Highdesert Pastry Works", account: "5000", min: 42000, max: 118000, taxClass: "Single member LLC", w9: false, perMonth: 1 },
+      ],
+      depreciation: 26000,
+      distributions: 180000,
+      inventoryPurchase: { vendor: "Bramble and Bean Roasting", desc: "BRAMBLE AND BEAN ROASTING WHOLESALE", account: "1150", min: 180000, max: 320000 },
+    },
   ];
 }
 
@@ -436,6 +515,9 @@ export interface Dataset {
   comms: CommEntry[];
   budgets: BudgetLine[];
   signatures: Signature[];
+  entitlements: EntitlementGrant[];
+  closes: PeriodClose[];
+  entityGroups: EntityGroup[];
 }
 
 const SCOPE_TASKS: Record<string, { title: string; hours: number }[]> = {
@@ -511,6 +593,9 @@ export function buildDataset(): Dataset {
     comms: [],
     budgets: [],
     signatures: [],
+    entitlements: [],
+    closes: [],
+    entityGroups: [],
   };
 
   let jeSeq = 0;
@@ -1379,5 +1464,127 @@ export function buildDataset(): Dataset {
     });
   });
 
+  // ---- Portal entitlement grants, effective dated and sourced from the engagement.
+  // Decision D1. Tier is bundled into the service level. Nothing here touches money.
+  const grantSeed: Omit<EntitlementGrant, "id">[] = [
+    { clientId: "bramble", tierId: "legend", effectiveFrom: "2026-01-05", setBy: "Trey Hernandez", reason: "Legend service level named in the signed engagement letter" },
+    { clientId: "bramble-cafe", tierId: "legend", effectiveFrom: "2026-01-05", setBy: "Trey Hernandez", reason: "Same engagement group as the roasting company, Legend service level" },
+    { clientId: "northgate", tierId: "ledger", effectiveFrom: "2026-01-12", effectiveTo: "2026-04-01", setBy: "Trey Hernandez", reason: "Opened at the Ledger service level during cleanup" },
+    { clientId: "northgate", tierId: "ledger_plus", effectiveFrom: "2026-04-01", setBy: "Trey Hernandez", reason: "Moved to Ledger plus when job level reporting entered scope" },
+    { clientId: "riverbend", tierId: "ledger_plus", effectiveFrom: "2026-01-15", setBy: "Trey Hernandez", reason: "Board asked for budget versus actual every month" },
+    { clientId: "marisol", tierId: "ledger", effectiveFrom: "2026-02-01", setBy: "Trey Hernandez", reason: "Ledger service level, single owner and one studio" },
+  ];
+  grantSeed.forEach((g, i) => ds.entitlements.push({ ...g, id: `grant-${i + 1}` }));
+
+  // ---- Period closes. Every period through June is closed and locked. July is open.
+  for (const c of ds.clients) {
+    PERIODS.forEach((period, i) => {
+      const isOpen = period === CURRENT_PERIOD;
+      const withExceptions = c.id === "riverbend" && period === "2026-06";
+      ds.closes.push({
+        id: `close-${c.id}-${period}`,
+        clientId: c.id,
+        period,
+        state: isOpen ? "open" : "closed",
+        preparedBy: isOpen ? undefined : c.lead,
+        reviewedBy: isOpen ? undefined : "Owen Baptiste",
+        closedAt: isOpen ? undefined : `${periodEndDay(period)}T17:${String(10 + i).padStart(2, "0")}:00`,
+        locked: !isOpen,
+        withExceptions,
+        exceptionNote: withExceptions
+          ? "Closed with one exception. The grant restriction schedule was approved with a stated variance and it is resolved in the July close."
+          : undefined,
+      });
+    });
+  }
+
+  // ---- Entity groups. Consolidation only ever reads the members listed here.
+  ds.entityGroups.push({
+    id: "grp-bramble",
+    name: "Bramble & Bean group",
+    primaryClientId: "bramble",
+    memberClientIds: ["bramble", "bramble-cafe"],
+  });
+  for (const c of ds.clients) {
+    if (c.id === "bramble" || c.id === "bramble-cafe") continue;
+    ds.entityGroups.push({ id: `grp-${c.id}`, name: c.dba, primaryClientId: c.id, memberClientIds: [c.id] });
+  }
+
   return ds;
+}
+
+/** Last day of a period, used to date a close record. */
+function periodEndDay(period: string): string {
+  const [y, m] = period.split("-").map(Number);
+  return `${period}-${String(new Date(Date.UTC(y, m, 0)).getUTCDate()).padStart(2, "0")}`;
+}
+
+export type DataMode = "demo" | "test" | "empty";
+
+/** The one company kept for self checking. It exercises inventory, fixed assets, a loan, AR, AP, payroll, and reconciliation. */
+export const TEST_CLIENT_ID = "bramble";
+
+/** A cold workspace. Same shape, no rows. Every screen has to stand up on this. */
+export function emptyDataset(): Dataset {
+  return {
+    clients: [],
+    bankAccounts: [],
+    journalEntries: [],
+    txns: [],
+    rules: [],
+    statementLines: [],
+    invoices: [],
+    bills: [],
+    vendors: [],
+    substantiations: [],
+    openItems: [],
+    documents: [],
+    audit: [],
+    tasks: [],
+    team: [],
+    comms: [],
+    budgets: [],
+    signatures: [],
+    entitlements: [],
+    closes: [],
+    entityGroups: [],
+  };
+}
+
+/** Narrow a dataset to one client. Used by test mode, which carries a single company. */
+export function datasetForClient(full: Dataset, clientId: string): Dataset {
+  const keep = <T extends { clientId: string }>(rows: T[]) => rows.filter((r) => r.clientId === clientId);
+  const clients = full.clients.filter((c) => c.id === clientId);
+  return {
+    clients,
+    bankAccounts: keep(full.bankAccounts),
+    journalEntries: keep(full.journalEntries),
+    txns: keep(full.txns),
+    rules: keep(full.rules),
+    statementLines: keep(full.statementLines),
+    invoices: keep(full.invoices),
+    bills: keep(full.bills),
+    vendors: keep(full.vendors),
+    substantiations: keep(full.substantiations),
+    openItems: keep(full.openItems),
+    documents: keep(full.documents),
+    audit: keep(full.audit),
+    tasks: keep(full.tasks),
+    team: full.team.filter((m) => m.clients.includes(clientId)).map((m) => ({ ...m, clients: [clientId] })),
+    comms: keep(full.comms),
+    budgets: keep(full.budgets),
+    signatures: keep(full.signatures),
+    entitlements: keep(full.entitlements),
+    closes: keep(full.closes),
+    entityGroups: full.entityGroups
+      .filter((g) => g.memberClientIds.includes(clientId))
+      .map((g) => ({ ...g, primaryClientId: clientId, memberClientIds: g.memberClientIds.filter((id) => id === clientId) })),
+  };
+}
+
+export function datasetForMode(mode: DataMode): Dataset {
+  if (mode === "empty") return emptyDataset();
+  const full = buildDataset();
+  if (mode === "test") return datasetForClient(full, TEST_CLIENT_ID);
+  return full;
 }

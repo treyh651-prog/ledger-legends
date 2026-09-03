@@ -170,3 +170,127 @@ Not covered by a test:
 14. **Row versions.** The in memory port bumps a row's `version` field on update,
     mirroring what a Postgres trigger does. This is what makes a stale preview
     detectable after a prior apply changed the same rows.
+
+## The register and the import pipeline, migration 0011 and module 3
+
+Doc 04 never defined the bank transaction register, so its columns were derived
+from what the runs actually need: what IMPORT-COMMIT-BATCH writes, what the nine
+module 2 coding runs read and write, what REC-MATCH-TIERED matches against, and
+what the coding cascade provenance requires. Each of the decisions below is a
+place where the docs left a real choice open. Three options were written down,
+one was picked, and the reason is recorded.
+
+15. **The dedup grain on the bank supplied id.** Options: key it on
+    `(client_id, account_number, bank_transaction_id)` matching what migration
+    0009 did on staged rows, key it on
+    `(client_id, bank_account_id, bank_transaction_id)`, or make the id globally
+    unique. Chosen: the bank account grain. Two feeds can post to the same four
+    digit cash account, and a bank supplied id is only unique inside the account
+    that issued it, so the account number grain would create false duplicates
+    across two real accounts and the global grain would collide between banks.
+    Migration 0011 also adds `bank_account_id` to `import.batches` and
+    `import.staged_rows` so the staging side can key the same way.
+
+16. **Foreign currency in the register.** Options: reject a non USD row at
+    import, allow any currency freely, or allow it only while it is routed to
+    suspense. Chosen: `check (currency = 'USD' or suspense_reason = 'SUS-11')`.
+    Doc 00 sends foreign currency to SUS-11 for a person to handle rather than
+    dropping the row, and a free currency column would quietly let a mixed
+    currency total foot to a number that means nothing.
+
+17. **Batch reversal representation.** Options: delete the register rows,
+    post a mirror register row, or carry a status column. Chosen:
+    `status in ('active','reversed')` plus `reversed_by_run_id` and
+    `reversed_at`. Nothing is deleted, so the audit trail of what the bank said
+    survives, and every partial index the coding runs select on carries
+    `status = 'active'`, so a reversed row stops being a candidate without any
+    run having to remember to filter it.
+
+18. **The missing bank account table.** Options: leave the register unlinked to
+    a funding source, point it at `ledger.accounts` only, or model
+    `ledger.bank_accounts` in this migration. Chosen: model it. The register
+    cannot carry a foreign key to a table that does not exist, the TypeScript
+    port already assumed a `bank_accounts` table, and reconciliation needs the
+    per account amount tolerance and the processor destination flag to live
+    somewhere.
+
+19. **How a run proposes a row that does not exist yet.** Options: extend the
+    proposal union with a `row_insert` shape, make `writeField` upsert, or let
+    the import runs write outside the proposal set. Chosen: the fourth proposal
+    shape. Doc 03 makes the proposal set the only channel between propose and
+    apply, and both alternatives punch a hole in that: an upsert hides a create
+    inside an update, and a direct write means preview cannot show what apply
+    would do.
+
+20. **Ids for rows that do not exist yet.** Options: call `ulid()` in propose,
+    have apply assign the ids, or derive them. Chosen: derive them.
+    `ids.derivedId(seed, kind, ordinal)` hashes the seed and encodes the
+    ordinal, so a staged row id is a pure function of the batch id and the row
+    number. `ulid()` carries randomness, and apply re-derives its proposals and
+    compares them against the preview byte for byte, so random ids would make
+    every apply refuse itself as stale.
+
+21. **The execution id and the clock inside a proposal.** Same defect, found the
+    same way: `parsed_run_id`, `committed_run_id`, `committed_at` and
+    `created_at` differ between the preview and the apply, so stamping them in
+    propose made apply refuse itself. Options: drop the columns from the
+    proposal and lose the provenance, exempt named fields from the parity
+    comparison, or substitute them at write time. Chosen: substitution.
+    `apply-writer` exports `RUN_ID_PLACEHOLDER` and `NOW_PLACEHOLDER`, a run
+    writes the placeholder, and the writer swaps in the real values. The
+    proposal set stays deterministic and the row still records who wrote it and
+    when. Exempting fields from the comparison was rejected because it weakens
+    the one check that makes a reviewed preview mean anything.
+
+22. **XLSX.** Options: add a spreadsheet dependency, unzip and read the sheet
+    XML inside the run, or take the cells as a grid the upload boundary already
+    flattened. Chosen: the grid. No new npm dependency is allowed, and a
+    workbook reader written inside a run would be a second parser to trust for
+    no gain, since the mapping profile logic is identical once the cells are
+    rows and columns.
+
+23. **CAMT.053.** Options: write a partial XML reader now, silently fall back to
+    the CSV path, or refuse with a named code. Chosen: refuse with
+    `FORMAT_NOT_IMPLEMENTED`. Doc 05 accepts the format, so the enum keeps it,
+    but a half parser that guesses at an ISO 20022 document is worse than an
+    honest refusal, and the fallback would run a bank statement through the
+    wrong reader.
+
+24. **A PDF that arrives named as something else.** Doc 05 is absolute that
+    there is no PDF parser and there will not be one. Options: trust the format
+    argument, check the file name, or check the bytes. Chosen: the bytes. The
+    parser refuses any payload beginning with `%PDF` with
+    `PDF_NOT_SUPPORTED`, because a renamed file is the only way this rule gets
+    tested in practice.
+
+25. **A row the parser could not read.** Options: drop it, fail the whole file,
+    or stage it with an error code. Chosen: stage it with an error code and
+    count it as rejected. The batch counts have to add up to the file, and an
+    operator needs to see the four rows that failed rather than wonder why the
+    file had 96 rows and the batch has 92. A zero amount is treated the same
+    way, which mirrors the `txn_amount_nonzero` constraint in the register.
+
+26. **Whether IMPORT-COMMIT-BATCH posts a journal entry.** Doc 05 answers
+    "posts: yes" for this run, which reads two ways. Options: post a cash entry
+    per row now, post nothing and set `writes_ledger` false, or write ledger
+    data and post no entry. Chosen: the third. A register row is ledger data, so
+    the run takes the ledger isolation level and requires an open period, but an
+    uncoded transaction has no second side yet, so there is no balanced entry to
+    post. The coding cascade posts it later and links back through
+    `journal_entry_id`.
+
+27. **Undoing a parse.** Options: delete the staged rows, leave the batch
+    untouched, or close the batch. Chosen: close the batch. The undo marks it
+    `rejected` with reason `parse_undone`, which takes it out of every commit
+    path. The staged rows are evidence of what the file said and are inert once
+    the batch is closed, so deleting them would destroy the record of a rejected
+    duplicate for no benefit.
+
+28. **A reconciled row inside a batch being reversed.** Doc 05 says a batch is
+    reversible as a unit until any row in it is reconciled, and doc 03 says
+    partial undo does not exist. Options: reverse the unreconciled rows, unclear
+    the reconciled row and reverse everything, or block the whole reversal.
+    Chosen: block it, through `BatchReversalBlocked`, which the framework turns
+    into a `failed` outcome naming the reconciled rows. A person unreconciles
+    first. The two alternatives either invent partial undo or silently undo a
+    reconciliation somebody signed off on.

@@ -42,6 +42,8 @@ import {
   txn,
 } from "./fixtures";
 import { assert, assertEqual, runAll, show, test } from "./harness";
+// The import pipeline suite registers its own tests on the same queue.
+import "./import-pipeline";
 
 type Outcome = Awaited<ReturnType<typeof execute<PairTransfersScope, Proposal>>>;
 

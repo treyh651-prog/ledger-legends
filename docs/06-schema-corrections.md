@@ -2,7 +2,7 @@
 
 Status: authoritative for the items listed. Where this document conflicts with document 04, this document wins.
 
-Writing the migrations against document 04 exposed nine defects. Every one of them would have been a production problem rather than a review comment, which is the argument for building the schema before building runs on top of it. Each is recorded here with what was wrong, what the migrations do instead, and whether anything is still open.
+Writing the migrations against document 04 exposed nine defects. Eight are now resolved and one, C2, has a remainder noted below. Two further defects were found later by the tests rather than by review, and are recorded at the end. Every one of them would have been a production problem rather than a review comment, which is the argument for building the schema before building runs on top of it. Each is recorded here with what was wrong, what the migrations do instead, and whether anything is still open.
 
 ---
 
@@ -62,13 +62,25 @@ The vault key constraint binds the S3 key to both discriminators by pattern. A f
 
 Document 04 defines subledgers, schedules, and the journal, but never the bank transaction register that the coding cascade operates on. Several id columns therefore have no foreign key to point at, and the import pipeline has nothing to import into.
 
-**Not resolved. This is the next blocker.** The register is what `IMPORT-COMMIT-BATCH` writes to, what all nine coding runs in module 2 read, and what reconciliation matches against. It needs to be specified and added as migration `0011` before the import pipeline is built. It is now the first item of build step three.
+**Resolved.** `0011_transaction_register.sql` adds `ledger.transactions` and `ledger.bank_accounts`, and closes the eight foreign keys that had nothing to point at. The bank account table had to come with it, because the register cannot key to a table that does not exist.
+
+The register columns were derived from consumers rather than invented: what `IMPORT-COMMIT-BATCH` writes, what the nine module 2 coding runs read and write, what `REC-MATCH-TIERED` matches against, and what cascade provenance requires. That provenance is the part worth protecting. Every row carries the cascade level that decided it, the rule id and the rule version, so six months later the question of why a transaction was coded a particular way has an answer that names the rule as it existed then, not as it exists now.
+
+A `version` column makes a stale preview detectable, which is what lets a reviewed preview mean something when the apply happens minutes later. Reversal is a status, never a delete.
 
 ---
 
+## Two defects found by the tests rather than by review
+
+Both surfaced against the check that preview and apply must produce byte identical proposals. Both would have made that check meaningless while appearing to pass.
+
+**D1. Random identifiers broke parity.** ULIDs carry randomness, so a staged row got a different id on apply than it had on preview, and every apply refused itself as stale. Fixed by deriving staged row ids as a pure function of the batch id and the row number. The identifier is still unique, it is just no longer random.
+
+**D2. Run ids and timestamps legitimately differ between preview and apply.** Three options were considered: drop the columns and lose the provenance, exempt those named fields from the parity comparison, or write placeholders during execution and substitute real values at write time. Substitution was chosen. Exempting fields was rejected because every future field that differs would get exempted too, and the check would quietly erode into nothing.
+
 ## What this says about the process
 
-Eight of nine were caught by attempting the implementation rather than by reading. The specifications were reviewed for internal consistency and passed, because a constraint whose comment contradicts its own logic reads correctly to anyone not executing it.
+Eight of the nine were caught by attempting the implementation rather than by reading, and the last two were caught only by running the tests. The specifications were reviewed for internal consistency and passed, because a constraint whose comment contradicts its own logic reads correctly to anyone not executing it.
 
 Two of the nine were tenant isolation or data integrity defects, C4 and C8, rather than mechanical failures. Those are the ones that would not have announced themselves. C8 in particular would have worked correctly for every well behaved file and failed only for a file deliberately named to escape.
 

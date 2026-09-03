@@ -27,22 +27,137 @@ export interface ChartAccountRow {
   name: string;
 }
 
+/**
+ * The bank transaction register, migration 0011. The projection below is what
+ * the framework and the import pipeline touch, not the whole DDL.
+ */
 export interface TransactionRow {
   id: Ulid;
   firmId: Ulid;
   clientId: Ulid;
   bankAccountId: Ulid;
+  /** The chart account the funding source posts to, for example "1010". */
+  accountNumber: string;
   postedDate: string;
   /** Signed. Money out of the account is negative. */
   amountCents: Cents;
+  currency: string;
   description: string;
   normalizedVendor: string;
+  checkNumber: string | null;
+  bankCode: string | null;
+  /** The bank supplied unique id, null when the format did not carry one. */
+  bankTransactionId: string | null;
+  source: "import" | "manual" | "conversion";
+  importBatchId: Ulid | null;
+  stagedRowId: Ulid | null;
   categoryId: string | null;
+  cascadeLevel: number | null;
+  suspenseReason: string | null;
   pairedWithId: Ulid | null;
   duplicateFlag: boolean;
+  journalEntryId: Ulid | null;
+  cleared: boolean;
+  clearedDate: string | null;
+  status: "active" | "reversed";
   manualOverride: boolean;
   manualOverrideBy: Ulid | null;
   manualOverrideAt: string | null;
+  version: number;
+}
+
+/** import.mapping_profiles, migration 0009. Read only from a run's point of view. */
+export interface MappingProfileRow {
+  id: Ulid;
+  firmId: Ulid;
+  clientId: Ulid;
+  version: number;
+  institutionName: string;
+  accountNumber: string;
+  fileFormat: "csv" | "xlsx";
+  /** Compared exactly against the incoming header row. Never fuzzily. */
+  headerFingerprint: string;
+  headerRowNumber: number;
+  skipRows: number;
+  dateColumn: string;
+  dateFormat: string;
+  descriptionColumn: string;
+  amountColumn: string | null;
+  debitColumn: string | null;
+  creditColumn: string | null;
+  signConvention: "debit_positive" | "credit_positive" | "separate_columns";
+  currency: string;
+  bankIdColumn: string | null;
+  checkNumberColumn: string | null;
+  bankCodeColumn: string | null;
+  isActive: boolean;
+}
+
+/** import.batches, migration 0009. */
+export interface ImportBatchRow {
+  id: Ulid;
+  firmId: Ulid;
+  clientId: Ulid;
+  name: string;
+  sourceFormat: "ofx" | "qfx" | "qbo" | "camt053" | "csv" | "xlsx";
+  bankAccountId: Ulid;
+  accountNumber: string;
+  mappingProfileId: Ulid | null;
+  mappingProfileVersion: number | null;
+  status:
+    | "parsing"
+    | "parsed"
+    | "in_review"
+    | "committed"
+    | "reversed"
+    | "rejected"
+    | "failed";
+  rejectReason: string | null;
+  rowCount: number;
+  acceptedCount: number;
+  rejectedCount: number;
+  heldCount: number;
+  netCents: Cents;
+  parsedRunId: string | null;
+  committedRunId: string | null;
+  committedAt: string | null;
+  reversedRunId: string | null;
+  reversedAt: string | null;
+  reversalBlocked: boolean;
+  createdAt: string;
+  version: number;
+}
+
+/** import.staged_rows, migration 0009. Nothing here is in the ledger yet. */
+export interface StagedRowRow {
+  id: Ulid;
+  batchId: Ulid;
+  firmId: Ulid;
+  clientId: Ulid;
+  rowNumber: number;
+  rawRow: Record<string, unknown>;
+  postedOn: string | null;
+  description: string | null;
+  normalizedDescription: string | null;
+  amountCents: Cents | null;
+  currency: string;
+  accountNumber: string;
+  bankAccountId: Ulid;
+  bankTransactionId: string | null;
+  checkNumber: string | null;
+  bankCode: string | null;
+  dedupState:
+    | "unique"
+    | "rejected_duplicate"
+    | "held_for_review"
+    | "confirmed_repeat"
+    | "committed";
+  duplicateOfTransactionId: Ulid | null;
+  reviewState: "none" | "pending" | "accepted" | "rejected";
+  committedTransactionId: Ulid | null;
+  committedEntryId: Ulid | null;
+  errorCode: string | null;
+  errorMessage: string | null;
   version: number;
 }
 
@@ -205,6 +320,9 @@ export interface RowMap {
   bank_accounts: BankAccountRow;
   chart_accounts: ChartAccountRow;
   transactions: TransactionRow;
+  mapping_profiles: MappingProfileRow;
+  import_batches: ImportBatchRow;
+  staged_rows: StagedRowRow;
   period_locks: PeriodLockRow;
   transfer_pairs: TransferPairRow;
   journal_entries: JournalEntryRow;

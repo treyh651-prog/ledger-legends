@@ -15,6 +15,7 @@ import {
   RUN_ERROR_CODES,
   isFieldWrite,
   isJournalEntry,
+  isRowInsert,
   isSuspenseRouting,
   type ApplySink,
   type Proposal,
@@ -23,7 +24,41 @@ import {
 } from "./contract";
 import type { RunTx } from "./db";
 import { ulid } from "./ids";
-import type { JournalEntryRow, JournalLineRow, SuspenseItemRow } from "./tables";
+import type {
+  ImportBatchRow,
+  JournalEntryRow,
+  JournalLineRow,
+  StagedRowRow,
+  SuspenseItemRow,
+  TransactionRow,
+} from "./tables";
+
+/**
+ * Two values a run cannot put in a proposal literally.
+ *
+ * Apply re-derives its proposals and compares them against the preview, byte
+ * for byte, and refuses on any difference. That comparison is the reason a
+ * proposal may not contain the execution id or the clock: both differ between
+ * the preview and the apply, so a run that stamped them directly would refuse
+ * itself every time. A run writes the placeholder and the writer substitutes
+ * the real value at the moment of the write, which keeps the proposal set
+ * deterministic and still records who wrote the row and when.
+ */
+export const RUN_ID_PLACEHOLDER = "$run_execution_id";
+export const NOW_PLACEHOLDER = "$now";
+
+function materialize(
+  values: Record<string, unknown>,
+  ctx: RunContext,
+): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(values)) {
+    if (value === RUN_ID_PLACEHOLDER) out[key] = ctx.runExecutionId;
+    else if (value === NOW_PLACEHOLDER) out[key] = ctx.now.toISOString();
+    else out[key] = value;
+  }
+  return out;
+}
 
 export class ProposalWriteError extends Error {
   constructor(
@@ -130,7 +165,12 @@ export async function applyProposals(
     }
 
     if (isFieldWrite(p)) {
-      await writeField(tx, p.table, p.rowId, p.after);
+      await writeField(tx, p.table, p.rowId, materialize(p.after, ctx));
+      continue;
+    }
+
+    if (isRowInsert(p)) {
+      await insertRow(tx, p.table, p.rowId, materialize(p.row, ctx));
       continue;
     }
 
@@ -178,10 +218,48 @@ async function writeField(
     case "transfer_pairs":
       await tx.update("transfer_pairs", rowId, after);
       return;
+    case "import_batches":
+      await tx.update("import_batches", rowId, after);
+      return;
+    case "staged_rows":
+      await tx.update("staged_rows", rowId, after);
+      return;
     default:
       throw new ProposalWriteError(
         "UNKNOWN_WRITE_TABLE",
         `no field write path for table ${table}`,
+      );
+  }
+}
+
+/**
+ * A row insert goes through tx.insert, which is where the unique guards live,
+ * including the bank supplied id guard the import dedup rule depends on. Only
+ * the three tables the import pipeline owns are reachable from here. Nothing a
+ * run proposes can create a journal entry by this path, because an entry has a
+ * shape that has to be validated and it has its own proposal kind.
+ */
+async function insertRow(
+  tx: RunTx,
+  table: string,
+  rowId: Ulid,
+  row: Record<string, unknown>,
+): Promise<void> {
+  const withId = { ...row, id: rowId };
+  switch (table) {
+    case "transactions":
+      await tx.insert("transactions", [withId as unknown as TransactionRow]);
+      return;
+    case "import_batches":
+      await tx.insert("import_batches", [withId as unknown as ImportBatchRow]);
+      return;
+    case "staged_rows":
+      await tx.insert("staged_rows", [withId as unknown as StagedRowRow]);
+      return;
+    default:
+      throw new ProposalWriteError(
+        "UNKNOWN_INSERT_TABLE",
+        `no row insert path for table ${table}`,
       );
   }
 }

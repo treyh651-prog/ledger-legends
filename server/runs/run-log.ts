@@ -18,7 +18,12 @@ import type {
   Skip,
   Ulid,
 } from "./contract";
-import { isFieldWrite, isJournalEntry, isSuspenseRouting } from "./contract";
+import {
+  isFieldWrite,
+  isJournalEntry,
+  isRowInsert,
+  isSuspenseRouting,
+} from "./contract";
 import type { RunTx } from "./db";
 import { toJsonValue, ulid } from "./ids";
 import type { RunLogEventRow, RunLogItemRow, RunLogRow } from "./tables";
@@ -96,6 +101,7 @@ export function skipCountsByReason(skips: readonly Skip[]): Record<string, numbe
 export function proposalRowId(p: Proposal): Ulid | null {
   if (isJournalEntry(p)) return p.sourceRef.rowId;
   if (isFieldWrite(p)) return p.rowId;
+  if (isRowInsert(p)) return p.rowId;
   if (isSuspenseRouting(p)) return p.transactionId;
   return null;
 }
@@ -103,6 +109,7 @@ export function proposalRowId(p: Proposal): Ulid | null {
 export function proposalTable(p: Proposal): string {
   if (isJournalEntry(p)) return p.sourceRef.table;
   if (isFieldWrite(p)) return p.table;
+  if (isRowInsert(p)) return p.table;
   return "transactions";
 }
 
@@ -126,6 +133,9 @@ export function proposalReason(p: Proposal): string {
       ? ` template:${p.provenance.templateId} version:${String(p.provenance.templateVersion ?? 0)}`
       : "";
     return `field_write table:${p.table} cascade_level:${String(p.provenance.cascadeLevel)}${rule}${template}`;
+  }
+  if (isRowInsert(p)) {
+    return `row_insert table:${p.table} row:${p.rowId} cascade_level:${String(p.provenance.cascadeLevel)}`;
   }
   return `routed_to_suspense code:${p.reasonCode} account:${p.account} detail:${p.detail}`;
 }
@@ -162,7 +172,8 @@ export async function writeRunLog<S, P>(
 
   result.proposals.forEach((raw, index) => {
     const p = raw as unknown as Proposal;
-    const provenance = isFieldWrite(p) ? p.provenance : null;
+    const provenance =
+      isFieldWrite(p) || isRowInsert(p) ? p.provenance : null;
     items.push({
       id: ulid(args.finishedAt),
       firmId: frozen.firmId,
@@ -180,7 +191,11 @@ export async function writeRunLog<S, P>(
       suspenseReasonCode: isSuspenseRouting(p) ? p.reasonCode : null,
       journalEntryId: args.entryIdByProposalIndex?.[index] ?? null,
       beforeJson: isFieldWrite(p) ? toJsonValue(p.before) : null,
-      afterJson: isFieldWrite(p) ? toJsonValue(p.after) : null,
+      afterJson: isFieldWrite(p)
+        ? toJsonValue(p.after)
+        : isRowInsert(p)
+          ? toJsonValue(p.row)
+          : null,
       proposalJson: toJsonValue(p),
       errorCode: null,
       errorMessage: null,

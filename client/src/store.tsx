@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
-import { buildDataset, CURRENT_PERIOD, tasksForScope, TODAY } from "./data/seed";
-import type { Dataset } from "./data/seed";
+import { CURRENT_PERIOD, datasetForMode, tasksForScope, TODAY } from "./data/seed";
+import type { DataMode, Dataset } from "./data/seed";
 import type {
   AuditAction,
   Client,
@@ -121,6 +121,54 @@ export function emptyIntake(): IntakeDraft {
 
 export type LoadMode = "normal" | "slow" | "error";
 
+/**
+ * Data mode is read from the URL query, for example ?data=test. It is held in React
+ * state only. No storage of any kind, because the preview frame blocks it.
+ */
+export function readDataMode(): DataMode {
+  if (typeof window === "undefined") return "demo";
+  const raw = new URLSearchParams(window.location.search).get("data");
+  if (raw === "empty" || raw === "test" || raw === "demo") return raw;
+  return "demo";
+}
+
+function writeDataModeToUrl(mode: DataMode) {
+  if (typeof window === "undefined" || !window.history) return;
+  const url = new URL(window.location.href);
+  if (mode === "demo") url.searchParams.delete("data");
+  else url.searchParams.set("data", mode);
+  window.history.replaceState(null, "", url.toString());
+}
+
+/**
+ * Stand in used only when a workspace has no clients. Pages guard on hasClients before
+ * they read any of this, so these values are never rendered as if they were real.
+ */
+const NO_CLIENT: Client = {
+  id: "",
+  legalName: "No client selected",
+  dba: "No client selected",
+  shortName: "No client",
+  industry: "",
+  entityType: "LLC",
+  ein: "",
+  fiscalYearEnd: "December 31",
+  address: "",
+  owners: [],
+  contacts: [],
+  systems: [],
+  scope: [],
+  classes: [],
+  locations: [],
+  jobs: [],
+  currencies: ["USD"],
+  priorRecords: { lastFinancials: "", priorTrialBalance: "", existingCoa: "", cleanupItems: [], outstandingRecs: [] },
+  engagement: { monthlyFeeCents: 0, cleanupFeeCents: 0, startDate: TODAY, signedBy: "", signedAt: "", signatureMode: "typed" },
+  onboardingStage: "Intake",
+  lead: "",
+  color: "hsl(215 16% 47%)",
+};
+
 interface AppState {
   ds: Dataset;
   plane: Plane;
@@ -130,6 +178,8 @@ interface AppState {
   loading: boolean;
   loadError: string | null;
   loadMode: LoadMode;
+  dataMode: DataMode;
+  hasClients: boolean;
   theme: "light" | "dark";
   intake: IntakeDraft;
   intakeStep: number;
@@ -142,6 +192,7 @@ interface AppApi extends AppState {
   setComparePeriod: (p: string | null) => void;
   setTheme: (t: "light" | "dark") => void;
   setLoadMode: (m: LoadMode) => void;
+  setDataMode: (m: DataMode) => void;
   reload: () => void;
   activeClient: Client;
   // accounting actions
@@ -178,9 +229,10 @@ interface AppApi extends AppState {
 const Ctx = createContext<AppApi | null>(null);
 
 export function AppProvider({ children }: { children: ReactNode }) {
-  const [ds, setDs] = useState<Dataset>(() => buildDataset());
+  const [dataMode, setDataModeState] = useState<DataMode>(() => readDataMode());
+  const [ds, setDs] = useState<Dataset>(() => datasetForMode(readDataMode()));
   const [plane, setPlane] = useState<Plane>("firm");
-  const [activeClientId, setActiveClientId] = useState("bramble");
+  const [activeClientId, setActiveClientId] = useState(() => datasetForMode(readDataMode()).clients[0]?.id || "");
   const [period, setPeriod] = useState(CURRENT_PERIOD);
   const [comparePeriod, setComparePeriod] = useState<string | null>("2026-06");
   const [loading, setLoading] = useState(true);
@@ -221,6 +273,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => runLoad(loadMode), [loadMode, runLoad]);
 
+  const setDataMode = useCallback((mode: DataMode) => {
+    const next = datasetForMode(mode);
+    setDataModeState(mode);
+    setDs(next);
+    setActiveClientId(next.clients[0]?.id || "");
+    setPeriod(CURRENT_PERIOD);
+    setComparePeriod("2026-06");
+    writeDataModeToUrl(mode);
+    runLoad("normal");
+  }, [runLoad]);
+
   const mutate = useCallback((fn: (draft: Dataset) => void) => {
     setDs((prev) => {
       const next: Dataset = {
@@ -243,6 +306,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
         comms: [...prev.comms],
         budgets: prev.budgets,
         signatures: [...prev.signatures],
+        entitlements: [...prev.entitlements],
+        closes: [...prev.closes],
+        entityGroups: [...prev.entityGroups],
       };
       fn(next);
       return next;
@@ -269,7 +335,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }
 
   const api: AppApi = useMemo(() => {
-    const activeClient = ds.clients.find((c) => c.id === activeClientId) || ds.clients[0];
+    const activeClient = ds.clients.find((c) => c.id === activeClientId) || ds.clients[0] || NO_CLIENT;
     return {
       ds,
       plane,
@@ -279,6 +345,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       loading,
       loadError,
       loadMode,
+      dataMode,
+      hasClients: ds.clients.length > 0,
       theme,
       intake,
       intakeStep,
@@ -289,6 +357,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setComparePeriod,
       setTheme,
       setLoadMode,
+      setDataMode,
       reload: () => runLoad(loadMode),
 
       categorize: (txnIds, accountId, opts) =>
@@ -721,7 +790,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           estHours: t.estHours,
         })),
     };
-  }, [ds, plane, activeClientId, period, comparePeriod, loading, loadError, loadMode, theme, intake, intakeStep, mutate, runLoad]);
+  }, [ds, plane, activeClientId, period, comparePeriod, loading, loadError, loadMode, dataMode, setDataMode, theme, intake, intakeStep, mutate, runLoad]);
 
   return <Ctx.Provider value={api}>{children}</Ctx.Provider>;
 }

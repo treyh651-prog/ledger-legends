@@ -15,13 +15,16 @@ import type { Cents, Ulid } from "./contract";
 import type {
   BankAccountRow,
   ChartAccountRow,
+  ImportBatchRow,
   JournalEntryRow,
   JournalLineRow,
+  MappingProfileRow,
   PeriodLockRow,
   RowMap,
   RunLogEventRow,
   RunLogItemRow,
   RunLogRow,
+  StagedRowRow,
   SuspenseItemRow,
   TableName,
   TransactionRow,
@@ -121,6 +124,56 @@ export interface QueryCatalog {
   };
   transactions_by_ids: {
     params: { firmId: Ulid; clientId: Ulid; ids: Ulid[] };
+    row: TransactionRow;
+  };
+  /**
+   * The active mapping profile for an institution and file format. There is at
+   * most one, enforced by map_one_active_per_institution in migration 0009.
+   */
+  active_mapping_profile: {
+    params: {
+      firmId: Ulid;
+      clientId: Ulid;
+      institutionName: string;
+      fileFormat: string;
+    };
+    row: MappingProfileRow;
+  };
+  import_batch_by_id: {
+    params: { firmId: Ulid; clientId: Ulid; batchId: Ulid };
+    row: ImportBatchRow;
+  };
+  staged_rows_by_batch: {
+    params: { firmId: Ulid; clientId: Ulid; batchId: Ulid };
+    row: StagedRowRow;
+  };
+  /** Import dedup, first test: the bank supplied id is the key. */
+  transactions_by_bank_ids: {
+    params: {
+      firmId: Ulid;
+      clientId: Ulid;
+      bankAccountId: Ulid;
+      bankTransactionIds: string[];
+    };
+    row: TransactionRow;
+  };
+  /**
+   * Import dedup, second test: account, date, amount, and normalized
+   * description, over one funding source and a date window.
+   */
+  transactions_for_account_window: {
+    params: {
+      firmId: Ulid;
+      clientId: Ulid;
+      bankAccountId: Ulid;
+      from: string;
+      to: string;
+    };
+    row: TransactionRow;
+  };
+  /** Batch reversal reads the register rows the batch created. */
+  transactions_by_batch: {
+    params: { firmId: Ulid; clientId: Ulid; batchId: Ulid };
     row: TransactionRow;
   };
 }

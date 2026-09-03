@@ -32,10 +32,13 @@ import { ulid } from "./ids";
 import {
   INSERT_ONLY_TABLES,
   OVERRIDE_WATCHED_FIELDS,
+  type ImportBatchRow,
   type JournalEntryRow,
+  type MappingProfileRow,
   type PeriodLockRow,
   type RowMap,
   type RunLogRow,
+  type StagedRowRow,
   type TableName,
   type TransactionRow,
 } from "./tables";
@@ -46,6 +49,9 @@ const TABLES: TableName[] = [
   "bank_accounts",
   "chart_accounts",
   "transactions",
+  "mapping_profiles",
+  "import_batches",
+  "staged_rows",
   "period_locks",
   "transfer_pairs",
   "journal_entries",
@@ -222,6 +228,7 @@ class MemoryTx implements RunTx {
       }
       this.guardLedgerDate(table, r);
       this.guardIdempotency(table, r);
+      this.guardBankTransactionId(table, r);
       const k = key(table, r.id);
       if (!this.readVersions.has(k)) {
         this.readVersions.set(k, this.db.versionOf(table, r.id));
@@ -291,6 +298,28 @@ class MemoryTx implements RunTx {
       .filter((l) => (l as unknown as PeriodLockRow).clientId === clientId)
       .map((l) => l as unknown as PeriodLockRow);
     if (isLockedDay(locks, day)) throw new LockedPeriodError(day, clientId);
+  }
+
+  /**
+   * Mirrors txn_bank_id_unique from migration 0011. Doc 05 Part 3: where the
+   * feed carries a bank supplied id, that id is the key and a repeat is
+   * rejected outright. The store refuses it even if a run forgets to check.
+   */
+  private guardBankTransactionId(table: TableName, row: AnyRow): void {
+    if (table !== "transactions") return;
+    const candidate = row as unknown as TransactionRow;
+    if (!candidate.bankTransactionId) return;
+    for (const existing of this.view("transactions")) {
+      const r = existing as unknown as TransactionRow;
+      if (r.id === candidate.id) continue;
+      if (
+        r.clientId === candidate.clientId &&
+        r.bankAccountId === candidate.bankAccountId &&
+        r.bankTransactionId === candidate.bankTransactionId
+      ) {
+        throw new UniqueViolation("txn_bank_id_unique");
+      }
+    }
   }
 
   /** The unique idempotency key on run_log for mode apply. */
@@ -486,6 +515,90 @@ class MemoryTx implements RunTx {
           )
           .sort(byId)
           .map(clone);
+      }
+      case "active_mapping_profile": {
+        const p = rawParams as QueryCatalog["active_mapping_profile"]["params"];
+        return this.view("mapping_profiles")
+          .map((r) => r as unknown as MappingProfileRow)
+          .filter(
+            (r) =>
+              r.firmId === p.firmId &&
+              r.clientId === p.clientId &&
+              r.institutionName === p.institutionName &&
+              r.fileFormat === p.fileFormat &&
+              r.isActive,
+          )
+          .sort((a, b) => (a.id < b.id ? -1 : 1))
+          .map((r) => clone(r as unknown as AnyRow));
+      }
+      case "import_batch_by_id": {
+        const p = rawParams as QueryCatalog["import_batch_by_id"]["params"];
+        return this.view("import_batches")
+          .map((r) => r as unknown as ImportBatchRow)
+          .filter(
+            (r) =>
+              r.firmId === p.firmId &&
+              r.clientId === p.clientId &&
+              r.id === p.batchId,
+          )
+          .map((r) => clone(r as unknown as AnyRow));
+      }
+      case "staged_rows_by_batch": {
+        const p = rawParams as QueryCatalog["staged_rows_by_batch"]["params"];
+        return this.view("staged_rows")
+          .map((r) => r as unknown as StagedRowRow)
+          .filter(
+            (r) =>
+              r.firmId === p.firmId &&
+              r.clientId === p.clientId &&
+              r.batchId === p.batchId,
+          )
+          .sort((a, b) => a.rowNumber - b.rowNumber)
+          .map((r) => clone(r as unknown as AnyRow));
+      }
+      case "transactions_by_bank_ids": {
+        const p = rawParams as QueryCatalog["transactions_by_bank_ids"]["params"];
+        return this.view("transactions")
+          .map((r) => r as unknown as TransactionRow)
+          .filter(
+            (r) =>
+              r.firmId === p.firmId &&
+              r.clientId === p.clientId &&
+              r.bankAccountId === p.bankAccountId &&
+              r.bankTransactionId !== null &&
+              p.bankTransactionIds.includes(r.bankTransactionId),
+          )
+          .sort(compareTransactions)
+          .map((r) => clone(r as unknown as AnyRow));
+      }
+      case "transactions_for_account_window": {
+        const p =
+          rawParams as QueryCatalog["transactions_for_account_window"]["params"];
+        return this.view("transactions")
+          .map((r) => r as unknown as TransactionRow)
+          .filter(
+            (r) =>
+              r.firmId === p.firmId &&
+              r.clientId === p.clientId &&
+              r.bankAccountId === p.bankAccountId &&
+              r.postedDate >= p.from &&
+              r.postedDate <= p.to,
+          )
+          .sort(compareTransactions)
+          .map((r) => clone(r as unknown as AnyRow));
+      }
+      case "transactions_by_batch": {
+        const p = rawParams as QueryCatalog["transactions_by_batch"]["params"];
+        return this.view("transactions")
+          .map((r) => r as unknown as TransactionRow)
+          .filter(
+            (r) =>
+              r.firmId === p.firmId &&
+              r.clientId === p.clientId &&
+              r.importBatchId === p.batchId,
+          )
+          .sort(compareTransactions)
+          .map((r) => clone(r as unknown as AnyRow));
       }
       default: {
         const exhaustive: never = name;

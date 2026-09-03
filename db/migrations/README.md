@@ -19,6 +19,7 @@ alters, per doc 05 Part 9 step 2.
 | `0008_vault.sql` | Document metadata with the extended type list and the intake safety columns, audit events, and the engagement signature evidence and event tables. |
 | `0009_import.sql` | Versioned column mapping profiles and their history, import staging batches, and staged rows with import time deduplication. |
 | `0010_run_storage.sql` | Payroll approval records, CPA handoff packages and items, offboarding exports and their file manifest. |
+| `0011_transaction_register.sql` | Bank and card accounts, the bank transaction register the coding cascade operates on, and the foreign keys that doc 06 C9 left dangling. |
 
 ## Conventions held across every file
 
