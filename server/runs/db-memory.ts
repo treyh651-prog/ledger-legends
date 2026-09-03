@@ -38,10 +38,17 @@ import {
   type MappingProfileRow,
   type PeriodLockRow,
   type RowMap,
+  type AgingSnapshotRow,
+  type BillRow,
+  type CustomerPaymentRow,
+  type CustomerRow,
   type DeferralLineRow,
   type DeferralScheduleRow,
   type DepreciationScheduleRow,
+  type InvoiceRow,
   type LoanScheduleRow,
+  type RemittanceLineRow,
+  type StatementItemRow,
   type RunLogRow,
   type StagedRowRow,
   type StatementLineRow,
@@ -86,6 +93,19 @@ const TABLES: TableName[] = [
   "loans",
   "loan_schedule",
   "accrual_templates",
+  "arap_policies",
+  "customers",
+  "invoices",
+  "credit_memos",
+  "customer_payments",
+  "remittance_lines",
+  "payment_applications",
+  "aging_snapshots",
+  "statement_documents",
+  "statement_items",
+  "writeoff_proposals",
+  "bills",
+  "vendor_credits",
   "run_log",
   "run_log_items",
   "run_log_events",
@@ -946,6 +966,136 @@ class MemoryTx implements RunTx {
           .sort(byId)
           .map(clone);
       }
+      case "arap_policy": {
+        const p = rawParams as QueryCatalog["arap_policy"]["params"];
+        return this.view("arap_policies")
+          .filter((r) => r.firmId === p.firmId && r.clientId === p.clientId)
+          .sort(byId)
+          .map(clone);
+      }
+      case "customers_for_client": {
+        const p = rawParams as QueryCatalog["customers_for_client"]["params"];
+        return this.view("customers")
+          .map((r) => r as unknown as CustomerRow)
+          .filter((r) => r.firmId === p.firmId && r.clientId === p.clientId)
+          .sort(compareCustomers)
+          .map((r) => clone(r as unknown as AnyRow));
+      }
+      case "invoices_for_client": {
+        const p = rawParams as QueryCatalog["invoices_for_client"]["params"];
+        return this.view("invoices")
+          .map((r) => r as unknown as InvoiceRow)
+          .filter((r) => r.firmId === p.firmId && r.clientId === p.clientId)
+          .sort(compareInvoices)
+          .map((r) => clone(r as unknown as AnyRow));
+      }
+      case "credit_memos_for_client": {
+        const p = rawParams as QueryCatalog["credit_memos_for_client"]["params"];
+        return this.view("credit_memos")
+          .filter((r) => r.firmId === p.firmId && r.clientId === p.clientId)
+          .sort(byId)
+          .map(clone);
+      }
+      case "customer_payments_in_window": {
+        const p =
+          rawParams as QueryCatalog["customer_payments_in_window"]["params"];
+        return this.view("customer_payments")
+          .map((r) => r as unknown as CustomerPaymentRow)
+          .filter(
+            (r) =>
+              r.firmId === p.firmId &&
+              r.clientId === p.clientId &&
+              r.paymentDate >= p.from &&
+              r.paymentDate <= p.to,
+          )
+          .sort(comparePayments)
+          .map((r) => clone(r as unknown as AnyRow));
+      }
+      case "remittance_lines_for_payments": {
+        const p =
+          rawParams as QueryCatalog["remittance_lines_for_payments"]["params"];
+        return this.view("remittance_lines")
+          .map((r) => r as unknown as RemittanceLineRow)
+          .filter(
+            (r) =>
+              r.firmId === p.firmId &&
+              r.clientId === p.clientId &&
+              p.paymentIds.includes(r.paymentId),
+          )
+          .sort(compareRemittanceLines)
+          .map((r) => clone(r as unknown as AnyRow));
+      }
+      case "payment_applications_for_client": {
+        const p =
+          rawParams as QueryCatalog["payment_applications_for_client"]["params"];
+        return this.view("payment_applications")
+          .filter((r) => r.firmId === p.firmId && r.clientId === p.clientId)
+          .sort(byId)
+          .map(clone);
+      }
+      case "aging_snapshots_for_date": {
+        const p = rawParams as QueryCatalog["aging_snapshots_for_date"]["params"];
+        return this.view("aging_snapshots")
+          .map((r) => r as unknown as AgingSnapshotRow)
+          .filter(
+            (r) =>
+              r.firmId === p.firmId &&
+              r.clientId === p.clientId &&
+              r.asOfDate === p.asOfDate,
+          )
+          .sort(byId)
+          .map((r) => clone(r as unknown as AnyRow));
+      }
+      case "statement_documents_for_date": {
+        const p =
+          rawParams as QueryCatalog["statement_documents_for_date"]["params"];
+        return this.view("statement_documents")
+          .filter(
+            (r) =>
+              r.firmId === p.firmId &&
+              r.clientId === p.clientId &&
+              r.statementDate === p.statementDate,
+          )
+          .sort(byId)
+          .map(clone);
+      }
+      case "statement_items_for_statements": {
+        const p =
+          rawParams as QueryCatalog["statement_items_for_statements"]["params"];
+        return this.view("statement_items")
+          .map((r) => r as unknown as StatementItemRow)
+          .filter(
+            (r) =>
+              r.firmId === p.firmId &&
+              r.clientId === p.clientId &&
+              p.statementIds.includes(r.statementId),
+          )
+          .sort(compareStatementItems)
+          .map((r) => clone(r as unknown as AnyRow));
+      }
+      case "writeoff_proposals_for_client": {
+        const p =
+          rawParams as QueryCatalog["writeoff_proposals_for_client"]["params"];
+        return this.view("writeoff_proposals")
+          .filter((r) => r.firmId === p.firmId && r.clientId === p.clientId)
+          .sort(byId)
+          .map(clone);
+      }
+      case "bills_for_client": {
+        const p = rawParams as QueryCatalog["bills_for_client"]["params"];
+        return this.view("bills")
+          .map((r) => r as unknown as BillRow)
+          .filter((r) => r.firmId === p.firmId && r.clientId === p.clientId)
+          .sort(compareBills)
+          .map((r) => clone(r as unknown as AnyRow));
+      }
+      case "vendor_credits_for_client": {
+        const p = rawParams as QueryCatalog["vendor_credits_for_client"]["params"];
+        return this.view("vendor_credits")
+          .filter((r) => r.firmId === p.firmId && r.clientId === p.clientId)
+          .sort(byId)
+          .map(clone);
+      }
       default: {
         const exhaustive: never = name;
         throw new Error(`unknown query ${String(exhaustive)}`);
@@ -1058,6 +1208,50 @@ function compareLoanSchedule(a: LoanScheduleRow, b: LoanScheduleRow): number {
   if (a.paymentNumber !== b.paymentNumber) {
     return a.paymentNumber < b.paymentNumber ? -1 : 1;
   }
+  return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+}
+
+/**
+ * Doc 02 module 5 iteration order for the receivable side: customer name
+ * ascending then customer id ascending. The name is not unique, so the id is
+ * the tie breaker that makes the order total.
+ */
+function compareCustomers(a: CustomerRow, b: CustomerRow): number {
+  if (a.name !== b.name) return a.name < b.name ? -1 : 1;
+  return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+}
+
+/** Due date ascending then invoice id ascending. */
+function compareInvoices(a: InvoiceRow, b: InvoiceRow): number {
+  if (a.dueDate !== b.dueDate) return a.dueDate < b.dueDate ? -1 : 1;
+  return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+}
+
+/** Doc 02 AR-APPLY-PAYMENTS: payment date ascending then payment id. */
+function comparePayments(a: CustomerPaymentRow, b: CustomerPaymentRow): number {
+  if (a.paymentDate !== b.paymentDate) return a.paymentDate < b.paymentDate ? -1 : 1;
+  return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+}
+
+/** Remittance advice is read in the order the payer stated it. */
+function compareRemittanceLines(
+  a: RemittanceLineRow,
+  b: RemittanceLineRow,
+): number {
+  if (a.paymentId !== b.paymentId) return a.paymentId < b.paymentId ? -1 : 1;
+  if (a.lineNumber !== b.lineNumber) return a.lineNumber < b.lineNumber ? -1 : 1;
+  return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+}
+
+function compareStatementItems(a: StatementItemRow, b: StatementItemRow): number {
+  if (a.statementId !== b.statementId) return a.statementId < b.statementId ? -1 : 1;
+  if (a.lineNumber !== b.lineNumber) return a.lineNumber < b.lineNumber ? -1 : 1;
+  return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+}
+
+/** Bill date ascending then bill id ascending. */
+function compareBills(a: BillRow, b: BillRow): number {
+  if (a.billDate !== b.billDate) return a.billDate < b.billDate ? -1 : 1;
   return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
 }
 

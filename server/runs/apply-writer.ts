@@ -25,8 +25,15 @@ import {
 import type { RunTx } from "./db";
 import { ulid } from "./ids";
 import type {
+  AgingSnapshotRow,
   DeferralLineRow,
   DepreciationScheduleRow,
+  InvoiceRow,
+  PaymentApplicationRow,
+  StatementDocumentRow,
+  StatementItemRow,
+  VendorCreditRow,
+  WriteoffProposalRow,
   DocumentationExceptionRow,
   ImportBatchRow,
   JournalEntryRow,
@@ -271,6 +278,39 @@ async function writeField(
     case "fixed_assets":
       await tx.update("fixed_assets", rowId, after);
       return;
+    // Doc 02 module 5. The receivable and payable runs move the running totals
+    // that define an open balance, and they mark the document they consumed so
+    // a rerun agrees with the first execution instead of doubling it.
+    case "invoices":
+      await tx.update("invoices", rowId, after);
+      return;
+    case "bills":
+      await tx.update("bills", rowId, after);
+      return;
+    case "customers":
+      await tx.update("customers", rowId, after);
+      return;
+    case "customer_payments":
+      await tx.update("customer_payments", rowId, after);
+      return;
+    case "credit_memos":
+      await tx.update("credit_memos", rowId, after);
+      return;
+    case "payment_applications":
+      await tx.update("payment_applications", rowId, after);
+      return;
+    case "aging_snapshots":
+      await tx.update("aging_snapshots", rowId, after);
+      return;
+    case "statement_documents":
+      await tx.update("statement_documents", rowId, after);
+      return;
+    case "writeoff_proposals":
+      await tx.update("writeoff_proposals", rowId, after);
+      return;
+    case "vendor_credits":
+      await tx.update("vendor_credits", rowId, after);
+      return;
     default:
       throw new ProposalWriteError(
         "UNKNOWN_WRITE_TABLE",
@@ -330,6 +370,44 @@ async function insertRow(
     case "depreciation_schedule":
       await tx.insert("depreciation_schedule", [
         withId as unknown as DepreciationScheduleRow,
+      ]);
+      return;
+    // Doc 02 module 5. Four of the six receivable and payable runs produce a
+    // subledger record rather than only a ledger entry: the aging snapshot, the
+    // statement document and its lines, the fee invoice, the application, the
+    // write off proposal, and the vendor credit. None of these is a ledger
+    // entry, so none of them can reach the entry path from here.
+    case "aging_snapshots":
+      await tx.insert("aging_snapshots", [
+        withId as unknown as AgingSnapshotRow,
+      ]);
+      return;
+    case "statement_documents":
+      await tx.insert("statement_documents", [
+        withId as unknown as StatementDocumentRow,
+      ]);
+      return;
+    case "statement_items":
+      await tx.insert("statement_items", [
+        withId as unknown as StatementItemRow,
+      ]);
+      return;
+    case "invoices":
+      await tx.insert("invoices", [withId as unknown as InvoiceRow]);
+      return;
+    case "payment_applications":
+      await tx.insert("payment_applications", [
+        withId as unknown as PaymentApplicationRow,
+      ]);
+      return;
+    case "writeoff_proposals":
+      await tx.insert("writeoff_proposals", [
+        withId as unknown as WriteoffProposalRow,
+      ]);
+      return;
+    case "vendor_credits":
+      await tx.insert("vendor_credits", [
+        withId as unknown as VendorCreditRow,
       ]);
       return;
     default:

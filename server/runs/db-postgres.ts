@@ -77,6 +77,19 @@ const PHYSICAL_TABLES: Partial<Record<TableName, string>> = {
   loans: "subledger.loans",
   loan_schedule: "subledger.loan_schedule",
   accrual_templates: "subledger.accrual_templates",
+  arap_policies: "subledger.arap_policies",
+  customers: "subledger.customers",
+  invoices: "subledger.invoices",
+  credit_memos: "subledger.credit_memos",
+  customer_payments: "subledger.customer_payments",
+  remittance_lines: "subledger.remittance_lines",
+  payment_applications: "subledger.payment_applications",
+  aging_snapshots: "subledger.aging_snapshots",
+  statement_documents: "subledger.statement_documents",
+  statement_items: "subledger.statement_items",
+  writeoff_proposals: "subledger.writeoff_proposals",
+  bills: "subledger.bills",
+  vendor_credits: "subledger.vendor_credits",
 };
 
 function physical(table: TableName): string {
@@ -130,6 +143,51 @@ const CENTS_FIELDS: Record<string, readonly string[]> = {
     "clearedLedgerBalanceCents",
     "diffCents",
   ],
+  arap_policies: [
+    "minimumStatementBalanceCents",
+    "lateFeeMinimumCents",
+    "lateFeeMaximumCents",
+    "writeoffMinimumCents",
+    "approvalTier1Cents",
+  ],
+  customers: ["flatFeeCents"],
+  invoices: [
+    "originalAmountCents",
+    "taxCents",
+    "appliedPaymentsCents",
+    "appliedCreditsCents",
+    "writtenOffCents",
+  ],
+  credit_memos: ["amountCents", "appliedCents"],
+  customer_payments: ["amountCents", "appliedCents"],
+  remittance_lines: ["amountCents"],
+  payment_applications: ["appliedCents"],
+  aging_snapshots: [
+    "openBalanceCents",
+    "controlBalanceCents",
+    "tieDifferenceCents",
+  ],
+  statement_documents: [
+    "openingBalanceCents",
+    "activityCents",
+    "closingBalanceCents",
+  ],
+  statement_items: [
+    "originalCents",
+    "appliedCents",
+    "openCents",
+    "runningBalanceCents",
+  ],
+  writeoff_proposals: ["openBalanceCents", "netCents", "taxCents"],
+  bills: [
+    "originalAmountCents",
+    "freightCents",
+    "taxCents",
+    "paidCents",
+    "discountTakenCents",
+    "creditsCents",
+  ],
+  vendor_credits: ["amountCents", "appliedCents"],
 };
 
 function camelToSnake(name: string): string {
@@ -354,6 +412,186 @@ const LOAN_SCHEDULE_COLUMNS = `
   matched_transaction_id as "matchedTransactionId",
   posted_entry_id as "postedEntryId", posted_run_id as "postedRunId",
   posted_at::text as "postedAt", manual_override as "manualOverride", version`;
+
+/** Migration 0014 column lists, one per module 5 table. */
+const ARAP_POLICY_COLUMNS = `
+  id, firm_id as "firmId", client_id as "clientId", version,
+  aging_basis as "agingBasis",
+  minimum_statement_balance_cents::text as "minimumStatementBalanceCents",
+  statement_type as "statementType",
+  message_neutral as "messageNeutral", message_reminder as "messageReminder",
+  message_firm as "messageFirm", message_final as "messageFinal",
+  grace_days as "graceDays",
+  late_fee_minimum_cents::text as "lateFeeMinimumCents",
+  late_fee_maximum_cents::text as "lateFeeMaximumCents",
+  suppress_below_minimum_fee as "suppressBelowMinimumFee",
+  writeoff_age_days as "writeoffAgeDays",
+  writeoff_minimum_cents::text as "writeoffMinimumCents",
+  required_attempts as "requiredAttempts",
+  writeoff_method as "writeoffMethod",
+  approval_tier1_cents::text as "approvalTier1Cents",
+  discount_base_excludes_freight_tax as "discountBaseExcludesFreightTax",
+  ar_control_account as "arControlAccount",
+  ar_clearing_account as "arClearingAccount",
+  allowance_account as "allowanceAccount",
+  bad_debt_account as "badDebtAccount",
+  sales_tax_account as "salesTaxAccount",
+  late_fee_revenue_account as "lateFeeRevenueAccount",
+  ap_control_account as "apControlAccount",
+  ap_clearing_account as "apClearingAccount",
+  purchase_discount_account as "purchaseDiscountAccount",
+  vendor_credit_account as "vendorCreditAccount",
+  manual_override as "manualOverride"
+`;
+
+const CUSTOMER_COLUMNS = `
+  id, firm_id as "firmId", client_id as "clientId", version, name,
+  is_active as "isActive",
+  statement_suppressed as "statementSuppressed",
+  statement_type as "statementType",
+  application_preference as "applicationPreference",
+  late_fee_enabled as "lateFeeEnabled",
+  annualized_rate_bp as "annualizedRateBp",
+  grace_days as "graceDays",
+  flat_fee_cents::text as "flatFeeCents",
+  late_fee_exempt as "lateFeeExempt",
+  do_not_pursue as "doNotPursue",
+  payment_plan_active as "paymentPlanActive",
+  statement_document_id as "statementDocumentId",
+  statement_document_date as "statementDocumentDate",
+  manual_override as "manualOverride"
+`;
+
+const INVOICE_COLUMNS = `
+  id, firm_id as "firmId", client_id as "clientId", version,
+  customer_id as "customerId", invoice_number as "invoiceNumber",
+  invoice_date as "invoiceDate", due_date as "dueDate",
+  original_amount_cents::text as "originalAmountCents",
+  tax_cents::text as "taxCents",
+  applied_payments_cents::text as "appliedPaymentsCents",
+  applied_credits_cents::text as "appliedCreditsCents",
+  written_off_cents::text as "writtenOffCents",
+  status, in_dispute as "inDispute",
+  collection_attempts as "collectionAttempts",
+  parent_invoice_id as "parentInvoiceId", is_late_fee as "isLateFee",
+  fee_months as "feeMonths", writeoff_approved as "writeoffApproved",
+  ar_account as "arAccount", revenue_account as "revenueAccount",
+  manual_override as "manualOverride"
+`;
+
+const CREDIT_MEMO_COLUMNS = `
+  id, firm_id as "firmId", client_id as "clientId", version,
+  customer_id as "customerId", memo_number as "memoNumber",
+  memo_date as "memoDate", amount_cents::text as "amountCents",
+  applied_cents::text as "appliedCents", status,
+  manual_override as "manualOverride"
+`;
+
+const CUSTOMER_PAYMENT_COLUMNS = `
+  id, firm_id as "firmId", client_id as "clientId", version,
+  customer_id as "customerId", payment_date as "paymentDate",
+  amount_cents::text as "amountCents",
+  applied_cents::text as "appliedCents",
+  on_hold as "onHold", match_hint as "matchHint",
+  transaction_id as "transactionId",
+  clearing_account as "clearingAccount", status,
+  applied_tier as "appliedTier", manual_override as "manualOverride"
+`;
+
+const REMITTANCE_LINE_COLUMNS = `
+  id, firm_id as "firmId", client_id as "clientId",
+  payment_id as "paymentId", line_number as "lineNumber",
+  invoice_number as "invoiceNumber", amount_cents::text as "amountCents"
+`;
+
+const PAYMENT_APPLICATION_COLUMNS = `
+  id, firm_id as "firmId", client_id as "clientId", version,
+  payment_id as "paymentId", invoice_id as "invoiceId",
+  applied_cents::text as "appliedCents",
+  application_date as "applicationDate", tier, state,
+  posted_entry_id as "postedEntryId",
+  created_by_run_id as "createdByRunId",
+  manual_override as "manualOverride"
+`;
+
+const AGING_SNAPSHOT_COLUMNS = `
+  id, firm_id as "firmId", client_id as "clientId", version,
+  as_of_date as "asOfDate", side, aging_basis as "agingBasis",
+  party_id as "partyId", party_name as "partyName",
+  document_id as "documentId", document_number as "documentNumber",
+  document_date as "documentDate", basis_date as "basisDate",
+  age_days as "ageDays", bucket,
+  open_balance_cents::text as "openBalanceCents",
+  control_account as "controlAccount",
+  control_balance_cents::text as "controlBalanceCents",
+  tie_difference_cents::text as "tieDifferenceCents",
+  subledger_out_of_tie as "subledgerOutOfTie",
+  created_by_run_id as "createdByRunId", created_at as "createdAt",
+  manual_override as "manualOverride"
+`;
+
+const STATEMENT_DOCUMENT_COLUMNS = `
+  id, firm_id as "firmId", client_id as "clientId", version,
+  customer_id as "customerId", statement_date as "statementDate",
+  statement_type as "statementType", state,
+  opening_balance_cents::text as "openingBalanceCents",
+  activity_cents::text as "activityCents",
+  closing_balance_cents::text as "closingBalanceCents",
+  message_band as "messageBand", message_text as "messageText",
+  oldest_item_age_days as "oldestItemAgeDays", item_count as "itemCount",
+  created_by_run_id as "createdByRunId", created_at as "createdAt",
+  manual_override as "manualOverride"
+`;
+
+const STATEMENT_ITEM_COLUMNS = `
+  id, firm_id as "firmId", client_id as "clientId",
+  statement_id as "statementId", line_number as "lineNumber",
+  item_kind as "itemKind", document_id as "documentId",
+  document_number as "documentNumber", document_date as "documentDate",
+  original_cents::text as "originalCents",
+  applied_cents::text as "appliedCents",
+  open_cents::text as "openCents",
+  running_balance_cents::text as "runningBalanceCents"
+`;
+
+const WRITEOFF_PROPOSAL_COLUMNS = `
+  id, firm_id as "firmId", client_id as "clientId", version,
+  invoice_id as "invoiceId", customer_id as "customerId",
+  as_of_date as "asOfDate", age_days as "ageDays",
+  open_balance_cents::text as "openBalanceCents",
+  net_cents::text as "netCents", tax_cents::text as "taxCents",
+  method, approval_route as "approvalRoute", authority,
+  collection_attempts as "collectionAttempts", state,
+  posted_entry_id as "postedEntryId",
+  created_by_run_id as "createdByRunId", created_at as "createdAt",
+  manual_override as "manualOverride"
+`;
+
+const BILL_COLUMNS = `
+  id, firm_id as "firmId", client_id as "clientId", version,
+  vendor_id as "vendorId", bill_number as "billNumber",
+  bill_date as "billDate", due_date as "dueDate",
+  original_amount_cents::text as "originalAmountCents",
+  freight_cents::text as "freightCents",
+  tax_cents::text as "taxCents",
+  paid_cents::text as "paidCents",
+  discount_taken_cents::text as "discountTakenCents",
+  credits_cents::text as "creditsCents",
+  discount_bps as "discountBps", discount_days as "discountDays",
+  net_days as "netDays", status, on_hold as "onHold",
+  in_dispute as "inDispute", ap_account as "apAccount",
+  expense_account as "expenseAccount", manual_override as "manualOverride"
+`;
+
+const VENDOR_CREDIT_COLUMNS = `
+  id, firm_id as "firmId", client_id as "clientId", version,
+  vendor_id as "vendorId", bill_id as "billId",
+  credit_date as "creditDate", amount_cents::text as "amountCents",
+  applied_cents::text as "appliedCents", state, source,
+  posted_entry_id as "postedEntryId",
+  created_by_run_id as "createdByRunId",
+  manual_override as "manualOverride"
+`;
 
 const ACCRUAL_TEMPLATE_COLUMNS = `
   id, firm_id as "firmId", client_id as "clientId", version, name,
@@ -713,7 +951,8 @@ const QUERIES: Record<QueryName, SqlSpec> = {
             normalizer_version as "normalizerVersion", aliases,
             default_category_id as "defaultCategoryId",
             default_category_version as "defaultCategoryVersion",
-            is_active as "isActive"
+            is_active as "isActive",
+            early_discount_rule as "earlyDiscountRule"
           from subledger.vendors
           where firm_id = $1 and client_id = $2
           order by id asc`,
@@ -926,6 +1165,113 @@ const QUERIES: Record<QueryName, SqlSpec> = {
     table: "accrual_templates",
     sql: `select ${ACCRUAL_TEMPLATE_COLUMNS}
           from subledger.accrual_templates
+          where firm_id = $1 and client_id = $2
+          order by id asc`,
+    params: (p) => [p.firmId, p.clientId],
+  },
+  arap_policy: {
+    table: "arap_policies",
+    sql: `select ${ARAP_POLICY_COLUMNS}
+          from subledger.arap_policies
+          where firm_id = $1 and client_id = $2
+          order by id asc`,
+    params: (p) => [p.firmId, p.clientId],
+  },
+  customers_for_client: {
+    table: "customers",
+    sql: `select ${CUSTOMER_COLUMNS}
+          from subledger.customers
+          where firm_id = $1 and client_id = $2
+          order by name asc, id asc`,
+    params: (p) => [p.firmId, p.clientId],
+  },
+  invoices_for_client: {
+    table: "invoices",
+    sql: `select ${INVOICE_COLUMNS}
+          from subledger.invoices
+          where firm_id = $1 and client_id = $2
+          order by due_date asc, id asc`,
+    params: (p) => [p.firmId, p.clientId],
+  },
+  credit_memos_for_client: {
+    table: "credit_memos",
+    sql: `select ${CREDIT_MEMO_COLUMNS}
+          from subledger.credit_memos
+          where firm_id = $1 and client_id = $2
+          order by id asc`,
+    params: (p) => [p.firmId, p.clientId],
+  },
+  customer_payments_in_window: {
+    table: "customer_payments",
+    sql: `select ${CUSTOMER_PAYMENT_COLUMNS}
+          from subledger.customer_payments
+          where firm_id = $1 and client_id = $2
+            and payment_date >= $3 and payment_date <= $4
+          order by payment_date asc, id asc`,
+    params: (p) => [p.firmId, p.clientId, p.from, p.to],
+  },
+  remittance_lines_for_payments: {
+    table: "remittance_lines",
+    sql: `select ${REMITTANCE_LINE_COLUMNS}
+          from subledger.remittance_lines
+          where firm_id = $1 and client_id = $2
+            and payment_id = any($3::char(26)[])
+          order by payment_id asc, line_number asc, id asc`,
+    params: (p) => [p.firmId, p.clientId, p.paymentIds],
+  },
+  payment_applications_for_client: {
+    table: "payment_applications",
+    sql: `select ${PAYMENT_APPLICATION_COLUMNS}
+          from subledger.payment_applications
+          where firm_id = $1 and client_id = $2
+          order by id asc`,
+    params: (p) => [p.firmId, p.clientId],
+  },
+  aging_snapshots_for_date: {
+    table: "aging_snapshots",
+    sql: `select ${AGING_SNAPSHOT_COLUMNS}
+          from subledger.aging_snapshots
+          where firm_id = $1 and client_id = $2 and as_of_date = $3
+          order by id asc`,
+    params: (p) => [p.firmId, p.clientId, p.asOfDate],
+  },
+  statement_documents_for_date: {
+    table: "statement_documents",
+    sql: `select ${STATEMENT_DOCUMENT_COLUMNS}
+          from subledger.statement_documents
+          where firm_id = $1 and client_id = $2 and statement_date = $3
+          order by id asc`,
+    params: (p) => [p.firmId, p.clientId, p.statementDate],
+  },
+  statement_items_for_statements: {
+    table: "statement_items",
+    sql: `select ${STATEMENT_ITEM_COLUMNS}
+          from subledger.statement_items
+          where firm_id = $1 and client_id = $2
+            and statement_id = any($3::char(26)[])
+          order by statement_id asc, line_number asc, id asc`,
+    params: (p) => [p.firmId, p.clientId, p.statementIds],
+  },
+  writeoff_proposals_for_client: {
+    table: "writeoff_proposals",
+    sql: `select ${WRITEOFF_PROPOSAL_COLUMNS}
+          from subledger.writeoff_proposals
+          where firm_id = $1 and client_id = $2
+          order by id asc`,
+    params: (p) => [p.firmId, p.clientId],
+  },
+  bills_for_client: {
+    table: "bills",
+    sql: `select ${BILL_COLUMNS}
+          from subledger.bills
+          where firm_id = $1 and client_id = $2
+          order by bill_date asc, id asc`,
+    params: (p) => [p.firmId, p.clientId],
+  },
+  vendor_credits_for_client: {
+    table: "vendor_credits",
+    sql: `select ${VENDOR_CREDIT_COLUMNS}
+          from subledger.vendor_credits
           where firm_id = $1 and client_id = $2
           order by id asc`,
     params: (p) => [p.firmId, p.clientId],

@@ -760,3 +760,193 @@ particular rows in the fixture.
     the column a person legitimately moves by hand when they close a loan or
     write off an asset. Watching it would turn a normal edit into an override
     conflict on a row nothing was going to touch again.
+
+## Module 5, AR and AP
+
+65. **The subledger tables did not exist, so 0014 creates them.** The task
+    allowed for a migration that adds the missing policy columns to `customers`
+    and `vendors`. There were no `customers` or `invoices` or `bills` tables at
+    all: `subledger` held vendors, rules and a few coding artifacts, and nothing
+    that carried an open balance. Options: build the runs against the existing
+    journal tables and derive every balance from entry lines, add the five
+    policy columns to `vendors` and treat vendors as the only party table, put
+    the receivable and payable documents in a single polymorphic `documents`
+    table, create one table per document kind, or wait and ask. Chosen: create
+    one table per kind, thirteen of them, in `subledger`, with the same row
+    level security, discriminator freeze and override guard triggers 0013 uses.
+    Deriving balances from the ledger cannot express a remittance advice or a
+    payment term, and a polymorphic table means every query filters on a kind
+    column and every column is nullable for half its rows. Waiting was not an
+    option that produced working code. The cost is a large migration, which is
+    honest about the size of what was missing.
+
+66. **Where the account numbers live.** Options: constants in the run files,
+    columns on the client record, a row per client in a policy table, or on each
+    document. Chosen: a policy table, `arap_policies`, with a resolved default
+    when no row exists, plus `arAccount` on the invoice and `apAccount` and
+    `expenseAccount` on the bill for the cases where one document really does
+    post somewhere else. Constants cannot survive a second client with a
+    different chart. Client columns would put ten accounts on a table that is
+    about engagements. The policy row also carries the thresholds, the write off
+    method and the statement message text, which all want to move together and
+    all want a version so a run can freeze them into a scope hash.
+
+67. **AR-REFRESH-AGING became ARAP-REFRESH-AGING and covers both sides.** The
+    task names the file `ar-refresh-aging.ts` and doc 02 names the run type
+    `ARAP-REFRESH-AGING`. Options: implement two runs, implement one receivable
+    run and leave the payable side unbuilt, or implement one run with a `side`
+    in the scope. Chosen: one run with `side` defaulting to `both`. The bucket
+    arithmetic, the tie row and the snapshot table are identical on either side
+    and only the sign of the control balance differs, so two runs would be one
+    file copied with a minus sign in it. The file keeps the name the task asked
+    for and the run keeps the type doc 02 asked for.
+
+68. **The aging is a rebuild, not an append.** Options: insert a fresh set of
+    snapshot rows every run and read the newest, delete and reinsert, update the
+    rows in place through field writes, or keep only the latest and drop the
+    history. Chosen: derived ids from the as of date, the side and the document
+    id, so a rerun addresses the same rows, then `already_applied` when the
+    content is unchanged and a field write of only the moved columns when it is
+    not. Appending makes every reader carry a subquery for the latest run and
+    makes two runs of the same date look like a doubled receivable, which is
+    exactly the class of bug the pipeline test exists to catch. Deleting loses
+    the record that the earlier figure was ever reported.
+
+69. **The tie row is a row, not an exception.** Options: refuse the run when the
+    subledger does not tie to the control account, log a warning, write the
+    difference onto every detail row, or write one tie row per side carrying the
+    control balance, the subledger total and the signed difference. Chosen: the
+    tie row, with `subledgerOutOfTie` set. An aging that refuses to exist when
+    it disagrees with the ledger is an aging you cannot use to find out why it
+    disagrees. The difference is the first number a person looks for, so it is
+    stated once, in cents, with a sign, and the detail rows stay clean.
+
+70. **The statement opening balance is the residual.** A statement header has to
+    foot: opening plus activity equals closing. Two of those three can be
+    computed from the documents and the third has to give. Options: compute
+    opening from the prior statement, compute opening from the ledger as of the
+    day before, compute activity from the ledger and derive opening, or compute
+    closing and activity from the documents and let opening be the residual.
+    Chosen: the residual. Closing is what the customer owes now and activity is
+    what happened in the window, and both are readable off the same rows the
+    itemised section is built from. Deriving opening from a prior statement
+    chains an error forward forever, and the first statement has no prior. The
+    residual can never make the header disagree with its own lines.
+
+71. **Rebuilding a statement supersedes rather than edits.** Options: update the
+    document in place, insert a second draft and let the reader choose, delete
+    and reinsert, or set the old document to `superseded` and repoint the
+    customer at the new one. Chosen: supersede and repoint. A statement is a
+    document that may already have been shown to someone, so the figures it
+    stated should stay recoverable. Two live drafts for one customer and one
+    date is an ambiguity a reader cannot resolve. Rebuilding with unchanged
+    figures skips as `already_applied` and writes nothing at all.
+
+72. **The four tiers of payment matching, and what the tolerance means.**
+    Options for a payment with no remittance advice: oldest first always, refuse
+    anything not exactly equal to one invoice, search combinations without
+    limit, or a stated cascade. Chosen: the cascade, remittance lines, then a
+    `matchHint`, then a unique combination of up to three open invoices, then
+    oldest first, with the tier recorded on the payment and on every application
+    row. Unbounded combination search finds a subset of a long ledger that sums
+    to the payment by coincidence and applies cash to invoices nobody paid.
+    Three is the depth at which a real remittance is either obvious or has an
+    advice attached. When more than one combination sums to the payment the run
+    refuses with `combination_not_unique` rather than picking the first, because
+    two answers is not an answer. The one cent per invoice tolerance is applied
+    to the advice total, so a five line remittance may be five cents out and no
+    more, and a mismatch beyond that is `remittance_sum_mismatch`.
+
+73. **A late fee is a draft invoice and posts no entry.** Options: post the fee
+    to fee revenue and receivable immediately, post it to a suspense account,
+    prepare a draft invoice with no entry, or record it only in the aging.
+    Chosen: a draft invoice carrying `parentInvoiceId` and `feeMonths`, with no
+    journal entry, so `writesLedger` is false. A late fee is a charge to a
+    customer, and a client who has not decided whether to charge it should not
+    find it recognised as revenue and sitting in the aging. Draft invoices are
+    excluded from the open balance, so the fee stays out of the aging, out of
+    the statement and out of the receivable until a person posts it. A suspense
+    account would recognise the receivable while pretending not to.
+
+74. **How a rerun avoids charging the same month twice.** Options: a flag on the
+    parent invoice, a last charged date, one fee invoice per period keyed by
+    period, or summing `feeMonths` across the existing fee invoices for the
+    parent and charging only the difference. Chosen: sum and charge the delta.
+    A flag cannot express two months owed, a date makes the answer depend on
+    when the run happened rather than on how late the invoice is, and keying by
+    period breaks when a period is reopened. Summing means the ledger of fees
+    charged is the fee invoices themselves, so a fee invoice a person voids is
+    correctly chargeable again, and no bookkeeping of the bookkeeping is needed.
+
+75. **AP-APPLY-DISCOUNTS writes the ledger, which doc 02 does not say.** The
+    doc lists the run without an entry. Options: follow the doc and only mark
+    the bill, post the whole settlement, post only the discount and leave the
+    payment to another run, or propose an entry and require approval. Chosen:
+    post the whole settlement, debiting the payable, crediting the payment
+    clearing account for the net and crediting purchase discounts for the rest.
+    The task says the discount has to actually reduce the bill balance, and a
+    bill balance that falls without an entry puts the subledger out of tie with
+    the payable control on the same day, which run 5 in the same module then
+    reports as a defect. Posting the discount alone leaves a payable that is
+    short by two percent and no cash movement to explain it.
+
+76. **Where the discount lands is the vendor's decision.** Options: always
+    purchase discount income, always a vendor credit, a policy level switch, or
+    a rule on the vendor. Chosen: `earlyDiscountRule` on the vendor, defaulting
+    to the income line, and a `vendor_credits` row plus a credit to the vendor
+    credit account when it says `vendor_credit`. Which one is right depends on
+    what the vendor actually does with the two percent, and that is a fact about
+    the vendor, not about the client. The base excludes freight and tax by
+    default, which a policy flag can reverse, because a vendor who allows the
+    discount on the whole invoice is common enough to configure and rare enough
+    not to assume.
+
+77. **A write off needs a standing authority and age is never one.** Options:
+    write off anything past the threshold, write off past the threshold when
+    collection attempts exceed a count, require `do_not_pursue` on the customer
+    or `writeoffApproved` on the invoice, or propose everything and post
+    nothing. Chosen: require one of the two authorities, and when neither is
+    present write a `writeoff_proposals` row with `authority` null and skip with
+    the detail `no_writeoff_authority`. Age and attempt counts are evidence that
+    a person should look, not a decision that the money is gone, and a run that
+    writes off a receivable because a date passed is a run that quietly reduces
+    revenue. The proposal row means the work of finding the candidates is not
+    thrown away.
+
+78. **The write off entry splits sales tax back out.** Options: charge the whole
+    balance to bad debt, charge the net and leave the tax, reverse the tax
+    proportionally, or refuse when tax is present. Chosen: reverse the tax
+    proportionally to the balance being written off and charge only the net to
+    bad debt or to the allowance, with the receivable credited for the whole
+    open amount so the subledger and the control move together. Charging tax to
+    bad debt overstates the expense by the tax and leaves a liability for tax on
+    revenue that was never collected. This is a bookkeeping reclass between two
+    accounts the client already has and nothing here computes what is owed to
+    any authority or files anything.
+
+79. **Nothing in this module sends anything.** Doc 02 mentions notifying a
+    client. Options: send an email, queue a message for another service, write
+    an audit entry, or do nothing. Chosen: the audit entry, through the ordinary
+    execution log the framework already writes, and no external call anywhere.
+    AR-BUILD-STATEMENTS builds the document and stops, and the statement tables
+    carry no sent, delivered, emailed or recipient column, which the pipeline
+    test asserts by inspecting the column names so the constraint survives a
+    later change to the schema.
+
+80. **`sumCents` was already taken.** `arap-shared.ts` needed a bigint sum and
+    `db.ts` already exported one under that name. Options: import the existing
+    one, shadow it, rename the new one, or drop the helper. Chosen: rename to
+    `sumArapCents`. The two do different things and the barrel file re exports
+    both, so a shared name would be a collision at the export boundary rather
+    than a convenience.
+
+81. **`dayGap` returns an absolute value, which is a real defect.** A bill not
+    yet due aged to plus four days instead of minus four, which put it in the
+    thirty one to sixty bucket instead of current. Options: change `dayGap` in
+    `dates.ts`, wrap it at each call site, add a signed variant, or compare date
+    strings in the run. Chosen: a signed variant, `signedDayGap`, in
+    `arap-shared.ts`, used by `ageDaysFor` and by `withinDiscountWindow`.
+    Changing `dayGap` would alter behaviour under every existing caller in a
+    module this task was not asked to touch, and every one of those callers is
+    already passing its dates in order. The variant is three lines and the
+    aging test that found the bug now pins it.

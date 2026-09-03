@@ -1,7 +1,7 @@
 /**
  * The run registry. One entry per implemented run type.
  *
- * The 49 run types in the contract are the target. Fourteen are implemented so
+ * The 49 run types in the contract are the target. Twenty six are implemented so
  * far. IMPORT-PARSE-FEED and IMPORT-COMMIT-BATCH are the front door: nothing the
  * other runs read exists until a feed has been parsed and a batch committed. The
  * nine module 2 coding runs then take the register from a raw descriptor to a
@@ -12,6 +12,12 @@
  */
 
 import type { Proposal, Run } from "./contract";
+import { apApplyEarlyDiscount } from "./runs/ap-apply-earlydiscount";
+import { arApplyPayments } from "./runs/ar-apply-payments";
+import { arBuildStatements } from "./runs/ar-build-statements";
+import { arChargeLateFees } from "./runs/ar-charge-latefees";
+import { arapRefreshAging } from "./runs/ar-refresh-aging";
+import { arWriteoffUncollectible } from "./runs/ar-writeoff-uncollectible";
 import { importCommitBatch } from "./runs/import-commit-batch";
 import { perAmortizePrepaids } from "./runs/per-amortize-prepaids";
 import { perPostAccruals } from "./runs/per-post-accruals";
@@ -77,6 +83,47 @@ export const registry: readonly RegistryEntry[] = [
   entry(perSplitLoan),
   entry(perPostAccruals),
   entry(perPostDepreciation),
+  // Module 5 AR and AP, in the order AR_AP_ORDER explains.
+  entry(arApplyPayments),
+  entry(apApplyEarlyDiscount),
+  entry(arChargeLateFees),
+  entry(arWriteoffUncollectible),
+  entry(arapRefreshAging),
+  entry(arBuildStatements),
+];
+
+/**
+ * Module 5 execution order.
+ *
+ * Cash first. Applying payments is the only step that reduces what a customer
+ * actually owes, and every step after it reads that balance. Charging a late
+ * fee on an invoice that was paid last week, or writing off a balance the
+ * customer already settled, are both consequences of running the cash step
+ * late.
+ *
+ * The payable discount sits next to it for the same reason on the other side:
+ * it settles bills and moves the payable balance, and nothing later in the
+ * module reads it.
+ *
+ * Late fees come before write offs so that a fee prepared this period is
+ * visible to the write off review rather than appearing after a balance was
+ * already judged uncollectible.
+ *
+ * Aging is second to last because it is a measurement. It reports the state the
+ * earlier steps left, and running it first would report a state that no longer
+ * exists by the time the module finishes.
+ *
+ * Statements run last because a statement is a rendering of the aging and of
+ * everything above it. A statement built before the cash was applied would show
+ * a customer a balance the client's own books disagree with.
+ */
+export const AR_AP_ORDER: readonly string[] = [
+  "AR-APPLY-PAYMENTS",
+  "AP-APPLY-DISCOUNTS",
+  "AR-CHARGE-LATEFEES",
+  "AR-WRITEOFF-UNCOLLECTIBLE",
+  "ARAP-REFRESH-AGING",
+  "AR-BUILD-STATEMENTS",
 ];
 
 /**

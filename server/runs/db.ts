@@ -14,9 +14,22 @@
 import type { Cents, Ulid } from "./contract";
 import type {
   AccrualTemplateRow,
+  AgingSnapshotRow,
+  ArapPolicyRow,
   BankAccountRow,
   BankCodeMappingRow,
+  BillRow,
   CategoryRow,
+  CreditMemoRow,
+  CustomerPaymentRow,
+  CustomerRow,
+  InvoiceRow,
+  PaymentApplicationRow,
+  RemittanceLineRow,
+  StatementDocumentRow,
+  StatementItemRow,
+  VendorCreditRow,
+  WriteoffProposalRow,
   DeferralLineRow,
   DeferralScheduleRow,
   DepreciationScheduleRow,
@@ -368,6 +381,89 @@ export interface QueryCatalog {
   accrual_templates_for_client: {
     params: { firmId: Ulid; clientId: Ulid };
     row: AccrualTemplateRow;
+  };
+
+  // Doc 02 module 5. Everything below is read by the six AR and AP runs.
+
+  /**
+   * At most one policy row per client, by the unique constraint in migration
+   * 0014. Missing means every doc 02 module 5 default applies, so the callers
+   * resolve it through a defaults helper rather than treating absence as an
+   * error.
+   */
+  arap_policy: {
+    params: { firmId: Ulid; clientId: Ulid };
+    row: ArapPolicyRow;
+  };
+  /** Customer name ascending then id ascending, the module 5 iteration order. */
+  customers_for_client: {
+    params: { firmId: Ulid; clientId: Ulid };
+    row: CustomerRow;
+  };
+  /**
+   * Every invoice of a client, fee invoices included, ordered due date
+   * ascending then id ascending. Read whole rather than filtered on open
+   * balance, because the open balance is a subtraction over four columns and a
+   * closed invoice is still part of the statement history.
+   */
+  invoices_for_client: {
+    params: { firmId: Ulid; clientId: Ulid };
+    row: InvoiceRow;
+  };
+  credit_memos_for_client: {
+    params: { firmId: Ulid; clientId: Ulid };
+    row: CreditMemoRow;
+  };
+  /**
+   * Payments received in a window, in the doc 02 AR-APPLY-PAYMENTS iteration
+   * order: payment date ascending then payment id ascending.
+   */
+  customer_payments_in_window: {
+    params: { firmId: Ulid; clientId: Ulid; from: string; to: string };
+    row: CustomerPaymentRow;
+  };
+  /** Structured remittance advice, ordered by payment then line number. */
+  remittance_lines_for_payments: {
+    params: { firmId: Ulid; clientId: Ulid; paymentIds: Ulid[] };
+    row: RemittanceLineRow;
+  };
+  /**
+   * Applications already recorded. This is what makes a rerun report
+   * already_applied rather than applying the same payment a second time.
+   */
+  payment_applications_for_client: {
+    params: { firmId: Ulid; clientId: Ulid };
+    row: PaymentApplicationRow;
+  };
+  /**
+   * The snapshot rows an earlier execution wrote for one as of date. The aging
+   * run reads its own output so a second execution can agree with it in place
+   * rather than duplicating it.
+   */
+  aging_snapshots_for_date: {
+    params: { firmId: Ulid; clientId: Ulid; asOfDate: string };
+    row: AgingSnapshotRow;
+  };
+  statement_documents_for_date: {
+    params: { firmId: Ulid; clientId: Ulid; statementDate: string };
+    row: StatementDocumentRow;
+  };
+  statement_items_for_statements: {
+    params: { firmId: Ulid; clientId: Ulid; statementIds: Ulid[] };
+    row: StatementItemRow;
+  };
+  writeoff_proposals_for_client: {
+    params: { firmId: Ulid; clientId: Ulid };
+    row: WriteoffProposalRow;
+  };
+  /** Bill date ascending then bill id ascending. */
+  bills_for_client: {
+    params: { firmId: Ulid; clientId: Ulid };
+    row: BillRow;
+  };
+  vendor_credits_for_client: {
+    params: { firmId: Ulid; clientId: Ulid };
+    row: VendorCreditRow;
   };
 }
 

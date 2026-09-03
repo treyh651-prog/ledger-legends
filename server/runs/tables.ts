@@ -493,6 +493,13 @@ export interface VendorRow {
   defaultCategoryId: string | null;
   defaultCategoryVersion: number | null;
   isActive: boolean;
+  /**
+   * Migration 0014. Where a taken early payment discount lands. Null means
+   * purchase discount income, which is the common case. The column exists
+   * because the answer is a term of one vendor agreement and not a firm
+   * preference, so AP-APPLY-EARLYDISCOUNT reads it rather than deciding.
+   */
+  earlyDiscountRule: "purchase_discount_income" | "vendor_credit" | null;
 }
 
 /**
@@ -816,6 +823,333 @@ export interface AccrualTemplateRow {
   manualOverride: boolean;
 }
 
+/**
+ * subledger.arap_policies, migration 0014. One row per client holding the
+ * module 5 thresholds and the account numbers the six AR and AP runs read.
+ * Absent means every default in doc 02 module 5 applies, which is why every
+ * run resolves the policy through a defaults helper rather than reading the
+ * row directly.
+ */
+export interface ArapPolicyRow {
+  id: Ulid;
+  firmId: Ulid;
+  clientId: Ulid;
+  version: number;
+  agingBasis: "due_date" | "invoice_date";
+  minimumStatementBalanceCents: Cents;
+  statementType: "open_item" | "balance_forward";
+  messageNeutral: string | null;
+  messageReminder: string | null;
+  messageFirm: string | null;
+  messageFinal: string | null;
+  graceDays: number;
+  lateFeeMinimumCents: Cents;
+  lateFeeMaximumCents: Cents | null;
+  suppressBelowMinimumFee: boolean;
+  writeoffAgeDays: number;
+  writeoffMinimumCents: Cents;
+  requiredAttempts: number;
+  writeoffMethod: "allowance" | "direct";
+  approvalTier1Cents: Cents;
+  discountBaseExcludesFreightTax: boolean;
+  arControlAccount: string;
+  arClearingAccount: string;
+  allowanceAccount: string | null;
+  badDebtAccount: string | null;
+  salesTaxAccount: string | null;
+  lateFeeRevenueAccount: string | null;
+  apControlAccount: string;
+  apClearingAccount: string;
+  purchaseDiscountAccount: string | null;
+  vendorCreditAccount: string | null;
+  manualOverride: boolean;
+}
+
+/**
+ * subledger.customers, migration 0014. The late fee terms sit here because a
+ * late fee is a term of one customer agreement, and doNotPursue is one of the
+ * two standing authorities that let a write off be prepared at all.
+ */
+export interface CustomerRow {
+  id: Ulid;
+  firmId: Ulid;
+  clientId: Ulid;
+  version: number;
+  name: string;
+  isActive: boolean;
+  statementSuppressed: boolean;
+  statementType: "open_item" | "balance_forward" | null;
+  applicationPreference: "oldest_first" | "none";
+  lateFeeEnabled: boolean;
+  /** Basis points a year. Doc 00 Part 1 forbids a decimal rate anywhere. */
+  annualizedRateBp: number | null;
+  graceDays: number | null;
+  flatFeeCents: Cents | null;
+  lateFeeExempt: boolean;
+  doNotPursue: boolean;
+  paymentPlanActive: boolean;
+  statementDocumentId: Ulid | null;
+  statementDocumentDate: string | null;
+  manualOverride: boolean;
+}
+
+/**
+ * subledger.invoices, migration 0014. Open balance is original minus applied
+ * payments minus applied credits minus written off, per doc 02
+ * ARAP-REFRESH-AGING rule 1, so the three subtrahends are stored rather than
+ * derived on every read.
+ */
+export interface InvoiceRow {
+  id: Ulid;
+  firmId: Ulid;
+  clientId: Ulid;
+  version: number;
+  customerId: Ulid;
+  invoiceNumber: string;
+  invoiceDate: string;
+  dueDate: string;
+  originalAmountCents: Cents;
+  taxCents: Cents;
+  appliedPaymentsCents: Cents;
+  appliedCreditsCents: Cents;
+  writtenOffCents: Cents;
+  status: "draft" | "posted" | "paid" | "void" | "written_off";
+  inDispute: boolean;
+  collectionAttempts: number;
+  parentInvoiceId: Ulid | null;
+  isLateFee: boolean;
+  /** Whole thirty day blocks this fee invoice charged, null on a real invoice. */
+  feeMonths: number | null;
+  writeoffApproved: boolean;
+  arAccount: string;
+  revenueAccount: string;
+  manualOverride: boolean;
+}
+
+export interface CreditMemoRow {
+  id: Ulid;
+  firmId: Ulid;
+  clientId: Ulid;
+  version: number;
+  customerId: Ulid;
+  memoNumber: string;
+  memoDate: string;
+  amountCents: Cents;
+  appliedCents: Cents;
+  status: "open" | "applied" | "void";
+  manualOverride: boolean;
+}
+
+/**
+ * subledger.customer_payments, migration 0014. A payment arrives on the
+ * register coded to the receivable clearing account, and application is what
+ * moves it from the clearing account to the control account.
+ */
+export interface CustomerPaymentRow {
+  id: Ulid;
+  firmId: Ulid;
+  clientId: Ulid;
+  version: number;
+  customerId: Ulid;
+  paymentDate: string;
+  amountCents: Cents;
+  appliedCents: Cents;
+  onHold: boolean;
+  /** One invoice number. A multi invoice remittance is structured rows. */
+  matchHint: string | null;
+  transactionId: Ulid | null;
+  clearingAccount: string;
+  status: "unapplied" | "partially_applied" | "applied" | "void";
+  appliedTier: number | null;
+  manualOverride: boolean;
+}
+
+export interface RemittanceLineRow {
+  id: Ulid;
+  firmId: Ulid;
+  clientId: Ulid;
+  paymentId: Ulid;
+  lineNumber: number;
+  invoiceNumber: string;
+  amountCents: Cents;
+}
+
+export interface PaymentApplicationRow {
+  id: Ulid;
+  firmId: Ulid;
+  clientId: Ulid;
+  version: number;
+  paymentId: Ulid;
+  invoiceId: Ulid;
+  appliedCents: Cents;
+  applicationDate: string;
+  /** Which of the four doc 02 tiers resolved it. */
+  tier: number;
+  state: "proposed" | "applied" | "reversed";
+  postedEntryId: Ulid | null;
+  createdByRunId: string | null;
+  manualOverride: boolean;
+}
+
+/**
+ * subledger.aging_snapshots, migration 0014. One row per document per as of
+ * date per side, plus one tie row per side carrying the control balance and the
+ * signed difference gate G04 reads.
+ */
+export interface AgingSnapshotRow {
+  id: Ulid;
+  firmId: Ulid;
+  clientId: Ulid;
+  version: number;
+  asOfDate: string;
+  side: "receivable" | "payable";
+  agingBasis: "due_date" | "invoice_date";
+  partyId: Ulid | null;
+  partyName: string;
+  documentId: Ulid | null;
+  documentNumber: string | null;
+  documentDate: string | null;
+  basisDate: string | null;
+  ageDays: number | null;
+  bucket: AgingBucket;
+  openBalanceCents: Cents;
+  controlAccount: string | null;
+  controlBalanceCents: Cents | null;
+  tieDifferenceCents: Cents | null;
+  subledgerOutOfTie: boolean;
+  createdByRunId: string | null;
+  createdAt: string;
+  manualOverride: boolean;
+}
+
+/** Doc 02 ARAP-REFRESH-AGING rule 3, plus the credits line and the tie row. */
+export type AgingBucket =
+  | "current"
+  | "b1_30"
+  | "b31_60"
+  | "b61_90"
+  | "b91_plus"
+  | "credits"
+  | "tie";
+
+/**
+ * subledger.statement_documents, migration 0014. Built in state draft and never
+ * delivered by a run. There is no recipient column and no delivery column.
+ */
+export interface StatementDocumentRow {
+  id: Ulid;
+  firmId: Ulid;
+  clientId: Ulid;
+  version: number;
+  customerId: Ulid;
+  statementDate: string;
+  statementType: "open_item" | "balance_forward";
+  state: "draft" | "superseded";
+  openingBalanceCents: Cents;
+  activityCents: Cents;
+  closingBalanceCents: Cents;
+  messageBand: "neutral" | "reminder" | "firm" | "final_notice";
+  messageText: string;
+  oldestItemAgeDays: number;
+  itemCount: number;
+  createdByRunId: string | null;
+  createdAt: string;
+  manualOverride: boolean;
+}
+
+export interface StatementItemRow {
+  id: Ulid;
+  firmId: Ulid;
+  clientId: Ulid;
+  statementId: Ulid;
+  lineNumber: number;
+  itemKind: "invoice" | "payment" | "credit";
+  documentId: Ulid;
+  documentNumber: string;
+  documentDate: string;
+  originalCents: Cents;
+  appliedCents: Cents;
+  openCents: Cents;
+  runningBalanceCents: Cents;
+}
+
+/**
+ * subledger.writeoff_proposals, migration 0014. authority records which of the
+ * two standing decisions allowed the proposal to be prepared. A proposal with
+ * neither is a review item and nothing posts against it.
+ */
+export interface WriteoffProposalRow {
+  id: Ulid;
+  firmId: Ulid;
+  clientId: Ulid;
+  version: number;
+  invoiceId: Ulid;
+  customerId: Ulid;
+  asOfDate: string;
+  ageDays: number;
+  openBalanceCents: Cents;
+  netCents: Cents;
+  taxCents: Cents;
+  method: "allowance" | "direct";
+  approvalRoute: "preparer_and_lead" | "partner";
+  authority: "do_not_pursue" | "manual_approve" | null;
+  collectionAttempts: number;
+  state: "proposed" | "posted" | "withdrawn";
+  postedEntryId: Ulid | null;
+  createdByRunId: string | null;
+  createdAt: string;
+  manualOverride: boolean;
+}
+
+/**
+ * subledger.bills, migration 0014. Terms are the three structured fields and
+ * there is no terms text column, because doc 02 AP-APPLY-DISCOUNTS rule 1 says
+ * terms are never parsed from free text at run time.
+ */
+export interface BillRow {
+  id: Ulid;
+  firmId: Ulid;
+  clientId: Ulid;
+  version: number;
+  vendorId: Ulid;
+  billNumber: string;
+  billDate: string;
+  dueDate: string;
+  originalAmountCents: Cents;
+  freightCents: Cents;
+  taxCents: Cents;
+  paidCents: Cents;
+  discountTakenCents: Cents;
+  creditsCents: Cents;
+  /** 2/10 net 30 is 200, 10, 30. All three or none. */
+  discountBps: number | null;
+  discountDays: number | null;
+  netDays: number | null;
+  status: "draft" | "posted" | "paid" | "void";
+  onHold: boolean;
+  inDispute: boolean;
+  apAccount: string;
+  expenseAccount: string;
+  manualOverride: boolean;
+}
+
+export interface VendorCreditRow {
+  id: Ulid;
+  firmId: Ulid;
+  clientId: Ulid;
+  version: number;
+  vendorId: Ulid;
+  billId: Ulid | null;
+  creditDate: string;
+  amountCents: Cents;
+  appliedCents: Cents;
+  state: "open" | "applied" | "void";
+  source: string;
+  postedEntryId: Ulid | null;
+  createdByRunId: string | null;
+  manualOverride: boolean;
+}
+
 export interface RunLogRow {
   id: string; // "RUNX-" plus ULID
   firmId: Ulid;
@@ -931,6 +1265,19 @@ export interface RowMap {
   loans: LoanRow;
   loan_schedule: LoanScheduleRow;
   accrual_templates: AccrualTemplateRow;
+  arap_policies: ArapPolicyRow;
+  customers: CustomerRow;
+  invoices: InvoiceRow;
+  credit_memos: CreditMemoRow;
+  customer_payments: CustomerPaymentRow;
+  remittance_lines: RemittanceLineRow;
+  payment_applications: PaymentApplicationRow;
+  aging_snapshots: AgingSnapshotRow;
+  statement_documents: StatementDocumentRow;
+  statement_items: StatementItemRow;
+  writeoff_proposals: WriteoffProposalRow;
+  bills: BillRow;
+  vendor_credits: VendorCreditRow;
   run_log: RunLogRow;
   run_log_items: RunLogItemRow;
   run_log_events: RunLogEventRow;
@@ -988,4 +1335,25 @@ export const OVERRIDE_WATCHED_FIELDS: readonly string[] = [
   "remainingAfterCents",
   "linkedDocumentId",
   "reversalEntryId",
+  /**
+   * Module 5 adds the receivable and payable columns the six AR and AP runs
+   * write. The reasoning is invariant 8 again: a person who applied a payment
+   * by hand, wrote a balance down, or attached a statement has made a decision,
+   * and a run may not write over it. The running totals on an invoice and a
+   * bill are on the list because they are the open balance, and the open
+   * balance is the value a person was deciding about.
+   */
+  "appliedPaymentsCents",
+  "appliedCreditsCents",
+  "writtenOffCents",
+  "appliedCents",
+  "paidCents",
+  "discountTakenCents",
+  "creditsCents",
+  "statementDocumentId",
+  "statementDocumentDate",
+  "appliedTier",
+  "openBalanceCents",
+  "tieDifferenceCents",
+  "authority",
 ];

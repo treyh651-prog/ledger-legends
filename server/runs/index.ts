@@ -39,9 +39,17 @@ export * from "./runs/rec-shared";
 export * from "./runs/rec-match-tiered";
 export * from "./runs/rec-clear-matched";
 export * from "./runs/rec-flag-stale";
+export * from "./runs/arap-shared";
+export * from "./runs/ar-refresh-aging";
+export * from "./runs/ar-build-statements";
+export * from "./runs/ar-apply-payments";
+export * from "./runs/ar-charge-latefees";
+export * from "./runs/ap-apply-earlydiscount";
+export * from "./runs/ar-writeoff-uncollectible";
 export {
   registry,
   lookupRun,
+  AR_AP_ORDER,
   CODING_CASCADE_ORDER,
   RECONCILIATION_ORDER,
   cascadePosition,

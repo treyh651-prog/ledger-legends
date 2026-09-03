@@ -219,6 +219,7 @@ export function vendor(
     defaultCategoryId: "CAT-software",
     defaultCategoryVersion: 1,
     isActive: true,
+    earlyDiscountRule: null,
     ...extra,
   };
 }

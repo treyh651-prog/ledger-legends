@@ -67,6 +67,14 @@ import "./per-post-accruals";
 import "./per-reverse-accruals";
 import "./per-post-depreciation";
 import "./per-pipeline";
+// The module 5 AR and AP suites, one file per run plus the pipeline test.
+import "./ar-refresh-aging";
+import "./ar-build-statements";
+import "./ar-apply-payments";
+import "./ar-charge-latefees";
+import "./ap-apply-earlydiscount";
+import "./ar-writeoff-uncollectible";
+import "./arap-pipeline";
 
 type Outcome = Awaited<ReturnType<typeof execute<PairTransfersScope, Proposal>>>;
 
