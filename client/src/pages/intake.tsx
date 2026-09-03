@@ -695,7 +695,7 @@ function SignatureStep() {
       </div>
 
       <Field label="Full legal name of the signer">
-        <Input value={intake.signerName} onChange={(e) => setIntake({ signerName: e.target.value })} placeholder="Dana Whitfield" data-testid="input-signerName" />
+        <Input value={intake.signerName} onChange={(e) => setIntake({ signerName: e.target.value })} placeholder="Jose Hernandez" data-testid="input-signerName" />
       </Field>
 
       {intake.signatureMode === "typed" ? (

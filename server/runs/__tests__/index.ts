@@ -44,6 +44,16 @@ import {
 import { assert, assertEqual, runAll, show, test } from "./harness";
 // The import pipeline suite registers its own tests on the same queue.
 import "./import-pipeline";
+// The module 2 coding cascade suites, one file per run plus the pipeline test.
+import "./txn-normalize-vendors";
+import "./txn-detect-duplicates";
+import "./txn-split-settlements";
+import "./txn-apply-recurring";
+import "./txn-apply-rules";
+import "./txn-apply-vendordefaults";
+import "./txn-map-bankcodes";
+import "./txn-sweep-suspense";
+import "./coding-pipeline";
 
 type Outcome = Awaited<ReturnType<typeof execute<PairTransfersScope, Proposal>>>;
 

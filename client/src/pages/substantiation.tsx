@@ -241,7 +241,7 @@ export default function Substantiation() {
                 onClick={() => {
                   addMessage(
                     activeClientId,
-                    "Trey Hernandez",
+                    "Jose Hernandez",
                     `Support needed for ${detail.accountName}`,
                     `We need the ${detail.supportType.toLowerCase()} for ${fmtPeriod(period)} so we can tie out ${detail.accountName}.`,
                     "Outbound",

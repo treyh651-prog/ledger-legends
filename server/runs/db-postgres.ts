@@ -66,6 +66,10 @@ const PHYSICAL_TABLES: Partial<Record<TableName, string>> = {
   mapping_profiles: "import.mapping_profiles",
   import_batches: "import.batches",
   staged_rows: "import.staged_rows",
+  recurring_templates: "subledger.recurring_templates",
+  recurring_splits: "subledger.recurring_splits",
+  vendors: "subledger.vendors",
+  settlement_rows: "subledger.settlement_rows",
 };
 
 function physical(table: TableName): string {
@@ -76,6 +80,16 @@ function physical(table: TableName): string {
 const CENTS_FIELDS: Record<string, readonly string[]> = {
   transactions: ["amountCents"],
   journal_lines: ["amountCents"],
+  categories: ["requiresReceiptOverCents", "capitalizeOverCents"],
+  rules: ["autoPostCeilingCents"],
+  recurring_templates: [
+    "matchAmountCents",
+    "amountFloorCents",
+    "amountCeilingCents",
+  ],
+  recurring_splits: ["fixedAmountCents"],
+  settlement_rows: ["grossCents", "feeCents", "netCents"],
+  client_policies: ["capitalizeOverCents"],
   run_log_events: ["netCents"],
   import_batches: ["netCents"],
   staged_rows: ["amountCents"],
@@ -119,12 +133,31 @@ const TXN_COLUMNS = `
   bank_account_id as "bankAccountId", account_number as "accountNumber",
   posted_date::text as "postedDate",
   amount_cents::text as "amountCents", currency, description,
-  normalized_vendor as "normalizedVendor", check_number as "checkNumber",
-  bank_code as "bankCode", bank_transaction_id as "bankTransactionId",
+  bank_merchant_name as "bankMerchantName",
+  vendor_normalized as "normalizedVendor",
+  vendor_normalization_version as "vendorNormalizationVersion",
+  normalization_degraded as "normalizationDegraded",
+  vendor_id as "vendorId", check_number as "checkNumber",
+  bank_code as "bankCode", institution_id as "institutionId",
+  bank_transaction_id as "bankTransactionId",
   source, import_batch_id as "importBatchId", staged_row_id as "stagedRowId",
-  category_id as "categoryId", cascade_level as "cascadeLevel",
-  suspense_reason as "suspenseReason",
-  paired_with_id as "pairedWithId", duplicate_flag as "duplicateFlag",
+  category_id as "categoryId", category_version as "categoryVersion",
+  cascade_level as "cascadeLevel",
+  rule_id as "ruleId", rule_version as "ruleVersion",
+  matched_conditions as "matchedConditions",
+  auto_posted_under_rule_promotion as "autoPostedUnderRulePromotion",
+  template_id as "templateId", template_version as "templateVersion",
+  class_id as "classId", location_id as "locationId",
+  program_id as "programId",
+  suspense_reason as "suspenseReason", suspense_owner as "suspenseOwner",
+  suspense_opened_on::text as "suspenseOpenedOn",
+  suspense_escalates_on::text as "suspenseEscalatesOn",
+  paired_with_id as "pairedWithId",
+  settlement_of_transaction_id as "settlementOfTransactionId",
+  is_processor_settlement as "isProcessorSettlement",
+  duplicate_flag as "duplicateFlag",
+  duplicate_of_transaction_id as "duplicateOfTransactionId",
+  legitimate_repeat as "legitimateRepeat",
   journal_entry_id as "journalEntryId", cleared,
   cleared_date::text as "clearedDate", status,
   manual_override as "manualOverride", manual_override_by as "manualOverrideBy",
@@ -428,6 +461,163 @@ const QUERIES: Record<QueryName, SqlSpec> = {
           where firm_id = $1 and client_id = $2 and import_batch_id = $3
           order by posted_date asc, abs(amount_cents) asc, id asc`,
     params: (p) => [p.firmId, p.clientId, p.batchId],
+  },
+
+  // Doc 02 module 2 reference reads. The tie break and iteration orders live in
+  // the order by clauses so the run never sorts a second time.
+  categories_for_client: {
+    table: "categories",
+    sql: `select id, firm_id as "firmId", client_id as "clientId", version,
+            name, account_number as "accountNumber",
+            normal_side as "normalSide", tax_treatment as "taxTreatment",
+            class_1099 as "class1099",
+            requires_receipt_over::text as "requiresReceiptOverCents",
+            requires_class as "requiresClass",
+            capitalize_over::text as "capitalizeOverCents",
+            restriction_relevant as "restrictionRelevant",
+            is_active as "isActive"
+          from ${SCHEMA}.categories
+          where firm_id = $1 and client_id = $2
+          order by id asc`,
+    params: (p) => [p.firmId, p.clientId],
+  },
+  active_rules_for_client: {
+    table: "rules",
+    sql: `select id, firm_id as "firmId", client_id as "clientId", version,
+            name, priority, condition_count as "conditionCount", conditions,
+            target_category_id as "targetCategoryId",
+            scope_kind as "scopeKind",
+            effective_from::text as "effectiveFrom",
+            effective_to::text as "effectiveTo", is_active as "isActive",
+            accepted_count as "acceptedCount",
+            rejected_count as "rejectedCount",
+            auto_post_enabled as "autoPostEnabled",
+            auto_post_enabled_by as "autoPostEnabledBy",
+            auto_post_ceiling::text as "autoPostCeilingCents"
+          from ${SCHEMA}.rules
+          where firm_id = $1 and client_id = $2 and is_active
+          order by priority desc, condition_count desc, id asc`,
+    params: (p) => [p.firmId, p.clientId],
+  },
+  recurring_templates_for_client: {
+    table: "recurring_templates",
+    sql: `select id, firm_id as "firmId", client_id as "clientId", version,
+            name, match_kind as "matchKind",
+            match_normalized_name as "matchNormalizedName",
+            bank_account_id as "bankAccountId", amount_mode as "amountMode",
+            match_amount_cents::text as "matchAmountCents",
+            amount_floor_cents::text as "amountFloorCents",
+            amount_ceiling_cents::text as "amountCeilingCents",
+            day_of_month as "dayOfMonth", day_window as "dayWindow",
+            split_mode as "splitMode", is_active as "isActive"
+          from subledger.recurring_templates
+          where firm_id = $1 and client_id = $2
+          order by id asc`,
+    params: (p) => [p.firmId, p.clientId],
+  },
+  recurring_splits_for_template: {
+    table: "recurring_splits",
+    sql: `select id, firm_id as "firmId", client_id as "clientId",
+            template_id as "templateId",
+            template_version as "templateVersion",
+            line_number as "lineNumber", category_id as "categoryId",
+            account_number as "accountNumber",
+            fixed_amount_cents::text as "fixedAmountCents",
+            percent_bps as "percentBps", is_remainder as "isRemainder",
+            class_id as "classId", location_id as "locationId",
+            program_id as "programId", memo
+          from subledger.recurring_splits
+          where firm_id = $1 and client_id = $2 and template_id = $3
+            and template_version = $4
+          order by line_number asc, id asc`,
+    params: (p) => [p.firmId, p.clientId, p.templateId, p.templateVersion],
+  },
+  vendors_for_client: {
+    table: "vendors",
+    sql: `select id, firm_id as "firmId", client_id as "clientId",
+            legal_name as "legalName", normalized_name as "normalizedName",
+            normalizer_version as "normalizerVersion", aliases,
+            default_category_id as "defaultCategoryId",
+            default_category_version as "defaultCategoryVersion",
+            is_active as "isActive"
+          from subledger.vendors
+          where firm_id = $1 and client_id = $2
+          order by id asc`,
+    params: (p) => [p.firmId, p.clientId],
+  },
+  bank_code_mappings_for_client: {
+    table: "bank_code_mappings",
+    sql: `select id, firm_id as "firmId", client_id as "clientId",
+            institution_id as "institutionId", bank_code as "bankCode",
+            category_id as "categoryId", is_active as "isActive"
+          from ${SCHEMA}.bank_code_mappings
+          where firm_id = $1 and client_id = $2
+          order by id asc`,
+    params: (p) => [p.firmId, p.clientId],
+  },
+  settlement_rows_in_window: {
+    table: "settlement_rows",
+    sql: `select id, firm_id as "firmId", client_id as "clientId",
+            processor_key as "processorKey", payout_id as "payoutId",
+            payout_date::text as "payoutDate",
+            gross_cents::text as "grossCents", fee_cents::text as "feeCents",
+            net_cents::text as "netCents",
+            batch_reference as "batchReference",
+            revenue_category_id as "revenueCategoryId",
+            fee_category_id as "feeCategoryId",
+            matched_transaction_id as "matchedTransactionId", version
+          from subledger.settlement_rows
+          where firm_id = $1 and client_id = $2
+            and payout_date >= $3 and payout_date <= $4
+          order by payout_date asc, payout_id asc, id asc`,
+    params: (p) => [p.firmId, p.clientId, p.from, p.to],
+  },
+  client_policy: {
+    table: "client_policies",
+    sql: `select id, firm_id as "firmId", client_id as "clientId",
+            functional_currency as "functionalCurrency",
+            capitalize_over::text as "capitalizeOverCents",
+            gross_at_sale_time as "grossAtSaleTime",
+            cleanup_engagement as "cleanupEngagement"
+          from ${SCHEMA}.client_policies
+          where firm_id = $1 and client_id = $2
+          order by id asc`,
+    params: (p) => [p.firmId, p.clientId],
+  },
+  document_links_for_transactions: {
+    table: "document_links",
+    sql: `select id, firm_id as "firmId", client_id as "clientId",
+            transaction_id as "transactionId", document_id as "documentId",
+            document_type as "documentType"
+          from ${SCHEMA}.document_links
+          where firm_id = $1 and client_id = $2
+            and transaction_id = any($3::text[])
+          order by id asc`,
+    params: (p) => [p.firmId, p.clientId, p.transactionIds],
+  },
+  open_portal_requests_for_client: {
+    table: "portal_requests",
+    sql: `select id, firm_id as "firmId", client_id as "clientId",
+            transaction_id as "transactionId", reason_code as "reasonCode",
+            detail, status, opened_on::text as "openedOn",
+            due_on::text as "dueOn", created_by_run_id as "createdByRunId"
+          from ${SCHEMA}.portal_requests
+          where firm_id = $1 and client_id = $2 and status = 'open'
+          order by id asc`,
+    params: (p) => [p.firmId, p.clientId],
+  },
+  suspense_items_for_transactions: {
+    table: "suspense_items",
+    sql: `select id, firm_id as "firmId", client_id as "clientId",
+            transaction_id as "transactionId", reason_code as "reasonCode",
+            account_number as "accountNumber", detail,
+            related_ids as "relatedIds", created_by_run_id as "createdByRunId",
+            withdrawn_by_run_id as "withdrawnByRunId"
+          from ${SCHEMA}.suspense_items
+          where firm_id = $1 and client_id = $2
+            and transaction_id = any($3::text[])
+          order by id asc`,
+    params: (p) => [p.firmId, p.clientId, p.transactionIds],
   },
 };
 

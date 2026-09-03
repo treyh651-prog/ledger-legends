@@ -119,7 +119,7 @@ export default function Comms() {
               className="w-full"
               disabled={!subject.trim() || !body.trim()}
               onClick={() => {
-                addMessage(activeClientId, "Trey Hernandez", subject, body, "Outbound");
+                addMessage(activeClientId, "Jose Hernandez", subject, body, "Outbound");
                 toast({ title: "Message sent", description: `${activeClient.shortName} sees it in the portal inbox.` });
                 setSubject("");
                 setBody("");

@@ -102,9 +102,8 @@ interface Profile {
 }
 
 const TEAM: TeamMember[] = [
-  { id: "tm-1", name: "Trey Hernandez", initials: "TH", role: "Firm owner", capacityHours: 120, clients: ["bramble", "bramble-cafe", "northgate", "marisol", "riverbend"] },
-  { id: "tm-2", name: "Dana Whitfield", initials: "DW", role: "Senior bookkeeper", capacityHours: 150, clients: ["bramble", "bramble-cafe", "northgate"] },
-  { id: "tm-3", name: "Priya Raman", initials: "PR", role: "Bookkeeper", capacityHours: 150, clients: ["marisol", "riverbend"] },
+  { id: "tm-1", name: "Jose Hernandez", initials: "JH", role: "Firm owner", capacityHours: 150, clients: ["bramble", "bramble-cafe", "northgate"] },
+  { id: "tm-2", name: "Rosario Rosales", initials: "RR", role: "Bookkeeper", capacityHours: 150, clients: ["marisol", "riverbend"] },
   { id: "tm-4", name: "Owen Baptiste", initials: "OB", role: "Close reviewer", capacityHours: 100, clients: ["bramble", "marisol", "riverbend"] },
 ];
 
@@ -152,7 +151,7 @@ function profiles(): Profile[] {
         },
         engagement: { monthlyFeeCents: 145000, cleanupFeeCents: 320000, startDate: "2026-01-05", signedBy: "Nora Bramble", signedAt: "2026-01-04T16:22:00", signatureMode: "typed" },
         onboardingStage: "Live",
-        lead: "Dana Whitfield",
+        lead: "Jose Hernandez",
         color: "hsl(174 62% 38%)",
         testCompany: true,
       },
@@ -235,7 +234,7 @@ function profiles(): Profile[] {
         },
         engagement: { monthlyFeeCents: 235000, cleanupFeeCents: 675000, startDate: "2026-04-01", signedBy: "Marcus Keel", signedAt: "2026-03-27T09:41:00", signatureMode: "drawn" },
         onboardingStage: "Cleanup",
-        lead: "Dana Whitfield",
+        lead: "Jose Hernandez",
         color: "hsl(212 62% 48%)",
       },
       banks: [
@@ -308,7 +307,7 @@ function profiles(): Profile[] {
         },
         engagement: { monthlyFeeCents: 78000, cleanupFeeCents: 145000, startDate: "2026-02-01", signedBy: "Marisol Vega", signedAt: "2026-01-28T11:05:00", signatureMode: "typed" },
         onboardingStage: "Live",
-        lead: "Priya Raman",
+        lead: "Rosario Rosales",
         color: "hsl(28 74% 48%)",
       },
       banks: [
@@ -381,7 +380,7 @@ function profiles(): Profile[] {
         },
         engagement: { monthlyFeeCents: 165000, cleanupFeeCents: 0, startDate: "2026-01-15", signedBy: "Adaeze Nwosu", signedAt: "2026-01-12T14:10:00", signatureMode: "typed" },
         onboardingStage: "Review",
-        lead: "Priya Raman",
+        lead: "Rosario Rosales",
         color: "hsl(268 48% 52%)",
       },
       banks: [
@@ -456,7 +455,7 @@ function profiles(): Profile[] {
         },
         engagement: { monthlyFeeCents: 98000, cleanupFeeCents: 120000, startDate: "2026-01-05", signedBy: "Nora Bramble", signedAt: "2026-01-04T16:40:00", signatureMode: "typed" },
         onboardingStage: "Live",
-        lead: "Dana Whitfield",
+        lead: "Jose Hernandez",
         color: "hsl(196 62% 42%)",
       },
       banks: [
@@ -607,7 +606,7 @@ export function buildDataset(): Dataset {
     memo: string,
     source: JESource,
     lines: JELine[],
-    createdBy = "Dana Whitfield",
+    createdBy = "Jose Hernandez",
   ): JournalEntry {
     jeSeq += 1;
     const period = date.slice(0, 7);
@@ -744,7 +743,7 @@ export function buildDataset(): Dataset {
     const plug = debitTotal - creditTotal;
     if (plug > 0) openLines.push({ accountId: "3200", debit: 0, credit: plug, memo: "Prior year retained earnings" });
     else if (plug < 0) openLines.push({ accountId: "3200", debit: -plug, credit: 0, memo: "Prior year accumulated deficit" });
-    post(c.id, "2025-12-31", "Opening trial balance carried from prior year", "opening", openLines, "Trey Hernandez");
+    post(c.id, "2025-12-31", "Opening trial balance carried from prior year", "opening", openLines, "Jose Hernandez");
 
     let openInvoices: Invoice[] = [];
     let openBills: Bill[] = [];
@@ -1054,7 +1053,7 @@ export function buildDataset(): Dataset {
           post(c.id, dayOf(period, 28), "Release restricted grant funds to program revenue", "accrual", [
             { accountId: "2400", debit: release, credit: 0, memo: "Restriction satisfied" },
             { accountId: "4030", debit: 0, credit: release, klass: "Program services", location: loc, job: genJob },
-          ], "Priya Raman");
+          ], "Rosario Rosales");
           deferred -= release;
         }
       }
@@ -1118,7 +1117,7 @@ export function buildDataset(): Dataset {
       post(c.id, dayOf(period, daysInMonth(period)), `Monthly depreciation for ${period}`, "depreciation", [
         { accountId: "6300", debit: p.depreciation, credit: 0, klass: klassMain, location: loc, job: genJob },
         { accountId: "1510", debit: 0, credit: p.depreciation, memo: "Accumulated depreciation" },
-      ], "Priya Raman");
+      ], "Rosario Rosales");
 
       // One uncategorized checking item in the current period
       if (isCurrent) {
@@ -1141,7 +1140,7 @@ export function buildDataset(): Dataset {
         post(c.id, dayOf(period, daysInMonth(period)), `Amortize prepaid insurance for ${period}`, "accrual", [
           { accountId: "6120", debit: monthly, credit: 0, klass: c.classes[0], location: loc, job: genJob },
           { accountId: "1200", debit: 0, credit: monthly, memo: "Prepaid amortization" },
-        ], "Priya Raman");
+        ], "Rosario Rosales");
       }
     }
   }
@@ -1153,7 +1152,7 @@ export function buildDataset(): Dataset {
       post(clientId, dayOf(period, daysInMonth(period)), `Inventory relief to cost of goods sold for ${period}`, "accrual", [
         { accountId: "5000", debit: relief, credit: 0, klass: "Wholesale", location: "Roastery", job: "General" },
         { accountId: "1150", debit: 0, credit: relief, memo: "Period inventory usage" },
-      ], "Dana Whitfield");
+      ], "Jose Hernandez");
     }
   }
 
@@ -1161,25 +1160,25 @@ export function buildDataset(): Dataset {
   const wrong = post("northgate", "2026-06-30", "Accrue June utility estimate", "manual", [
     { accountId: "6110", debit: 148600, credit: 0, klass: "Service", location: "Spokane", job: "Shop overhead" },
     { accountId: "2100", debit: 0, credit: 148600, memo: "Estimated accrual" },
-  ], "Dana Whitfield");
+  ], "Jose Hernandez");
   const rev = post("northgate", "2026-07-01", "Reversal of June utility estimate, actual invoice received", "reversal", [
     { accountId: "2100", debit: 148600, credit: 0, memo: "Reverse estimate" },
     { accountId: "6110", debit: 0, credit: 148600, klass: "Service", location: "Spokane", job: "Shop overhead" },
-  ], "Dana Whitfield");
+  ], "Jose Hernandez");
   rev.reversalOf = wrong.id;
   wrong.reversedBy = rev.id;
 
   // ---- Categorization rules
   const ruleSeed: Omit<Rule, "id">[] = [
-    { clientId: "bramble", name: "Green coffee to cost of goods sold", matchType: "Description contains", matchValue: "HIGHLINE GREEN", accountId: "5000", klass: "Wholesale", hits: 14, createdBy: "Dana Whitfield", createdAt: "2026-01-19", active: true },
-    { clientId: "bramble", name: "Square payouts to product sales", matchType: "Description contains", matchValue: "SQUARE PAYOUT", accountId: "4000", klass: "Cafe", hits: 28, createdBy: "Dana Whitfield", createdAt: "2026-01-19", active: true },
+    { clientId: "bramble", name: "Green coffee to cost of goods sold", matchType: "Description contains", matchValue: "HIGHLINE GREEN", accountId: "5000", klass: "Wholesale", hits: 14, createdBy: "Jose Hernandez", createdAt: "2026-01-19", active: true },
+    { clientId: "bramble", name: "Square payouts to product sales", matchType: "Description contains", matchValue: "SQUARE PAYOUT", accountId: "4000", klass: "Cafe", hits: 28, createdBy: "Jose Hernandez", createdAt: "2026-01-19", active: true },
     { clientId: "bramble", name: "Fuel to vehicle and fuel", matchType: "Description contains", matchValue: "CHEVRON", accountId: "6170", hits: 9, createdBy: "Owen Baptiste", createdAt: "2026-02-04", active: true },
-    { clientId: "northgate", name: "Ferguson supply to job materials", matchType: "Description contains", matchValue: "FERGUSON", accountId: "5000", klass: "Install", hits: 22, createdBy: "Dana Whitfield", createdAt: "2026-04-06", active: true },
-    { clientId: "northgate", name: "Fleet fuel to vehicle and fuel", matchType: "Description contains", matchValue: "PACIFIC PRIDE", accountId: "6170", hits: 17, createdBy: "Dana Whitfield", createdAt: "2026-04-06", active: true },
-    { clientId: "northgate", name: "Crew meals under fifty dollars", matchType: "Description contains", matchValue: "NORTHTOWN DINER", accountId: "6210", hits: 6, createdBy: "Priya Raman", createdAt: "2026-05-11", active: false },
-    { clientId: "marisol", name: "Clay and glaze to cost of goods sold", matchType: "Description contains", matchValue: "CLAY PLANET", accountId: "5000", klass: "Retail", hits: 11, createdBy: "Priya Raman", createdAt: "2026-02-14", active: true },
-    { clientId: "marisol", name: "Stripe payouts to product sales", matchType: "Description contains", matchValue: "STRIPE PAYOUT", accountId: "4000", klass: "Retail", hits: 33, createdBy: "Priya Raman", createdAt: "2026-02-14", active: true },
-    { clientId: "riverbend", name: "Art supplies to program supplies", matchType: "Description contains", matchValue: "BLICK ART", accountId: "6180", klass: "Program services", hits: 13, createdBy: "Priya Raman", createdAt: "2026-01-27", active: true },
+    { clientId: "northgate", name: "Ferguson supply to job materials", matchType: "Description contains", matchValue: "FERGUSON", accountId: "5000", klass: "Install", hits: 22, createdBy: "Jose Hernandez", createdAt: "2026-04-06", active: true },
+    { clientId: "northgate", name: "Fleet fuel to vehicle and fuel", matchType: "Description contains", matchValue: "PACIFIC PRIDE", accountId: "6170", hits: 17, createdBy: "Jose Hernandez", createdAt: "2026-04-06", active: true },
+    { clientId: "northgate", name: "Crew meals under fifty dollars", matchType: "Description contains", matchValue: "NORTHTOWN DINER", accountId: "6210", hits: 6, createdBy: "Rosario Rosales", createdAt: "2026-05-11", active: false },
+    { clientId: "marisol", name: "Clay and glaze to cost of goods sold", matchType: "Description contains", matchValue: "CLAY PLANET", accountId: "5000", klass: "Retail", hits: 11, createdBy: "Rosario Rosales", createdAt: "2026-02-14", active: true },
+    { clientId: "marisol", name: "Stripe payouts to product sales", matchType: "Description contains", matchValue: "STRIPE PAYOUT", accountId: "4000", klass: "Retail", hits: 33, createdBy: "Rosario Rosales", createdAt: "2026-02-14", active: true },
+    { clientId: "riverbend", name: "Art supplies to program supplies", matchType: "Description contains", matchValue: "BLICK ART", accountId: "6180", klass: "Program services", hits: 13, createdBy: "Rosario Rosales", createdAt: "2026-01-27", active: true },
     { clientId: "riverbend", name: "Grant deposits to contributions", matchType: "Description contains", matchValue: "GRANT DEPOSIT", accountId: "4030", klass: "Program services", hits: 8, createdBy: "Owen Baptiste", createdAt: "2026-02-02", active: true },
   ];
   ruleSeed.forEach((r, i) => ds.rules.push({ ...r, id: `rule-${i + 1}` }));
@@ -1230,26 +1229,26 @@ export function buildDataset(): Dataset {
 
   // ---- Substantiation records for the current period
   const subsSeed: { clientId: string; accountId: string; supportType: string; adjust?: number; unsupported?: boolean; note: string; preparedBy: string; reviewedBy?: string }[] = [
-    { clientId: "bramble", accountId: "1010", supportType: "Bank statement and reconciliation", note: "Reconciled to the July statement with no open items.", preparedBy: "Dana Whitfield", reviewedBy: "Owen Baptiste" },
-    { clientId: "bramble", accountId: "1020", supportType: "Bank statement", note: "Reserve account ties to the July statement.", preparedBy: "Dana Whitfield", reviewedBy: "Owen Baptiste" },
-    { clientId: "bramble", accountId: "1100", supportType: "AR aging detail", note: "Aging detail agrees to the subledger.", preparedBy: "Dana Whitfield" },
-    { clientId: "bramble", accountId: "1150", supportType: "Physical count worksheet", adjust: -184725, note: "July count came in under the ledger. Green coffee shrink is the likely cause and it needs an adjusting entry.", preparedBy: "Dana Whitfield" },
-    { clientId: "bramble", accountId: "2010", supportType: "Card statement", note: "Card statement matches the ledger balance.", preparedBy: "Dana Whitfield" },
-    { clientId: "bramble", accountId: "2100", supportType: "AP aging detail", note: "Open bills agree to the aging report.", preparedBy: "Dana Whitfield" },
-    { clientId: "bramble", accountId: "2500", supportType: "Loan amortization schedule", note: "Principal balance agrees to the lender schedule.", preparedBy: "Dana Whitfield", reviewedBy: "Trey Hernandez" },
-    { clientId: "northgate", accountId: "1010", supportType: "Bank statement and reconciliation", unsupported: true, note: "July statement has not arrived yet, so the account is not substantiated.", preparedBy: "Dana Whitfield" },
-    { clientId: "northgate", accountId: "1100", supportType: "AR aging detail", note: "Aging agrees to the job billing schedule.", preparedBy: "Dana Whitfield" },
-    { clientId: "northgate", accountId: "1200", supportType: "Prepaid amortization schedule", note: "Schedule agrees after the July amortization entry.", preparedBy: "Priya Raman" },
-    { clientId: "northgate", accountId: "2300", supportType: "Payroll provider liability report", note: "Remaining balance is the July 21 run remitted in August.", preparedBy: "Dana Whitfield" },
-    { clientId: "northgate", accountId: "2500", supportType: "Loan amortization schedule", note: "Van loan balance agrees to the lender portal.", preparedBy: "Dana Whitfield" },
-    { clientId: "marisol", accountId: "1010", supportType: "Bank statement and reconciliation", note: "Reconciled with no outstanding items.", preparedBy: "Priya Raman", reviewedBy: "Owen Baptiste" },
-    { clientId: "marisol", accountId: "1150", supportType: "Inventory rollforward", note: "Rollforward agrees to the studio count sheet.", preparedBy: "Priya Raman" },
-    { clientId: "marisol", accountId: "1200", supportType: "Prepaid schedule", unsupported: true, note: "No schedule on file for the studio insurance prepayment.", preparedBy: "Priya Raman" },
-    { clientId: "marisol", accountId: "2200", supportType: "Sales tax return worksheet", note: "Balance equals July collections due in August.", preparedBy: "Priya Raman" },
-    { clientId: "riverbend", accountId: "1010", supportType: "Bank statement and reconciliation", note: "Operating account reconciled through July 31.", preparedBy: "Priya Raman", reviewedBy: "Owen Baptiste" },
-    { clientId: "riverbend", accountId: "1020", supportType: "Bank statement", note: "Board reserve ties to the statement.", preparedBy: "Priya Raman" },
-    { clientId: "riverbend", accountId: "2400", supportType: "Grant restriction schedule", note: "Remaining restriction agrees to the award letters.", preparedBy: "Priya Raman", reviewedBy: "Trey Hernandez" },
-    { clientId: "riverbend", accountId: "2300", supportType: "Payroll provider liability report", note: "Agrees to the Paylocity liability summary.", preparedBy: "Priya Raman" },
+    { clientId: "bramble", accountId: "1010", supportType: "Bank statement and reconciliation", note: "Reconciled to the July statement with no open items.", preparedBy: "Jose Hernandez", reviewedBy: "Owen Baptiste" },
+    { clientId: "bramble", accountId: "1020", supportType: "Bank statement", note: "Reserve account ties to the July statement.", preparedBy: "Jose Hernandez", reviewedBy: "Owen Baptiste" },
+    { clientId: "bramble", accountId: "1100", supportType: "AR aging detail", note: "Aging detail agrees to the subledger.", preparedBy: "Jose Hernandez" },
+    { clientId: "bramble", accountId: "1150", supportType: "Physical count worksheet", adjust: -184725, note: "July count came in under the ledger. Green coffee shrink is the likely cause and it needs an adjusting entry.", preparedBy: "Jose Hernandez" },
+    { clientId: "bramble", accountId: "2010", supportType: "Card statement", note: "Card statement matches the ledger balance.", preparedBy: "Jose Hernandez" },
+    { clientId: "bramble", accountId: "2100", supportType: "AP aging detail", note: "Open bills agree to the aging report.", preparedBy: "Jose Hernandez" },
+    { clientId: "bramble", accountId: "2500", supportType: "Loan amortization schedule", note: "Principal balance agrees to the lender schedule.", preparedBy: "Jose Hernandez", reviewedBy: "Jose Hernandez" },
+    { clientId: "northgate", accountId: "1010", supportType: "Bank statement and reconciliation", unsupported: true, note: "July statement has not arrived yet, so the account is not substantiated.", preparedBy: "Jose Hernandez" },
+    { clientId: "northgate", accountId: "1100", supportType: "AR aging detail", note: "Aging agrees to the job billing schedule.", preparedBy: "Jose Hernandez" },
+    { clientId: "northgate", accountId: "1200", supportType: "Prepaid amortization schedule", note: "Schedule agrees after the July amortization entry.", preparedBy: "Rosario Rosales" },
+    { clientId: "northgate", accountId: "2300", supportType: "Payroll provider liability report", note: "Remaining balance is the July 21 run remitted in August.", preparedBy: "Jose Hernandez" },
+    { clientId: "northgate", accountId: "2500", supportType: "Loan amortization schedule", note: "Van loan balance agrees to the lender portal.", preparedBy: "Jose Hernandez" },
+    { clientId: "marisol", accountId: "1010", supportType: "Bank statement and reconciliation", note: "Reconciled with no outstanding items.", preparedBy: "Rosario Rosales", reviewedBy: "Owen Baptiste" },
+    { clientId: "marisol", accountId: "1150", supportType: "Inventory rollforward", note: "Rollforward agrees to the studio count sheet.", preparedBy: "Rosario Rosales" },
+    { clientId: "marisol", accountId: "1200", supportType: "Prepaid schedule", unsupported: true, note: "No schedule on file for the studio insurance prepayment.", preparedBy: "Rosario Rosales" },
+    { clientId: "marisol", accountId: "2200", supportType: "Sales tax return worksheet", note: "Balance equals July collections due in August.", preparedBy: "Rosario Rosales" },
+    { clientId: "riverbend", accountId: "1010", supportType: "Bank statement and reconciliation", note: "Operating account reconciled through July 31.", preparedBy: "Rosario Rosales", reviewedBy: "Owen Baptiste" },
+    { clientId: "riverbend", accountId: "1020", supportType: "Bank statement", note: "Board reserve ties to the statement.", preparedBy: "Rosario Rosales" },
+    { clientId: "riverbend", accountId: "2400", supportType: "Grant restriction schedule", note: "Remaining restriction agrees to the award letters.", preparedBy: "Rosario Rosales", reviewedBy: "Jose Hernandez" },
+    { clientId: "riverbend", accountId: "2300", supportType: "Payroll provider liability report", note: "Agrees to the Paylocity liability summary.", preparedBy: "Rosario Rosales" },
   ];
   subsSeed.forEach((s, i) => {
     ds.substantiations.push({
@@ -1433,18 +1432,18 @@ export function buildDataset(): Dataset {
   // ---- Communication log
   const commSeed: Omit<CommEntry, "id">[] = [
     { clientId: "bramble", at: "2026-08-11T08:12:00", channel: "Portal message", direction: "Inbound", who: "Devon Ruiz", subject: "Receipt for the odd Square charge", body: "Uploaded the receipt for the July 16 charge. It was a replacement grinder burr set from a pop up supplier.", linkedItemId: "oi-3" },
-    { clientId: "bramble", at: "2026-08-11T09:02:00", channel: "Portal message", direction: "Outbound", who: "Dana Whitfield", subject: "Thanks, coding it now", body: "Got it. Coding to cost of goods sold and building a rule so the next one lands automatically.", linkedItemId: "oi-3" },
-    { clientId: "bramble", at: "2026-08-07T15:41:00", channel: "Email", direction: "Outbound", who: "Dana Whitfield", subject: "July close, two open items", body: "We need the card statement for 8842 and the count sheet backup. Everything else for July is done." },
-    { clientId: "bramble", at: "2026-07-28T11:30:00", channel: "Call", direction: "Outbound", who: "Dana Whitfield", subject: "Pricing review call", body: "Walked through wholesale margin by class. Nora wants a monthly view of cafe versus wholesale gross margin." },
+    { clientId: "bramble", at: "2026-08-11T09:02:00", channel: "Portal message", direction: "Outbound", who: "Jose Hernandez", subject: "Thanks, coding it now", body: "Got it. Coding to cost of goods sold and building a rule so the next one lands automatically.", linkedItemId: "oi-3" },
+    { clientId: "bramble", at: "2026-08-07T15:41:00", channel: "Email", direction: "Outbound", who: "Jose Hernandez", subject: "July close, two open items", body: "We need the card statement for 8842 and the count sheet backup. Everything else for July is done." },
+    { clientId: "bramble", at: "2026-07-28T11:30:00", channel: "Call", direction: "Outbound", who: "Jose Hernandez", subject: "Pricing review call", body: "Walked through wholesale margin by class. Nora wants a monthly view of cafe versus wholesale gross margin." },
     { clientId: "northgate", at: "2026-08-12T15:35:00", channel: "Portal message", direction: "Inbound", who: "Alicia Fenn", subject: "July statement uploaded", body: "The July statement for 7712 is in the portal. The bank was slow mailing it this month.", linkedItemId: "oi-5" },
     { clientId: "northgate", at: "2026-08-09T20:02:00", channel: "Email", direction: "Inbound", who: "Marcus Keel", subject: "Change order", body: "Sending the Vista change order. I think this is the signed one." },
-    { clientId: "northgate", at: "2026-08-10T08:15:00", channel: "Email", direction: "Outbound", who: "Dana Whitfield", subject: "Change order needs signatures", body: "That copy is the draft with no signatures. Please send the countersigned version so the extra billing has support.", linkedItemId: "oi-6" },
+    { clientId: "northgate", at: "2026-08-10T08:15:00", channel: "Email", direction: "Outbound", who: "Jose Hernandez", subject: "Change order needs signatures", body: "That copy is the draft with no signatures. Please send the countersigned version so the extra billing has support.", linkedItemId: "oi-6" },
     { clientId: "northgate", at: "2026-08-01T09:00:00", channel: "Call", direction: "Inbound", who: "Marcus Keel", subject: "Job costing cleanup", body: "Marcus approved the cleanup plan for job tags from January through March. Budget is 12 hours." },
     { clientId: "marisol", at: "2026-08-08T18:40:00", channel: "Portal message", direction: "Inbound", who: "Marisol Vega", subject: "Kiln repair receipt", body: "Here is the receipt from Ridgeline. They also quoted a full element replacement for the fall." },
-    { clientId: "marisol", at: "2026-08-09T07:22:00", channel: "Portal message", direction: "Outbound", who: "Priya Raman", subject: "Duplicate statement", body: "The second copy of the July statement was flagged as a duplicate, no action needed on your side." },
-    { clientId: "marisol", at: "2026-07-31T14:05:00", channel: "Email", direction: "Outbound", who: "Priya Raman", subject: "Sales tax filed", body: "June sales tax return is filed and the payment cleared. July is due August 25." },
+    { clientId: "marisol", at: "2026-08-09T07:22:00", channel: "Portal message", direction: "Outbound", who: "Rosario Rosales", subject: "Duplicate statement", body: "The second copy of the July statement was flagged as a duplicate, no action needed on your side." },
+    { clientId: "marisol", at: "2026-07-31T14:05:00", channel: "Email", direction: "Outbound", who: "Rosario Rosales", subject: "Sales tax filed", body: "June sales tax return is filed and the payment cleared. July is due August 25." },
     { clientId: "riverbend", at: "2026-08-10T16:50:00", channel: "Portal message", direction: "Inbound", who: "Adaeze Nwosu", subject: "Benwood award letter", body: "Attached the award letter. The restriction runs through the end of the summer program." },
-    { clientId: "riverbend", at: "2026-08-05T10:12:00", channel: "Email", direction: "Outbound", who: "Priya Raman", subject: "July close package", body: "Draft statements are ready for treasurer review. Functional expense split held steady at 78 percent program." },
+    { clientId: "riverbend", at: "2026-08-05T10:12:00", channel: "Email", direction: "Outbound", who: "Rosario Rosales", subject: "July close package", body: "Draft statements are ready for treasurer review. Functional expense split held steady at 78 percent program." },
     { clientId: "riverbend", at: "2026-08-13T09:30:00", channel: "Call", direction: "Outbound", who: "Owen Baptiste", subject: "Audit prep timing", body: "Agreed to start FY2026 audit prep the second week of September and to pre build the restriction schedule." },
   ];
   commSeed.forEach((m, i) => ds.comms.push({ ...m, id: `cm-${i + 1}` }));
@@ -1478,12 +1477,12 @@ export function buildDataset(): Dataset {
   // ---- Portal entitlement grants, effective dated and sourced from the engagement.
   // Decision D1. Tier is bundled into the service level. Nothing here touches money.
   const grantSeed: Omit<EntitlementGrant, "id">[] = [
-    { clientId: "bramble", tierId: "legend", effectiveFrom: "2026-01-05", setBy: "Trey Hernandez", reason: "Legend service level named in the signed engagement letter" },
-    { clientId: "bramble-cafe", tierId: "legend", effectiveFrom: "2026-01-05", setBy: "Trey Hernandez", reason: "Same engagement group as the roasting company, Legend service level" },
-    { clientId: "northgate", tierId: "ledger", effectiveFrom: "2026-01-12", effectiveTo: "2026-04-01", setBy: "Trey Hernandez", reason: "Opened at the Ledger service level during cleanup" },
-    { clientId: "northgate", tierId: "ledger_plus", effectiveFrom: "2026-04-01", setBy: "Trey Hernandez", reason: "Moved to Ledger plus when job level reporting entered scope" },
-    { clientId: "riverbend", tierId: "ledger_plus", effectiveFrom: "2026-01-15", setBy: "Trey Hernandez", reason: "Board asked for budget versus actual every month" },
-    { clientId: "marisol", tierId: "ledger", effectiveFrom: "2026-02-01", setBy: "Trey Hernandez", reason: "Ledger service level, single owner and one studio" },
+    { clientId: "bramble", tierId: "legend", effectiveFrom: "2026-01-05", setBy: "Jose Hernandez", reason: "Legend service level named in the signed engagement letter" },
+    { clientId: "bramble-cafe", tierId: "legend", effectiveFrom: "2026-01-05", setBy: "Jose Hernandez", reason: "Same engagement group as the roasting company, Legend service level" },
+    { clientId: "northgate", tierId: "ledger", effectiveFrom: "2026-01-12", effectiveTo: "2026-04-01", setBy: "Jose Hernandez", reason: "Opened at the Ledger service level during cleanup" },
+    { clientId: "northgate", tierId: "ledger_plus", effectiveFrom: "2026-04-01", setBy: "Jose Hernandez", reason: "Moved to Ledger plus when job level reporting entered scope" },
+    { clientId: "riverbend", tierId: "ledger_plus", effectiveFrom: "2026-01-15", setBy: "Jose Hernandez", reason: "Board asked for budget versus actual every month" },
+    { clientId: "marisol", tierId: "ledger", effectiveFrom: "2026-02-01", setBy: "Jose Hernandez", reason: "Ledger service level, single owner and one studio" },
   ];
   grantSeed.forEach((g, i) => ds.entitlements.push({ ...g, id: `grant-${i + 1}` }));
 

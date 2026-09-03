@@ -55,10 +55,31 @@ export function chartAccount(
 
 export interface TxnOverrides {
   categoryId?: string | null;
+  categoryVersion?: number | null;
+  cascadeLevel?: number | null;
   pairedWithId?: string | null;
   duplicateFlag?: boolean;
+  duplicateOfTransactionId?: string | null;
+  legitimateRepeat?: boolean;
   manualOverride?: boolean;
-  normalizedVendor?: string;
+  normalizedVendor?: string | null;
+  vendorNormalizationVersion?: number | null;
+  normalizationDegraded?: boolean;
+  vendorId?: string | null;
+  bankMerchantName?: string | null;
+  institutionId?: string | null;
+  bankCode?: string | null;
+  ruleId?: string | null;
+  ruleVersion?: number | null;
+  templateId?: string | null;
+  templateVersion?: number | null;
+  classId?: string | null;
+  suspenseReason?: string | null;
+  suspenseOwner?: "firm" | "client" | "system" | null;
+  suspenseOpenedOn?: string | null;
+  settlementOfTransactionId?: string | null;
+  isProcessorSettlement?: boolean;
+  currency?: string;
   version?: number;
   accountNumber?: string;
   bankTransactionId?: string | null;
@@ -85,20 +106,45 @@ export function txn(
     accountNumber: extra.accountNumber ?? "1010",
     postedDate,
     amountCents,
-    currency: "USD",
+    currency: extra.currency ?? "USD",
     description: extra.description ?? `txn ${id}`,
-    normalizedVendor: extra.normalizedVendor ?? "INTERNAL TRANSFER",
+    bankMerchantName: extra.bankMerchantName ?? null,
+    normalizedVendor:
+      extra.normalizedVendor === undefined
+        ? "INTERNAL TRANSFER"
+        : extra.normalizedVendor,
+    vendorNormalizationVersion: extra.vendorNormalizationVersion ?? null,
+    normalizationDegraded: extra.normalizationDegraded ?? false,
+    vendorId: extra.vendorId ?? null,
     checkNumber: null,
-    bankCode: null,
+    bankCode: extra.bankCode ?? null,
+    institutionId: extra.institutionId ?? null,
     bankTransactionId: extra.bankTransactionId ?? null,
     source: "import",
     importBatchId: extra.importBatchId ?? null,
     stagedRowId: null,
     categoryId: extra.categoryId ?? null,
-    cascadeLevel: null,
-    suspenseReason: null,
+    categoryVersion: extra.categoryVersion ?? null,
+    cascadeLevel: extra.cascadeLevel ?? null,
+    ruleId: extra.ruleId ?? null,
+    ruleVersion: extra.ruleVersion ?? null,
+    matchedConditions: null,
+    autoPostedUnderRulePromotion: false,
+    templateId: extra.templateId ?? null,
+    templateVersion: extra.templateVersion ?? null,
+    classId: extra.classId ?? null,
+    locationId: null,
+    programId: null,
+    suspenseReason: extra.suspenseReason ?? null,
+    suspenseOwner: extra.suspenseOwner ?? null,
+    suspenseOpenedOn: extra.suspenseOpenedOn ?? null,
+    suspenseEscalatesOn: null,
     pairedWithId: extra.pairedWithId ?? null,
+    settlementOfTransactionId: extra.settlementOfTransactionId ?? null,
+    isProcessorSettlement: extra.isProcessorSettlement ?? false,
     duplicateFlag: extra.duplicateFlag ?? false,
+    duplicateOfTransactionId: extra.duplicateOfTransactionId ?? null,
+    legitimateRepeat: extra.legitimateRepeat ?? false,
     journalEntryId: null,
     cleared: extra.cleared ?? false,
     clearedDate: extra.cleared ? postedDate : null,

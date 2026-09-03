@@ -416,7 +416,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           accountId,
           klass: t.klass,
           hits: 1,
-          createdBy: "Trey Hernandez",
+          createdBy: "Jose Hernandez",
           createdAt: TODAY,
           active: true,
         };
@@ -468,7 +468,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           source: "manual",
           lines,
           posted: true,
-          createdBy: "Trey Hernandez",
+          createdBy: "Jose Hernandez",
         };
         mutate((next) => {
           next.journalEntries = [...next.journalEntries, entry];
@@ -490,7 +490,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
             source: "reversal",
             lines: original.lines.map((l) => ({ ...l, debit: l.credit, credit: l.debit })),
             posted: true,
-            createdBy: "Trey Hernandez",
+            createdBy: "Jose Hernandez",
             reversalOf: original.id,
           };
           original.reversedBy = rev.id;
@@ -721,7 +721,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
             signatureMode: intake.signatureMode,
           },
           onboardingStage: "Intake",
-          lead: "Trey Hernandez",
+          lead: "Jose Hernandez",
           color: "hsl(196 62% 42%)",
         };
         mutate((next) => {
@@ -745,7 +745,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           ];
           next.tasks = [
             ...next.tasks,
-            ...tasksForScope(id, intake.scope, CURRENT_PERIOD, "Trey Hernandez", "newtask"),
+            ...tasksForScope(id, intake.scope, CURRENT_PERIOD, "Jose Hernandez", "newtask"),
           ];
           if (intake.signedAt) {
             next.signatures = [

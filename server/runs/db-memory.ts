@@ -39,6 +39,9 @@ import {
   type RowMap,
   type RunLogRow,
   type StagedRowRow,
+  type RuleRow,
+  type SettlementRowRow,
+  type SuspenseItemRow,
   type TableName,
   type TransactionRow,
 } from "./tables";
@@ -57,6 +60,17 @@ const TABLES: TableName[] = [
   "journal_entries",
   "journal_lines",
   "suspense_items",
+  "categories",
+  "rules",
+  "recurring_templates",
+  "recurring_splits",
+  "vendors",
+  "bank_code_mappings",
+  "settlement_rows",
+  "client_policies",
+  "document_links",
+  "portal_requests",
+  "documentation_exceptions",
   "run_log",
   "run_log_items",
   "run_log_events",
@@ -600,6 +614,125 @@ class MemoryTx implements RunTx {
           .sort(compareTransactions)
           .map((r) => clone(r as unknown as AnyRow));
       }
+      case "categories_for_client": {
+        const p = rawParams as QueryCatalog["categories_for_client"]["params"];
+        return this.view("categories")
+          .filter((r) => r.firmId === p.firmId && r.clientId === p.clientId)
+          .sort(byId)
+          .map(clone);
+      }
+      case "active_rules_for_client": {
+        const p = rawParams as QueryCatalog["active_rules_for_client"]["params"];
+        return this.view("rules")
+          .map((r) => r as unknown as RuleRow)
+          .filter(
+            (r) =>
+              r.firmId === p.firmId &&
+              r.clientId === p.clientId &&
+              r.isActive === true,
+          )
+          .sort(compareRules)
+          .map((r) => clone(r as unknown as AnyRow));
+      }
+      case "recurring_templates_for_client": {
+        const p =
+          rawParams as QueryCatalog["recurring_templates_for_client"]["params"];
+        return this.view("recurring_templates")
+          .filter((r) => r.firmId === p.firmId && r.clientId === p.clientId)
+          .sort(byId)
+          .map(clone);
+      }
+      case "recurring_splits_for_template": {
+        const p =
+          rawParams as QueryCatalog["recurring_splits_for_template"]["params"];
+        return this.view("recurring_splits")
+          .filter(
+            (r) =>
+              r.firmId === p.firmId &&
+              r.clientId === p.clientId &&
+              r.templateId === p.templateId &&
+              r.templateVersion === p.templateVersion,
+          )
+          .sort(compareSplits)
+          .map(clone);
+      }
+      case "vendors_for_client": {
+        const p = rawParams as QueryCatalog["vendors_for_client"]["params"];
+        return this.view("vendors")
+          .filter((r) => r.firmId === p.firmId && r.clientId === p.clientId)
+          .sort(byId)
+          .map(clone);
+      }
+      case "bank_code_mappings_for_client": {
+        const p =
+          rawParams as QueryCatalog["bank_code_mappings_for_client"]["params"];
+        return this.view("bank_code_mappings")
+          .filter((r) => r.firmId === p.firmId && r.clientId === p.clientId)
+          .sort(byId)
+          .map(clone);
+      }
+      case "settlement_rows_in_window": {
+        const p = rawParams as QueryCatalog["settlement_rows_in_window"]["params"];
+        return this.view("settlement_rows")
+          .map((r) => r as unknown as SettlementRowRow)
+          .filter(
+            (r) =>
+              r.firmId === p.firmId &&
+              r.clientId === p.clientId &&
+              r.payoutDate >= p.from &&
+              r.payoutDate <= p.to,
+          )
+          .sort(compareSettlements)
+          .map((r) => clone(r as unknown as AnyRow));
+      }
+      case "client_policy": {
+        const p = rawParams as QueryCatalog["client_policy"]["params"];
+        return this.view("client_policies")
+          .filter((r) => r.firmId === p.firmId && r.clientId === p.clientId)
+          .sort(byId)
+          .map(clone);
+      }
+      case "document_links_for_transactions": {
+        const p =
+          rawParams as QueryCatalog["document_links_for_transactions"]["params"];
+        return this.view("document_links")
+          .filter(
+            (r) =>
+              r.firmId === p.firmId &&
+              r.clientId === p.clientId &&
+              p.transactionIds.includes(r.transactionId as string),
+          )
+          .sort(byId)
+          .map(clone);
+      }
+      case "open_portal_requests_for_client": {
+        const p =
+          rawParams as QueryCatalog["open_portal_requests_for_client"]["params"];
+        return this.view("portal_requests")
+          .filter(
+            (r) =>
+              r.firmId === p.firmId &&
+              r.clientId === p.clientId &&
+              r.status === "open",
+          )
+          .sort(byId)
+          .map(clone);
+      }
+      case "suspense_items_for_transactions": {
+        const p =
+          rawParams as QueryCatalog["suspense_items_for_transactions"]["params"];
+        return this.view("suspense_items")
+          .map((r) => r as unknown as SuspenseItemRow)
+          .filter(
+            (r) =>
+              r.firmId === p.firmId &&
+              r.clientId === p.clientId &&
+              r.transactionId !== null &&
+              p.transactionIds.includes(r.transactionId),
+          )
+          .sort(byId)
+          .map((r) => clone(r as unknown as AnyRow));
+      }
       default: {
         const exhaustive: never = name;
         throw new Error(`unknown query ${String(exhaustive)}`);
@@ -622,6 +755,33 @@ function compareTransactions(a: TransactionRow, b: TransactionRow): number {
   const aa = a.amountCents < BigInt(0) ? -a.amountCents : a.amountCents;
   const ba = b.amountCents < BigInt(0) ? -b.amountCents : b.amountCents;
   if (aa !== ba) return aa < ba ? -1 : 1;
+  return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+}
+
+/**
+ * The doc 00 Part 3 rule tie break, applied in the query rather than in the run
+ * so that both the memory store and Postgres hand back the same order and the
+ * run never has to sort a second time.
+ */
+function compareRules(a: RuleRow, b: RuleRow): number {
+  if (a.priority !== b.priority) return a.priority > b.priority ? -1 : 1;
+  if (a.conditionCount !== b.conditionCount) {
+    return a.conditionCount > b.conditionCount ? -1 : 1;
+  }
+  return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+}
+
+function compareSplits(a: AnyRow, b: AnyRow): number {
+  const an = a.lineNumber as number;
+  const bn = b.lineNumber as number;
+  if (an !== bn) return an < bn ? -1 : 1;
+  return byId(a, b);
+}
+
+/** Doc 02 TXN-SPLIT-SETTLEMENTS iteration order: payout date asc, payout id asc. */
+function compareSettlements(a: SettlementRowRow, b: SettlementRowRow): number {
+  if (a.payoutDate !== b.payoutDate) return a.payoutDate < b.payoutDate ? -1 : 1;
+  if (a.payoutId !== b.payoutId) return a.payoutId < b.payoutId ? -1 : 1;
   return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
 }
 

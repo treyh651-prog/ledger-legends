@@ -26,4 +26,18 @@ export { txnPairTransfers } from "./runs/txn-pair-transfers";
 export type { PairTransfersScope } from "./runs/txn-pair-transfers";
 export * from "./runs/import-parse-feed";
 export * from "./runs/import-commit-batch";
-export { registry, lookupRun } from "./registry";
+export * from "./runs/coding-cascade";
+export * from "./runs/txn-normalize-vendors";
+export * from "./runs/txn-detect-duplicates";
+export * from "./runs/txn-split-settlements";
+export * from "./runs/txn-apply-recurring";
+export * from "./runs/txn-apply-rules";
+export * from "./runs/txn-apply-vendordefaults";
+export * from "./runs/txn-map-bankcodes";
+export * from "./runs/txn-sweep-suspense";
+export {
+  registry,
+  lookupRun,
+  CODING_CASCADE_ORDER,
+  cascadePosition,
+} from "./registry";

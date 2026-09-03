@@ -129,7 +129,7 @@ export default function Narrative() {
           <div className="mt-3 flex flex-wrap items-center gap-2">
             <Button
               onClick={() => {
-                addMessage(activeClientId, "Trey Hernandez", `${fmtPeriod(period)} financial summary`, text, "Outbound");
+                addMessage(activeClientId, "Jose Hernandez", `${fmtPeriod(period)} financial summary`, text, "Outbound");
                 toast({ title: "Sent to the portal", description: `${activeClient.shortName} can read it alongside the statements.` });
               }}
               data-testid="button-send-narrative"

@@ -50,7 +50,7 @@ export default function ReportPackage() {
               size="sm"
               variant="outline"
               onClick={() => {
-                logAudit(undefined, `${activeClient.shortName} ${period} package`, "downloaded", `Package with ${picked.length} sections`, "Trey Hernandez", "firm");
+                logAudit(undefined, `${activeClient.shortName} ${period} package`, "downloaded", `Package with ${picked.length} sections`, "Jose Hernandez", "firm");
                 toast({ title: "Package assembled", description: `${picked.length} sections ready for ${activeClient.shortName}.` });
               }}
               data-testid="button-assemble"
@@ -63,12 +63,12 @@ export default function ReportPackage() {
               onClick={() => {
                 addMessage(
                   activeClientId,
-                  "Trey Hernandez",
+                  "Jose Hernandez",
                   `${fmtPeriod(period)} report package`,
                   `The ${fmtPeriod(period)} package is in your portal with ${picked.length} sections, including the narrative and the full statements.`,
                   "Outbound",
                 );
-                logAudit(undefined, `${activeClient.shortName} ${period} package`, "shared", "Published to the client portal", "Trey Hernandez", "firm");
+                logAudit(undefined, `${activeClient.shortName} ${period} package`, "shared", "Published to the client portal", "Jose Hernandez", "firm");
                 setSent(true);
                 toast({ title: "Sent to the portal", description: "The client can open it from the reports page." });
               }}

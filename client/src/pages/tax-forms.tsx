@@ -47,7 +47,7 @@ export default function TaxForms() {
               onClick={() => {
                 addMessage(
                   activeClientId,
-                  "Trey Hernandez",
+                  "Jose Hernandez",
                   "W-9 forms needed before January",
                   `We have ${missing.length} vendors over the reporting threshold with no W-9 on file: ${missing.map((m) => m.name).join(", ")}. Please forward the request to each of them or send us a contact and we will handle it.`,
                   "Outbound",
@@ -150,7 +150,7 @@ export default function TaxForms() {
                     onClick={() => {
                       addMessage(
                         activeClientId,
-                        "Trey Hernandez",
+                        "Jose Hernandez",
                         `W-9 request for ${v.name}`,
                         `${v.name} has been paid ${usd(v.ytdPaymentsCents)} this year. Please have them complete a W-9 so the 1099 can be filed on time.`,
                         "Outbound",

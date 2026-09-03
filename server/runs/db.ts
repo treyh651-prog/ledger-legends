@@ -14,13 +14,22 @@
 import type { Cents, Ulid } from "./contract";
 import type {
   BankAccountRow,
+  BankCodeMappingRow,
+  CategoryRow,
   ChartAccountRow,
+  ClientPolicyRow,
+  DocumentLinkRow,
   ImportBatchRow,
   JournalEntryRow,
   JournalLineRow,
   MappingProfileRow,
   PeriodLockRow,
+  PortalRequestRow,
+  RecurringSplitRow,
+  RecurringTemplateRow,
   RowMap,
+  RuleRow,
+  SettlementRowRow,
   RunLogEventRow,
   RunLogItemRow,
   RunLogRow,
@@ -29,6 +38,7 @@ import type {
   TableName,
   TransactionRow,
   TransferPairRow,
+  VendorRow,
 } from "./tables";
 
 export type Isolation = "repeatable read" | "serializable";
@@ -175,6 +185,65 @@ export interface QueryCatalog {
   transactions_by_batch: {
     params: { firmId: Ulid; clientId: Ulid; batchId: Ulid };
     row: TransactionRow;
+  };
+
+  // Doc 02 module 2. Everything below is read by the nine coding runs.
+
+  /** The category layer, doc 00 Part 2. Read whole, it is small per client. */
+  categories_for_client: {
+    params: { firmId: Ulid; clientId: Ulid };
+    row: CategoryRow;
+  };
+  /**
+   * Active rules in the doc 00 tie break order already applied: priority
+   * descending, condition count descending, rule id ascending.
+   */
+  active_rules_for_client: {
+    params: { firmId: Ulid; clientId: Ulid };
+    row: RuleRow;
+  };
+  recurring_templates_for_client: {
+    params: { firmId: Ulid; clientId: Ulid };
+    row: RecurringTemplateRow;
+  };
+  recurring_splits_for_template: {
+    params: { firmId: Ulid; clientId: Ulid; templateId: Ulid; templateVersion: number };
+    row: RecurringSplitRow;
+  };
+  vendors_for_client: {
+    params: { firmId: Ulid; clientId: Ulid };
+    row: VendorRow;
+  };
+  bank_code_mappings_for_client: {
+    params: { firmId: Ulid; clientId: Ulid };
+    row: BankCodeMappingRow;
+  };
+  /** Settlement report rows in a payout date window. */
+  settlement_rows_in_window: {
+    params: { firmId: Ulid; clientId: Ulid; from: string; to: string };
+    row: SettlementRowRow;
+  };
+  /** At most one row per client. Missing means every default applies. */
+  client_policy: {
+    params: { firmId: Ulid; clientId: Ulid };
+    row: ClientPolicyRow;
+  };
+  document_links_for_transactions: {
+    params: { firmId: Ulid; clientId: Ulid; transactionIds: Ulid[] };
+    row: DocumentLinkRow;
+  };
+  open_portal_requests_for_client: {
+    params: { firmId: Ulid; clientId: Ulid };
+    row: PortalRequestRow;
+  };
+  /**
+   * Suspense items already raised against a set of transactions. The sweep uses
+   * this to honor a reason code an earlier pipeline step produced, including one
+   * produced by a run that writes no field on the register row.
+   */
+  suspense_items_for_transactions: {
+    params: { firmId: Ulid; clientId: Ulid; transactionIds: Ulid[] };
+    row: SuspenseItemRow;
   };
 }
 

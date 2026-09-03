@@ -25,9 +25,12 @@ import {
 import type { RunTx } from "./db";
 import { ulid } from "./ids";
 import type {
+  DocumentationExceptionRow,
   ImportBatchRow,
   JournalEntryRow,
   JournalLineRow,
+  PortalRequestRow,
+  SettlementRowRow,
   StagedRowRow,
   SuspenseItemRow,
   TransactionRow,
@@ -224,6 +227,15 @@ async function writeField(
     case "staged_rows":
       await tx.update("staged_rows", rowId, after);
       return;
+    // Doc 02 TXN-SPLIT-SETTLEMENTS marks the settlement report row it consumed,
+    // which is what makes a rerun report settlement_already_split rather than
+    // post the same gross and fee twice.
+    case "settlement_rows":
+      await tx.update("settlement_rows", rowId, after);
+      return;
+    case "portal_requests":
+      await tx.update("portal_requests", rowId, after);
+      return;
     default:
       throw new ProposalWriteError(
         "UNKNOWN_WRITE_TABLE",
@@ -235,9 +247,10 @@ async function writeField(
 /**
  * A row insert goes through tx.insert, which is where the unique guards live,
  * including the bank supplied id guard the import dedup rule depends on. Only
- * the three tables the import pipeline owns are reachable from here. Nothing a
- * run proposes can create a journal entry by this path, because an entry has a
- * shape that has to be validated and it has its own proposal kind.
+ * the tables the import pipeline and the coding cascade own are reachable from
+ * here. Nothing a run proposes can create a journal entry by this path, because
+ * an entry has a shape that has to be validated and it has its own proposal
+ * kind.
  */
 async function insertRow(
   tx: RunTx,
@@ -255,6 +268,19 @@ async function insertRow(
       return;
     case "staged_rows":
       await tx.insert("staged_rows", [withId as unknown as StagedRowRow]);
+      return;
+    // Doc 02 TXN-SWEEP-SUSPENSE step 4 creates one request per client owned code.
+    case "portal_requests":
+      await tx.insert("portal_requests", [withId as unknown as PortalRequestRow]);
+      return;
+    // Doc 02 TXN-APPLY-RULES steps 7 and 8 raise these without stopping coding.
+    case "documentation_exceptions":
+      await tx.insert("documentation_exceptions", [
+        withId as unknown as DocumentationExceptionRow,
+      ]);
+      return;
+    case "settlement_rows":
+      await tx.insert("settlement_rows", [withId as unknown as SettlementRowRow]);
       return;
     default:
       throw new ProposalWriteError(

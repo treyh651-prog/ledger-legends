@@ -47,16 +47,16 @@ export default function OpenItems() {
   const itemFor = (id?: string) => items.find((o) => o.id === id);
 
   const acceptDoc = (d: DocRecord) => {
-    updateDocument(d.id, { status: "accepted" }, "accepted", "Reviewed against the ledger and filed to the period", "Trey Hernandez", "firm");
+    updateDocument(d.id, { status: "accepted" }, "accepted", "Reviewed against the ledger and filed to the period", "Jose Hernandez", "firm");
     if (d.openItemId) setOpenItemStatus(d.openItemId, "accepted");
     toast({ title: "Document accepted", description: `${d.name} is filed to ${fmtPeriod(d.period)}.` });
   };
 
   const rejectDoc = () => {
     if (!review) return;
-    updateDocument(review.id, { status: "rejected", note: reason }, "rejected", reason || "Sent back to the client", "Trey Hernandez", "firm");
+    updateDocument(review.id, { status: "rejected", note: reason }, "rejected", reason || "Sent back to the client", "Jose Hernandez", "firm");
     if (review.openItemId) setOpenItemStatus(review.openItemId, "rejected", reason);
-    addMessage(activeClientId, "Trey Hernandez", `We need a new copy of ${review.name}`, reason || "The file we received cannot be used. Please send a clearer copy.", "Outbound", review.openItemId);
+    addMessage(activeClientId, "Jose Hernandez", `We need a new copy of ${review.name}`, reason || "The file we received cannot be used. Please send a clearer copy.", "Outbound", review.openItemId);
     toast({ title: "Sent back", description: "The client sees the reason in the portal." });
     setReview(null);
     setReason("");
@@ -318,7 +318,7 @@ export default function OpenItems() {
               onClick={() => {
                 addMessage(
                   activeClientId,
-                  "Trey Hernandez",
+                  "Jose Hernandez",
                   `Request: ${draft.title}`,
                   `${draft.detail || "We need this to finish the close."} Please send it by ${draft.dueDate}.`,
                   "Outbound",

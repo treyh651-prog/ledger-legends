@@ -680,7 +680,7 @@ export const importParseFeed: Run<ParseFeedScope, Proposal> = {
           row.accountNumber,
           row.postedDate,
           row.amountCents,
-          row.normalizedVendor,
+          row.normalizedVendor ?? "",
         ),
         row.id,
       );

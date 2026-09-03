@@ -294,3 +294,139 @@ one was picked, and the reason is recorded.
     into a `failed` outcome naming the reconciled rows. A person unreconciles
     first. The two alternatives either invent partial undo or silently undo a
     reconciliation somebody signed off on.
+
+## The module 2 coding cascade, the nine runs
+
+The nine runs of doc 02 Module 2 turn a raw bank descriptor into a coded row.
+The cascade is ten levels deep, every level is weaker evidence than the one above
+it, and the order the runs execute in is the reason each one can trust what the
+previous one wrote. `CODING_CASCADE_ORDER` in `registry.ts` is the machine
+readable form of that order and `server/runs/__tests__/coding-pipeline.ts` walks
+it, so the ordering is a test rather than a comment.
+
+Two rules hold across all nine. First, cascade provenance. Every run writes the
+level that decided the row plus the identifier and version of the thing that
+decided it, so the question of why a transaction was coded a particular way has
+an answer six months later without a person reconstructing anything. Second, the
+override contract of invariant 8. No run touches a row carrying the manual
+override flag. The candidate query is asked with `includeOverridden: false`, the
+frozen scope still lists the overridden ids so they are counted and reported, and
+`apply-writer.ts` refuses the write a second time at the store level. A run that
+forgets the first check still cannot get past the second.
+
+29. **Whether the coding runs share a module or repeat themselves.** Nine files
+    each needing the level table, the SUS catalog, the scope schema, the sign
+    convention, and the same override and lock guards. Options: repeat the code
+    in each run, put the shared pieces in `contract.ts`, or add one module beside
+    the runs. Chosen: `runs/coding-cascade.ts`. Repeating it means nine copies of
+    the level numbers to keep in step, and `contract.ts` is the framework and
+    should not know what a vendor is. A module beside the runs keeps the cascade
+    rules in one readable place and keeps the framework generic.
+
+30. **Where the reason code catalog lives.** Options: read the twenty codes from
+    the database, derive them from doc 00 at build time, or state them in code.
+    Chosen: state them in code, in `SUS_CATALOG`, with the owner and escalation
+    age from doc 00 Part 5 beside each one. The escalation age is arithmetic the
+    sweep has to do while it is deciding, a database read would make the reason
+    code decision depend on seed data being present, and a row that reaches the
+    floor of the cascade with no reason code is exactly the outcome the design
+    forbids. The register constraint `txn_suspense_complete` is the backstop.
+
+31. **What normalization does with a descriptor that normalizes to nothing.** A
+    descriptor of nothing but a terminal number, `POS 004471`, reduces to the
+    empty string at step 5. Options: store the empty string, leave the column
+    null, or keep the step 3 text and flag the row. Chosen: keep the step 3 text
+    and set `normalization_degraded`. An empty key makes every such row look like
+    a duplicate of every other such row, which is worse than a noisy key, and a
+    null would stop duplicate detection and rules from ever seeing the row again
+    with no record of why.
+
+32. **How duplicate detection treats a row that has not been normalized.** The
+    key is the bank account, the absolute amount, and the normalized vendor.
+    Options: fall back to the raw descriptor, treat a null vendor as an empty
+    string, or skip the row. Chosen: skip it with `missing_prerequisite`. This
+    one was found by a test rather than by reading. Treating null as the empty
+    string made two unrelated unnormalized rows collide on the same key, which is
+    a false duplicate flag on real money. Skipping makes the dependency on step 1
+    explicit and the skip tells an operator what to run.
+
+33. **Which copy of a duplicate is the loser.** Options: the row with the later
+    posted date, the row imported later, or the row with the higher id. Chosen:
+    the earliest posted date is the original and every later copy carries
+    `duplicate_of_transaction_id` pointing back at it, ties inside a day breaking
+    on the id. The bank saw the earlier one first, the constraint
+    `txn_duplicate_has_original` needs the pointer to resolve, and a rule based
+    on import order would give different answers on a reimport.
+
+34. **The tolerance on a settlement split.** A net deposit has to reconcile to
+    gross plus fees. Options: allow a small cent tolerance, plug the difference
+    to a rounding account, or require exact equality. Chosen: exact equality, and
+    anything else routes SUS-17 with the two amounts named. A tolerance is a
+    silent revenue misstatement inside the tolerance and a plug line is the same
+    thing with a name on it. Doc 02 gives the fee and the gross from the
+    processor report, so exact is achievable and any gap is a real question.
+
+35. **Rounding a percentage split.** Basis points that sum to 10000 still do not
+    divide a cent evenly. Options: round each line and let the total drift, put
+    the drift on the first line, or allocate by largest remainder. Chosen:
+    largest remainder with ties going to the highest line number. It is the only
+    one of the three that always sums to the whole amount, which is what keeps
+    the entry balanced, and fixing the tie to the last line makes a rerun produce
+    the same cents rather than merely the same total.
+
+36. **What a rule conflict does.** Two rules survive the tie break of doc 00 Part
+    3 with different target categories. Options: take the lower rule id, take the
+    most recently updated rule, or refuse. Chosen: refuse, apply nothing, and
+    route SUS-19 naming every surviving rule id. The tie break exists to produce
+    a winner from priority, condition count, and id, so two survivors with
+    different answers means the rules themselves disagree. Guessing hides the
+    defect in the rule set, which is the thing that actually needs fixing. A tie
+    on the same category is not a conflict and is applied, with a benign tie
+    logged.
+
+37. **Whether the later steps may overwrite an earlier decision on a rerun.** A
+    row coded at level 7 and then run through the rule step again. Options: let
+    the stronger level win and rewrite, refuse to touch the row, or refuse only
+    inside a sequence. Chosen: every run stands down on any row already resolved
+    at a level above its own and records `already_resolved_level_N`. Rewriting a
+    coding a person has already seen is churn with no audit trail beyond two runs
+    disagreeing, and the documented order means the case only arises when
+    somebody ran the steps out of order. The vendor default ordering test shows
+    exactly that churn, which is why the order is the fix rather than the rewrite.
+
+38. **Where the foreign currency check belongs.** Doc 00 Part 1 puts any non
+    functional currency row in suspense with SUS-11, and the register constraint
+    `txn_currency_scope` allows no other outcome. Options: filter those rows out
+    of the candidate query, route SUS-11 from whichever run sees the row first, or
+    have every coding step stand down and let the sweep do it. Chosen: the third.
+    Filtering hides the rows from the reports that count candidates, and routing
+    from several runs would put the same reason code in four places. Levels 5
+    through 8 skip with `out_of_scope_engagement` naming SUS-11, and the sweep is
+    the single place the code is issued. This was found by the pipeline test,
+    where a euro charge with a matching rule was being coded at level 6.
+
+39. **Whether the sweep posts a row that sits in a locked period.** Options: post
+    it into the locked period, redate it to the first open day, or leave it. This
+    run writes to the ledger, so posting into a closed period is not available.
+    Chosen: leave it, with a `locked_period` skip that names SUS-20 as what is
+    waiting. Redating a suspense posting moves an unexplained amount into a
+    period it did not happen in, and the framework already has a redate path for
+    the runs where doc 02 asks for one. This one is not asked for.
+
+40. **Whether the sweep opens a portal request every time it runs.** Options:
+    always insert, never insert, or insert once per open question. Chosen: insert
+    once per transaction and reason code, and only when the catalog says the
+    client owns the code. Asking the same question twice is how a portal stops
+    being read, and firm owned codes such as SUS-01 are the firm's own work and
+    should never appear in front of a client. The existing open requests are read
+    first and the key is the transaction id with the reason code.
+
+41. **How the sweep chooses between its own reason and one an earlier step
+    raised.** A row can arrive at the floor already carrying a SUS-05 from
+    duplicate detection or a SUS-19 from the rule step. Options: recompute the
+    reason from the row, keep the earliest code, or keep the most severe code.
+    Chosen: keep the earliest code, breaking ties on the lowest code string. The
+    earlier step had more context than the sweep does, the sweep would recompute
+    a generic SUS-01 and lose the real reason, and severity is not a field any
+    document defines. The tie break on the code string is there so a rerun
+    produces the same reason rather than whichever row came back first.
