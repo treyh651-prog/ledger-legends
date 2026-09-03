@@ -8,7 +8,7 @@ on:
 
 jobs:
   verify:
-    name: Types, books, guards, build
+    name: Types, books, runs, guards, build
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
@@ -34,11 +34,16 @@ jobs:
       - name: Books must foot
         run: npx tsx script/check-books.ts
 
+      # The run framework contract. Covers the invariant table in doc 03,
+      # the two tenant negative test, and preview matching apply exactly.
+      - name: Run framework invariants
+        run: npx tsx server/runs/__tests__/index.ts
+
       # Money is stored as integer cents. Float math on currency is a defect,
       # not a style choice, so parsing money into a float fails the build.
       - name: No float math on money
         run: |
-          if grep -rn --include=*.ts --include=*.tsx -E 'parseFloat|Number\.parseFloat' client/src shared; then
+          if grep -rn --include=*.ts --include=*.tsx -E 'parseFloat|Number\.parseFloat' client/src shared server; then
             echo "Found float parsing. Money is integer cents. Use the cents helpers instead."
             exit 1
           fi
@@ -55,23 +60,32 @@ jobs:
           echo "No web storage usage found."
 
       # Copy rule. No em dashes, and no en dashes standing in for one.
+      # This is a script rather than a grep because the PCRE form of this
+      # check errors out on some grep builds and then reports success.
       - name: Copy style
-        run: |
-          if grep -rnP '[\x{2014}\x{2013}]' --include=*.ts --include=*.tsx --include=*.css client/src shared; then
-            echo "Found an em dash or en dash. Rewrite the sentence with plain punctuation."
-            exit 1
-          fi
-          echo "No long dashes found."
+        run: npx tsx script/check-style.ts
 
       # Nothing in this product stores a credential. Bank connections are
       # represented as records, never as secrets.
       - name: No credential fields
         run: |
-          if grep -rniE 'type="password"|bankPassword|routingSecret|apiSecret[[:space:]]*[:=]' --include=*.ts --include=*.tsx client/src shared; then
+          if grep -rniE 'type="password"|bankPassword|routingSecret|apiSecret[[:space:]]*[:=]' --include=*.ts --include=*.tsx --include=*.sql client/src shared server db; then
             echo "Found something that looks like a credential field. This product does not store credentials."
             exit 1
           fi
           echo "No credential fields found."
+
+      # Entitlement must never become a row visibility predicate. If a tier
+      # check reaches an RLS policy, a lapsed engagement makes a client's
+      # ledger rows disappear. Tenancy answers whose data it is, and that
+      # answer never depends on what they are entitled to see.
+      - name: Entitlement is not a tenancy predicate
+        run: |
+          if grep -rn 'has_feature' db/migrations/0001_tenancy.sql db/migrations/0002_ledger_core.sql; then
+            echo "An entitlement check reached the tenancy or ledger layer. Books are never held hostage."
+            exit 1
+          fi
+          echo "Entitlement stays above the data layer."
 
       - name: Build
         run: npm run build

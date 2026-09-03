@@ -1,0 +1,192 @@
+/**
+ * The one place proposals become rows.
+ *
+ * Runs do not write tables directly. They hand their proposal set to this
+ * writer, which is the mechanical guarantee that the proposal set is the only
+ * channel between propose and apply, as doc 03 Part 2 requires.
+ *
+ * The writer validates before it writes: entries balance to exactly 0n, every
+ * entry carries at least two lines, and every amount is a bigint. A validation
+ * failure throws and the whole transaction rolls back, because a half written
+ * entry is exactly the state the framework refuses to allow.
+ */
+
+import {
+  RUN_ERROR_CODES,
+  isFieldWrite,
+  isJournalEntry,
+  isSuspenseRouting,
+  type ApplySink,
+  type Proposal,
+  type RunContext,
+  type Ulid,
+} from "./contract";
+import type { RunTx } from "./db";
+import { ulid } from "./ids";
+import type { JournalEntryRow, JournalLineRow, SuspenseItemRow } from "./tables";
+
+export class ProposalWriteError extends Error {
+  constructor(
+    readonly code: string,
+    message: string,
+  ) {
+    super(message);
+  }
+}
+
+export function emptySink(): ApplySink {
+  return { entryIdByProposalIndex: {}, entriesCreated: 0, entriesReversed: 0 };
+}
+
+export function assertEntryShape(
+  proposals: readonly Proposal[],
+): void {
+  for (const p of proposals) {
+    if (!isJournalEntry(p)) continue;
+    if (p.lines.length < 2) {
+      throw new ProposalWriteError(
+        RUN_ERROR_CODES.unbalancedEntry,
+        `entry on ${p.entryDate} has fewer than two lines`,
+      );
+    }
+    let net = BigInt(0);
+    for (const line of p.lines) {
+      if (typeof line.amountCents !== "bigint") {
+        throw new ProposalWriteError(
+          RUN_ERROR_CODES.unbalancedEntry,
+          `line amount is not bigint cents on ${p.entryDate}`,
+        );
+      }
+      net += line.amountCents;
+    }
+    if (net !== BigInt(0)) {
+      throw new ProposalWriteError(
+        RUN_ERROR_CODES.unbalancedEntry,
+        `entry on ${p.entryDate} nets ${net.toString()} rather than zero`,
+      );
+    }
+  }
+}
+
+export interface ApplyWriterMeta {
+  runType: string;
+  runVersion: number;
+}
+
+/**
+ * Write a proposal set. Called from a run's apply, inside the run transaction.
+ */
+export async function applyProposals(
+  proposals: readonly Proposal[],
+  ctx: RunContext,
+  meta: ApplyWriterMeta,
+): Promise<ApplySink> {
+  const tx = requireTx(ctx);
+  assertEntryShape(proposals);
+  const sink = ctx.applySink ?? emptySink();
+
+  for (let index = 0; index < proposals.length; index += 1) {
+    const p = proposals[index];
+    if (isJournalEntry(p)) {
+      const entryId = p.targetId ?? ulid(ctx.now);
+      const entry: JournalEntryRow = {
+        id: entryId,
+        firmId: ctx.firmId,
+        clientId: ctx.clientId,
+        entryDate: p.entryDate,
+        memo: p.lines.length > 0 ? p.lines[0].memo : "",
+        posted: true,
+        reversalOf: p.reversalOf ?? null,
+        reversedByEntryId: null,
+        redatedFromLockedPeriod: p.redatedFromLockedPeriod ?? null,
+        sourceTable: p.sourceRef.table,
+        sourceRowId: p.sourceRef.rowId,
+        sourceVersion: p.sourceRef.version,
+        createdByRunId: ctx.runExecutionId,
+        runType: meta.runType,
+        runVersion: meta.runVersion,
+      };
+      await tx.insert("journal_entries", [entry]);
+      const lines: JournalLineRow[] = p.lines.map((line) => ({
+        id: ulid(ctx.now),
+        firmId: ctx.firmId,
+        clientId: ctx.clientId,
+        entryId,
+        accountNumber: line.accountNumber,
+        categoryId: line.categoryId,
+        amountCents: line.amountCents,
+        memo: line.memo,
+        entryDate: p.entryDate,
+        classId: line.dimensions.classId ?? null,
+        locationId: line.dimensions.locationId ?? null,
+        programId: line.dimensions.programId ?? null,
+        restriction: line.dimensions.restriction ?? null,
+      }));
+      await tx.insert("journal_lines", lines);
+      sink.entryIdByProposalIndex[index] = entryId;
+      sink.entriesCreated += 1;
+      if (p.reversalOf) sink.entriesReversed += 1;
+      continue;
+    }
+
+    if (isFieldWrite(p)) {
+      await writeField(tx, p.table, p.rowId, p.after);
+      continue;
+    }
+
+    if (isSuspenseRouting(p)) {
+      const item: SuspenseItemRow = {
+        id: ulid(ctx.now),
+        firmId: ctx.firmId,
+        clientId: ctx.clientId,
+        transactionId: p.transactionId,
+        reasonCode: p.reasonCode,
+        accountNumber: p.account,
+        detail: p.detail,
+        relatedIds: p.relatedIds ? p.relatedIds.slice() : [],
+        createdByRunId: ctx.runExecutionId,
+        withdrawnByRunId: null,
+      };
+      await tx.insert("suspense_items", [item]);
+      continue;
+    }
+  }
+
+  return sink;
+}
+
+/**
+ * A field write goes through tx.update, which is where the override guard and
+ * the period lock guard live. A run cannot route around them.
+ */
+async function writeField(
+  tx: RunTx,
+  table: string,
+  rowId: Ulid,
+  after: Record<string, unknown>,
+): Promise<void> {
+  switch (table) {
+    case "transactions":
+      await tx.update("transactions", rowId, after);
+      return;
+    case "suspense_items":
+      await tx.update("suspense_items", rowId, after);
+      return;
+    case "journal_entries":
+      await tx.update("journal_entries", rowId, after);
+      return;
+    case "transfer_pairs":
+      await tx.update("transfer_pairs", rowId, after);
+      return;
+    default:
+      throw new ProposalWriteError(
+        "UNKNOWN_WRITE_TABLE",
+        `no field write path for table ${table}`,
+      );
+  }
+}
+
+export function requireTx(ctx: RunContext): RunTx {
+  if (!ctx.tx) throw new Error("run context has no transaction");
+  return ctx.tx;
+}
