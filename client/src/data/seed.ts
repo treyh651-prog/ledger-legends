@@ -201,7 +201,7 @@ function profiles(): Profile[] {
         dba: "Northgate Mechanical",
         shortName: "Northgate Mechanical",
         industry: "Commercial HVAC contractor",
-        entityType: "S Corp",
+        entityType: "LLC",
         ein: "45-2298137",
         fiscalYearEnd: "December 31",
         address: "3390 N Industrial Way, Spokane, WA 99207",
@@ -233,6 +233,11 @@ function profiles(): Profile[] {
           outstandingRecs: ["Checking 7712 unreconciled for June and July"],
         },
         engagement: { monthlyFeeCents: 235000, cleanupFeeCents: 675000, startDate: "2026-04-01", signedBy: "Marcus Keel", signedAt: "2026-03-27T09:41:00", signatureMode: "drawn" },
+        // Set up through the wizard, so the record carries the two answers the
+        // wizard asks for beyond the business profile: the day the firm takes
+        // the books over, and the chart template it built from.
+        cutoverDate: "2026-07-01",
+        industryTemplate: "services",
         onboardingStage: "Cleanup",
         lead: "Jose Hernandez",
         color: "hsl(212 62% 48%)",

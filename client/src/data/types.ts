@@ -13,6 +13,19 @@ export interface Account {
 
 export type EntityType = "Sole Prop" | "Partnership" | "LLC" | "S Corp" | "C Corp" | "Nonprofit";
 
+/**
+ * The chart template the setup wizard started a client from. These are the same
+ * keys INTAKE-BUILD-CHART accepts, so a client record and the run that built its
+ * chart describe the template the same way.
+ */
+export type IndustryTemplateKey =
+  | "services"
+  | "product"
+  | "restaurant"
+  | "real_estate"
+  | "nonprofit"
+  | "contractor";
+
 export interface Owner {
   id: string;
   name: string;
@@ -92,6 +105,10 @@ export interface Client {
     signedAt?: string;
     signatureMode?: "typed" | "drawn";
   };
+  /** First day the firm keeps the books. Set by the wizard, blank on a client that predates it. */
+  cutoverDate?: string;
+  /** Which chart template the wizard built from. Blank on a client whose chart came in by hand. */
+  industryTemplate?: IndustryTemplateKey;
   onboardingStage: "Intake" | "Cleanup" | "Live" | "Review";
   lead: string;
   color: string;
