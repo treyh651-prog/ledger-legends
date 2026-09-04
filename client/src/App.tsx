@@ -46,6 +46,9 @@ import PortalNarrative from "@/pages/portal-narrative";
 import PortalScenarios from "@/pages/portal-scenarios";
 import PortalEntities from "@/pages/portal-entities";
 import PortalTiers from "@/pages/portal-tiers";
+import PortalIntake from "@/pages/portal-intake";
+import PortalMappingProfiles from "@/pages/portal-mapping-profiles";
+import PortalClientDetail from "@/pages/portal-client-detail";
 import { ALWAYS_RENDER, EmptyWorkspace } from "@/components/empty-workspace";
 import { useApp } from "@/store";
 
@@ -105,6 +108,10 @@ function AppRouter() {
       <Route path="/portal/scenarios">{guarded("/portal/scenarios", PortalScenarios)}</Route>
       <Route path="/portal/entities">{guarded("/portal/entities", PortalEntities)}</Route>
       <Route path="/portal/tiers">{guarded("/portal/tiers", PortalTiers)}</Route>
+      {/* Module 1 intake. Firm side screens, so they sit in the practice nav. */}
+      <Route path="/portal/intake">{guarded("/portal/intake", PortalIntake)}</Route>
+      <Route path="/portal/mapping-profiles">{guarded("/portal/mapping-profiles", PortalMappingProfiles)}</Route>
+      <Route path="/portal/clients/:id">{guarded("/portal/clients", PortalClientDetail)}</Route>
       <Route component={NotFound} />
     </Switch>
   );

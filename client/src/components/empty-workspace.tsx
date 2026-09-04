@@ -226,7 +226,9 @@ export const PORTAL_EMPTY: Record<string, EmptyCopy> = {
   },
 };
 
-export const ALWAYS_RENDER = ["/intake", "/portal/tiers"];
+// Screens that stand up with no clients, because they are how a client gets
+// created in the first place, or because they carry no client rows at all.
+export const ALWAYS_RENDER = ["/intake", "/portal/tiers", "/portal/intake", "/portal/mapping-profiles"];
 
 export function emptyCopyFor(path: string): EmptyCopy | null {
   return FIRM_EMPTY[path] || PORTAL_EMPTY[path] || null;

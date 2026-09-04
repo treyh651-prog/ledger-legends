@@ -33,6 +33,8 @@ import {
   Upload,
   UserPlus,
   Users,
+  Wand2,
+  Columns3,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
@@ -66,6 +68,8 @@ const FIRM_NAV: NavGroup[] = [
       { href: "/", label: "Firm overview", icon: Gauge },
       { href: "/clients", label: "Client book", icon: Building2 },
       { href: "/intake", label: "New client intake", icon: UserPlus },
+      { href: "/portal/intake", label: "Client setup wizard", icon: Wand2 },
+      { href: "/portal/mapping-profiles", label: "Mapping profiles", icon: Columns3 },
     ],
   },
   {
