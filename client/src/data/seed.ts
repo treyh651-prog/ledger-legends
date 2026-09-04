@@ -1531,6 +1531,38 @@ export function buildDataset(): Dataset {
     ds.entityGroups.push({ id: `grp-${c.id}`, name: c.dba, primaryClientId: c.id, memberClientIds: [c.id] });
   }
 
+  // ---- Saved mapping profiles.
+  //
+  // Northgate was set up through the intake wizard, so its operating account
+  // carries the profile the wizard saved on step 4. The header row below is the
+  // literal first line of the Inland Northwest Bank CSV export, and the columns
+  // point at the five canonical fields the importer reads. Matching is by
+  // header text, nothing else. If the bank changes a header the import stops
+  // and asks a person, which is the whole point of saving the layout.
+  ds.mappingProfiles.push({
+    id: "mp-northgate-inb",
+    clientId: "northgate",
+    bankAccountIds: ["ba-n1"],
+    name: "Inland Northwest Bank checking export",
+    institution: "Inland Northwest Bank",
+    fileFormat: "csv",
+    dateFormat: "MM/DD/YYYY",
+    signConvention: "credit_positive",
+    currency: "USD",
+    headerRowNumber: 1,
+    skipRows: 0,
+    columns: [
+      { sourceColumn: "Posting Date", canonicalField: "date" },
+      { sourceColumn: "Description", canonicalField: "description" },
+      { sourceColumn: "Amount", canonicalField: "amount_cents" },
+      { sourceColumn: "Check Number", canonicalField: "memo" },
+      { sourceColumn: "Reference", canonicalField: "external_id" },
+      { sourceColumn: "Running Balance", canonicalField: "unmapped" },
+    ],
+    version: 1,
+    createdAt: "2026-07-01T09:12:00",
+  });
+
   return ds;
 }
 

@@ -371,7 +371,9 @@ export type AuditAction =
   | "accepted"
   | "rejected"
   | "signed"
-  | "shared";
+  | "shared"
+  /** Recorded intent to send something later. Nothing left the system. */
+  | "queued";
 
 export interface AuditRow {
   id: string;

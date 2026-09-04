@@ -3,9 +3,15 @@ import type { ReactNode } from "react";
 import { CURRENT_PERIOD, datasetForMode, tasksForScope, TODAY } from "./data/seed";
 import type { DataMode, Dataset } from "./data/seed";
 import { SUSPENSE_ACCOUNT_ID } from "./data/coa";
+import { finishIntake, PERSON_ROLES } from "./lib/wizard-controller";
+import { INDUSTRY_OPTIONS } from "./lib/intake-templates";
+import type { FinishPlan, FinishResult, WizardDraft } from "./lib/wizard-controller";
 import type {
   AuditAction,
+  BankAccount,
+  CanonicalField,
   Client,
+  MappingProfile,
   DocRecord,
   DocStatus,
   JELine,
@@ -223,6 +229,12 @@ interface AppApi extends AppState {
   setIntakeStep: (n: number) => void;
   resetIntake: () => void;
   createClientFromIntake: () => string | null;
+  /**
+   * Commit a finished setup wizard. Runs the four setup runs in the order the
+   * framework registers them and answers a report per run. Nothing is sent
+   * anywhere, the invite intent is written to the audit log only.
+   */
+  commitWizard: (draft: WizardDraft) => FinishResult;
   intakeCompleteness: () => { pct: number; sections: { label: string; done: boolean }[] };
   intakeTaskPreview: () => { title: string; scopeSource: string; estHours: number }[];
 }
@@ -310,6 +322,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         entitlements: [...prev.entitlements],
         closes: [...prev.closes],
         entityGroups: [...prev.entityGroups],
+        mappingProfiles: prev.mappingProfiles.map((m) => ({ ...m, bankAccountIds: [...m.bankAccountIds], columns: m.columns.map((c) => ({ ...c })) })),
       };
       fn(next);
       return next;
@@ -795,6 +808,126 @@ export function AppProvider({ children }: { children: ReactNode }) {
         const done = sections.filter((s) => s.done).length;
         return { pct: Math.round((done / sections.length) * 100), sections };
       },
+
+
+      /**
+       * Commit a finished setup wizard.
+       *
+       * The four setup runs live on the server and this client is an in memory
+       * mock of the same data, so what happens here is the mock of the same
+       * four steps in the same order: build the chart, seed the tasks, raise
+       * the requests, post the opening entry. The controller decides what the
+       * runs would do and this callback writes the rows.
+       *
+       * Nothing leaves the browser. The login intent captured on step 2 is
+       * written to the audit log and no invite is sent, which is what the
+       * banner on that step says.
+       */
+      commitWizard: (draft: WizardDraft) =>
+        finishIntake(draft, (d: WizardDraft, plan: FinishPlan) => {
+          const id = `new-${Date.now().toString(36)}`;
+          const stamp = `${TODAY}T09:00:00`;
+          const owner = d.people.find((p) => p.role === "owner");
+
+          const client: Client = {
+            id,
+            legalName: d.legalName,
+            dba: d.dba || d.legalName,
+            shortName: d.dba || d.legalName,
+            industry: INDUSTRY_OPTIONS.find((o) => o.value === d.industry)?.label || "Not stated",
+            entityType: d.entityType as Client["entityType"],
+            ein: d.ein,
+            fiscalYearEnd: d.fiscalYearEnd,
+            address: d.stateOfIncorporation,
+            owners: owner ? [{ id: `${id}-ow-1`, name: owner.name, ownershipPct: 100, role: "Owner" }] : [],
+            contacts: d.people.map((p, i) => ({
+              id: `${id}-cc-${String(i)}`,
+              name: p.name,
+              email: p.email,
+              role: PERSON_ROLES.find((r) => r.value === p.role)?.label || p.role,
+              canApprovePayments: p.role === "owner" || p.role === "controller",
+              canApproveJournalEntries: p.role === "owner" || p.role === "controller",
+              mfaRequired: p.getsLogin,
+            })),
+            systems: [],
+            scope: ["monthly_close"],
+            classes: ["General"],
+            locations: ["Primary"],
+            jobs: ["General"],
+            currencies: ["USD"],
+            priorRecords: { lastFinancials: "", priorTrialBalance: "", existingCoa: plan.templateId, cleanupItems: [], outstandingRecs: [] },
+            engagement: { monthlyFeeCents: 0, cleanupFeeCents: 0, startDate: d.cutoverDate },
+            cutoverDate: d.cutoverDate,
+            industryTemplate: d.industry as Client["industryTemplate"],
+            onboardingStage: "Intake",
+            lead: "Jose Hernandez",
+            color: "hsl(212 62% 48%)",
+          };
+
+          mutate((next) => {
+            next.clients = [...next.clients, client];
+
+            const banks: BankAccount[] = d.bankAccounts.map((a, i) => ({
+              id: `${id}-ba-${String(i)}`,
+              clientId: id,
+              institution: a.institutionName,
+              nickname: a.nickname,
+              last4: a.lastFour,
+              kind: a.kind as BankAccount["kind"],
+              currency: "USD",
+              glAccountId: a.glAccountNumber,
+              statementSource: a.importFormat === "csv" || a.importFormat === "xlsx" ? "CSV mapping" : "Bank feed",
+              needsReconciling: true,
+            }));
+            next.bankAccounts = [...next.bankAccounts, ...banks];
+
+            next.mappingProfiles = [
+              ...next.mappingProfiles,
+              ...d.profiles.map((p, i): MappingProfile => ({
+                id: `${id}-mp-${String(i)}`,
+                clientId: id,
+                bankAccountIds: d.bankAccounts
+                  .map((a, ai) => (a.profileKey === p.key ? `${id}-ba-${String(ai)}` : ""))
+                  .filter((x) => x.length > 0),
+                name: p.name,
+                institution: p.institutionName,
+                fileFormat: p.fileFormat === "xlsx" ? "xlsx" : "csv",
+                dateFormat: p.dateFormat,
+                signConvention: p.signConvention as MappingProfile["signConvention"],
+                currency: p.currency,
+                headerRowNumber: p.headerRowNumber,
+                skipRows: p.skipRows,
+                columns: p.columns
+                  .filter((c) => c.sourceColumn.trim().length > 0)
+                  .map((c) => ({ sourceColumn: c.sourceColumn, canonicalField: c.canonicalField as CanonicalField })),
+                version: 1,
+                createdAt: stamp,
+              })),
+            ];
+
+            next.tasks = [...next.tasks, ...tasksForScope(id, ["monthly_close"], CURRENT_PERIOD, "Jose Hernandez", `wiz-${id}`)];
+
+            // The login intent from step 2, recorded and not acted on. No send.
+            for (const p of d.people.filter((x) => x.getsLogin)) {
+              next.audit = [
+                {
+                  id: `${id}-au-${p.key}`,
+                  clientId: id,
+                  docName: `Portal invite for ${p.name}`,
+                  actor: "Jose Hernandez",
+                  plane: "Firm",
+                  action: "queued",
+                  at: stamp,
+                  detail: `Invite queued in the audit log for ${p.email}. No external send in this build.`,
+                },
+                ...next.audit,
+              ];
+            }
+          });
+
+          setActiveClientId(id);
+          return id;
+        }),
 
       intakeTaskPreview: () =>
         tasksForScope("preview", intake.scope, CURRENT_PERIOD, "Unassigned", "preview").map((t) => ({
