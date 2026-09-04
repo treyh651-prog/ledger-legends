@@ -13,6 +13,7 @@ import type {
   JELine,
   JESource,
   JournalEntry,
+  MappingProfile,
   OpenItem,
   PeriodClose,
   Rule,
@@ -104,7 +105,6 @@ interface Profile {
 const TEAM: TeamMember[] = [
   { id: "tm-1", name: "Jose Hernandez", initials: "JH", role: "Firm owner", capacityHours: 150, clients: ["bramble", "bramble-cafe", "northgate"] },
   { id: "tm-2", name: "Rosario Rosales", initials: "RR", role: "Bookkeeper", capacityHours: 150, clients: ["marisol", "riverbend"] },
-  { id: "tm-4", name: "Owen Baptiste", initials: "OB", role: "Close reviewer", capacityHours: 100, clients: ["bramble", "marisol", "riverbend"] },
 ];
 
 function profiles(): Profile[] {
@@ -243,7 +243,10 @@ function profiles(): Profile[] {
         color: "hsl(212 62% 48%)",
       },
       banks: [
-        { id: "ba-n1", clientId: "northgate", institution: "Inland Northwest Bank", nickname: "Operating", last4: "7712", kind: "Checking", currency: "USD", glAccountId: "1010", statementSource: "Bank feed", needsReconciling: true },
+        // Set up through the wizard. Inland Northwest Bank has no feed for this
+        // product, so the operating account imports the bank's CSV export
+        // through the saved mapping profile mp-northgate-inb below.
+        { id: "ba-n1", clientId: "northgate", institution: "Inland Northwest Bank", nickname: "Operating", last4: "7712", kind: "Checking", currency: "USD", glAccountId: "1010", statementSource: "CSV mapping", needsReconciling: true },
         { id: "ba-n2", clientId: "northgate", institution: "Inland Northwest Bank", nickname: "Tax reserve", last4: "3341", kind: "Savings", currency: "USD", glAccountId: "1020", statementSource: "Bank feed", needsReconciling: true },
         { id: "ba-n3", clientId: "northgate", institution: "Fleet One", nickname: "Fleet card", last4: "6607", kind: "Credit card", currency: "USD", glAccountId: "2010", statementSource: "PDF upload", needsReconciling: true },
         { id: "ba-n4", clientId: "northgate", institution: "Inland Equipment Credit", nickname: "Van loan", last4: "5528", kind: "Loan", currency: "USD", glAccountId: "2500", statementSource: "PDF upload", needsReconciling: false },
@@ -522,6 +525,8 @@ export interface Dataset {
   entitlements: EntitlementGrant[];
   closes: PeriodClose[];
   entityGroups: EntityGroup[];
+  /** Saved column mapping profiles, one per institution layout. Doc 05 D2. */
+  mappingProfiles: MappingProfile[];
 }
 
 const SCOPE_TASKS: Record<string, { title: string; hours: number }[]> = {
@@ -600,6 +605,7 @@ export function buildDataset(): Dataset {
     entitlements: [],
     closes: [],
     entityGroups: [],
+    mappingProfiles: [],
   };
 
   let jeSeq = 0;
@@ -1177,14 +1183,14 @@ export function buildDataset(): Dataset {
   const ruleSeed: Omit<Rule, "id">[] = [
     { clientId: "bramble", name: "Green coffee to cost of goods sold", matchType: "Description contains", matchValue: "HIGHLINE GREEN", accountId: "5000", klass: "Wholesale", hits: 14, createdBy: "Jose Hernandez", createdAt: "2026-01-19", active: true },
     { clientId: "bramble", name: "Square payouts to product sales", matchType: "Description contains", matchValue: "SQUARE PAYOUT", accountId: "4000", klass: "Cafe", hits: 28, createdBy: "Jose Hernandez", createdAt: "2026-01-19", active: true },
-    { clientId: "bramble", name: "Fuel to vehicle and fuel", matchType: "Description contains", matchValue: "CHEVRON", accountId: "6170", hits: 9, createdBy: "Owen Baptiste", createdAt: "2026-02-04", active: true },
+    { clientId: "bramble", name: "Fuel to vehicle and fuel", matchType: "Description contains", matchValue: "CHEVRON", accountId: "6170", hits: 9, createdBy: "Jose Hernandez", createdAt: "2026-02-04", active: true },
     { clientId: "northgate", name: "Ferguson supply to job materials", matchType: "Description contains", matchValue: "FERGUSON", accountId: "5000", klass: "Install", hits: 22, createdBy: "Jose Hernandez", createdAt: "2026-04-06", active: true },
     { clientId: "northgate", name: "Fleet fuel to vehicle and fuel", matchType: "Description contains", matchValue: "PACIFIC PRIDE", accountId: "6170", hits: 17, createdBy: "Jose Hernandez", createdAt: "2026-04-06", active: true },
     { clientId: "northgate", name: "Crew meals under fifty dollars", matchType: "Description contains", matchValue: "NORTHTOWN DINER", accountId: "6210", hits: 6, createdBy: "Rosario Rosales", createdAt: "2026-05-11", active: false },
     { clientId: "marisol", name: "Clay and glaze to cost of goods sold", matchType: "Description contains", matchValue: "CLAY PLANET", accountId: "5000", klass: "Retail", hits: 11, createdBy: "Rosario Rosales", createdAt: "2026-02-14", active: true },
     { clientId: "marisol", name: "Stripe payouts to product sales", matchType: "Description contains", matchValue: "STRIPE PAYOUT", accountId: "4000", klass: "Retail", hits: 33, createdBy: "Rosario Rosales", createdAt: "2026-02-14", active: true },
     { clientId: "riverbend", name: "Art supplies to program supplies", matchType: "Description contains", matchValue: "BLICK ART", accountId: "6180", klass: "Program services", hits: 13, createdBy: "Rosario Rosales", createdAt: "2026-01-27", active: true },
-    { clientId: "riverbend", name: "Grant deposits to contributions", matchType: "Description contains", matchValue: "GRANT DEPOSIT", accountId: "4030", klass: "Program services", hits: 8, createdBy: "Owen Baptiste", createdAt: "2026-02-02", active: true },
+    { clientId: "riverbend", name: "Grant deposits to contributions", matchType: "Description contains", matchValue: "GRANT DEPOSIT", accountId: "4030", klass: "Program services", hits: 8, createdBy: "Rosario Rosales", createdAt: "2026-02-02", active: true },
   ];
   ruleSeed.forEach((r, i) => ds.rules.push({ ...r, id: `rule-${i + 1}` }));
 
@@ -1234,8 +1240,8 @@ export function buildDataset(): Dataset {
 
   // ---- Substantiation records for the current period
   const subsSeed: { clientId: string; accountId: string; supportType: string; adjust?: number; unsupported?: boolean; note: string; preparedBy: string; reviewedBy?: string }[] = [
-    { clientId: "bramble", accountId: "1010", supportType: "Bank statement and reconciliation", note: "Reconciled to the July statement with no open items.", preparedBy: "Jose Hernandez", reviewedBy: "Owen Baptiste" },
-    { clientId: "bramble", accountId: "1020", supportType: "Bank statement", note: "Reserve account ties to the July statement.", preparedBy: "Jose Hernandez", reviewedBy: "Owen Baptiste" },
+    { clientId: "bramble", accountId: "1010", supportType: "Bank statement and reconciliation", note: "Reconciled to the July statement with no open items.", preparedBy: "Jose Hernandez", reviewedBy: "Jose Hernandez" },
+    { clientId: "bramble", accountId: "1020", supportType: "Bank statement", note: "Reserve account ties to the July statement.", preparedBy: "Jose Hernandez", reviewedBy: "Jose Hernandez" },
     { clientId: "bramble", accountId: "1100", supportType: "AR aging detail", note: "Aging detail agrees to the subledger.", preparedBy: "Jose Hernandez" },
     { clientId: "bramble", accountId: "1150", supportType: "Physical count worksheet", adjust: -184725, note: "July count came in under the ledger. Green coffee shrink is the likely cause and it needs an adjusting entry.", preparedBy: "Jose Hernandez" },
     { clientId: "bramble", accountId: "2010", supportType: "Card statement", note: "Card statement matches the ledger balance.", preparedBy: "Jose Hernandez" },
@@ -1246,11 +1252,11 @@ export function buildDataset(): Dataset {
     { clientId: "northgate", accountId: "1200", supportType: "Prepaid amortization schedule", note: "Schedule agrees after the July amortization entry.", preparedBy: "Rosario Rosales" },
     { clientId: "northgate", accountId: "2300", supportType: "Payroll provider liability report", note: "Remaining balance is the July 21 run remitted in August.", preparedBy: "Jose Hernandez" },
     { clientId: "northgate", accountId: "2500", supportType: "Loan amortization schedule", note: "Van loan balance agrees to the lender portal.", preparedBy: "Jose Hernandez" },
-    { clientId: "marisol", accountId: "1010", supportType: "Bank statement and reconciliation", note: "Reconciled with no outstanding items.", preparedBy: "Rosario Rosales", reviewedBy: "Owen Baptiste" },
+    { clientId: "marisol", accountId: "1010", supportType: "Bank statement and reconciliation", note: "Reconciled with no outstanding items.", preparedBy: "Rosario Rosales", reviewedBy: "Rosario Rosales" },
     { clientId: "marisol", accountId: "1150", supportType: "Inventory rollforward", note: "Rollforward agrees to the studio count sheet.", preparedBy: "Rosario Rosales" },
     { clientId: "marisol", accountId: "1200", supportType: "Prepaid schedule", unsupported: true, note: "No schedule on file for the studio insurance prepayment.", preparedBy: "Rosario Rosales" },
     { clientId: "marisol", accountId: "2200", supportType: "Sales tax return worksheet", note: "Balance equals July collections due in August.", preparedBy: "Rosario Rosales" },
-    { clientId: "riverbend", accountId: "1010", supportType: "Bank statement and reconciliation", note: "Operating account reconciled through July 31.", preparedBy: "Rosario Rosales", reviewedBy: "Owen Baptiste" },
+    { clientId: "riverbend", accountId: "1010", supportType: "Bank statement and reconciliation", note: "Operating account reconciled through July 31.", preparedBy: "Rosario Rosales", reviewedBy: "Rosario Rosales" },
     { clientId: "riverbend", accountId: "1020", supportType: "Bank statement", note: "Board reserve ties to the statement.", preparedBy: "Rosario Rosales" },
     { clientId: "riverbend", accountId: "2400", supportType: "Grant restriction schedule", note: "Remaining restriction agrees to the award letters.", preparedBy: "Rosario Rosales", reviewedBy: "Jose Hernandez" },
     { clientId: "riverbend", accountId: "2300", supportType: "Payroll provider liability report", note: "Agrees to the Paylocity liability summary.", preparedBy: "Rosario Rosales" },
@@ -1449,7 +1455,7 @@ export function buildDataset(): Dataset {
     { clientId: "marisol", at: "2026-07-31T14:05:00", channel: "Email", direction: "Outbound", who: "Rosario Rosales", subject: "Sales tax filed", body: "June sales tax return is filed and the payment cleared. July is due August 25." },
     { clientId: "riverbend", at: "2026-08-10T16:50:00", channel: "Portal message", direction: "Inbound", who: "Adaeze Nwosu", subject: "Benwood award letter", body: "Attached the award letter. The restriction runs through the end of the summer program." },
     { clientId: "riverbend", at: "2026-08-05T10:12:00", channel: "Email", direction: "Outbound", who: "Rosario Rosales", subject: "July close package", body: "Draft statements are ready for treasurer review. Functional expense split held steady at 78 percent program." },
-    { clientId: "riverbend", at: "2026-08-13T09:30:00", channel: "Call", direction: "Outbound", who: "Owen Baptiste", subject: "Audit prep timing", body: "Agreed to start FY2026 audit prep the second week of September and to pre build the restriction schedule." },
+    { clientId: "riverbend", at: "2026-08-13T09:30:00", channel: "Call", direction: "Outbound", who: "Rosario Rosales", subject: "Audit prep timing", body: "Agreed to start FY2026 audit prep the second week of September and to pre build the restriction schedule." },
   ];
   commSeed.forEach((m, i) => ds.comms.push({ ...m, id: `cm-${i + 1}` }));
 
@@ -1502,7 +1508,7 @@ export function buildDataset(): Dataset {
         period,
         state: isOpen ? "open" : "closed",
         preparedBy: isOpen ? undefined : c.lead,
-        reviewedBy: isOpen ? undefined : "Owen Baptiste",
+        reviewedBy: isOpen ? undefined : "Jose Hernandez",
         closedAt: isOpen ? undefined : `${periodEndDay(period)}T17:${String(10 + i).padStart(2, "0")}:00`,
         locked: !isOpen,
         withExceptions,
@@ -1563,6 +1569,7 @@ export function emptyDataset(): Dataset {
     entitlements: [],
     closes: [],
     entityGroups: [],
+    mappingProfiles: [],
   };
 }
 
@@ -1594,6 +1601,7 @@ export function datasetForClient(full: Dataset, clientId: string): Dataset {
     entityGroups: full.entityGroups
       .filter((g) => g.memberClientIds.includes(clientId))
       .map((g) => ({ ...g, primaryClientId: clientId, memberClientIds: g.memberClientIds.filter((id) => id === clientId) })),
+    mappingProfiles: keep(full.mappingProfiles),
   };
 }
 

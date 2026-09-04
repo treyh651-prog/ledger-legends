@@ -33,6 +33,52 @@ export interface Owner {
   role: string;
 }
 
+/**
+ * The canonical fields a source column can be pointed at. These are the five
+ * things a transaction needs plus the word for a column that is carried in the
+ * file and not imported. Doc 05 decision D2 names them.
+ */
+export type CanonicalField =
+  | "date"
+  | "description"
+  | "amount_cents"
+  | "memo"
+  | "external_id"
+  | "unmapped";
+
+export interface MappingProfileColumn {
+  /** The header text as it appears in the file, before trimming. */
+  sourceColumn: string;
+  canonicalField: CanonicalField;
+}
+
+/**
+ * A saved column mapping for one institution's CSV or XLSX export.
+ *
+ * Doc 05 decision D2. A layout is configured once by a person and reused. If an
+ * incoming header does not match the saved profile exactly the import stops and
+ * asks, and it never guesses a shifted column, because a silent column shift is
+ * the worst failure this pipeline can have. Matching is by header text only.
+ * There is no similarity score and no model anywhere near it.
+ */
+export interface MappingProfile {
+  id: string;
+  clientId: string;
+  /** The bank accounts this profile is attached to. Empty means saved and unused. */
+  bankAccountIds: string[];
+  name: string;
+  institution: string;
+  fileFormat: "csv" | "xlsx";
+  dateFormat: string;
+  signConvention: "credit_positive" | "debit_positive" | "separate_columns";
+  currency: string;
+  headerRowNumber: number;
+  skipRows: number;
+  columns: MappingProfileColumn[];
+  version: number;
+  createdAt: string;
+}
+
 export interface SystemRow {
   id: string;
   kind: "Accounting software" | "Point of sale" | "E commerce" | "Payroll" | "Other";
@@ -49,7 +95,14 @@ export interface BankAccount {
   kind: "Checking" | "Savings" | "Credit card" | "Loan" | "Merchant processor";
   currency: string;
   glAccountId: string;
-  statementSource: "Bank feed" | "Portal" | "PDF upload";
+  /**
+   * How the activity on this account reaches the books. Doc 05 decision D2.
+   * "CSV mapping" means the institution exports a spreadsheet and a saved
+   * mapping profile names its columns. "PDF upload" means the statement is
+   * filed as a document and reconciled against by hand, because there is no
+   * PDF statement parser and there will not be one.
+   */
+  statementSource: "Bank feed" | "Portal" | "CSV mapping" | "PDF upload";
   needsReconciling: boolean;
 }
 

@@ -42,7 +42,7 @@ export const ACCESS_STATUSES = ["No access", "Read only requested", "Read only g
 
 export const BANK_KINDS = ["Checking", "Savings", "Credit card", "Loan", "Merchant processor"];
 
-export const STATEMENT_SOURCES = ["Bank feed", "Portal", "PDF upload"];
+export const STATEMENT_SOURCES = ["Bank feed", "Portal", "CSV mapping", "PDF upload"];
 
 export const CONTACT_ROLES = ["Owner", "Controller", "Office manager", "Operations lead", "Board treasurer", "Bookkeeper"];
 
