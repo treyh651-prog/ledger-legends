@@ -43,6 +43,10 @@ import { perPostRecurring } from "./runs/per-post-recurring";
 import { perReverseAccruals } from "./runs/per-reverse-accruals";
 import { perSplitLoan } from "./runs/per-split-loan";
 import { importParseFeed } from "./runs/import-parse-feed";
+import { intakeBuildChart } from "./runs/intake-build-chart";
+import { intakeSeedTasks } from "./runs/intake-seed-tasks";
+import { intakeOpenRequests } from "./runs/intake-open-requests";
+import { setupImportBalances } from "./runs/setup-import-balances";
 import { recClearMatched } from "./runs/rec-clear-matched";
 import { subRaiseRequests } from "./runs/sub-raise-requests";
 import { subTieBalances } from "./runs/sub-tie-balances";
@@ -76,6 +80,13 @@ function entry<S>(run: Run<S, Proposal>): RegistryEntry {
 }
 
 export const registry: readonly RegistryEntry[] = [
+  // Module 1 intake and setup, in the order INTAKE_ORDER explains. These four
+  // run once per client, at the moment the firm finishes the wizard, and every
+  // other run in this list assumes they already did.
+  entry(intakeBuildChart),
+  entry(intakeSeedTasks),
+  entry(intakeOpenRequests),
+  entry(setupImportBalances),
   entry(importParseFeed),
   entry(importCommitBatch),
   entry(txnNormalizeVendors),
@@ -137,6 +148,31 @@ export const registry: readonly RegistryEntry[] = [
   // sends anything anywhere.
   entry(cpaBuildHandoff),
   entry(offboardBuildExport),
+];
+
+/**
+ * Module 1 execution order.
+ *
+ * The chart is first because everything else points at an account number. The
+ * opening balance entry would have nowhere to post without it, and the run
+ * refuses an account that is not on the chart rather than creating one.
+ *
+ * The task catalog is second. It is independent of the chart, and it sits here
+ * because the first period's instances should exist before anybody looks at the
+ * client, not because a later step needs them.
+ *
+ * The document requests are third, for the same reason.
+ *
+ * The opening balances are last, always. They are the only one of the four that
+ * touches the ledger, so putting them at the end means a wizard finish that
+ * fails on a trial balance that does not foot still leaves a client with a
+ * chart, a workload, and its opening asks on record, rather than nothing.
+ */
+export const INTAKE_ORDER: readonly string[] = [
+  "INTAKE-BUILD-CHART",
+  "INTAKE-SEED-TASKS",
+  "INTAKE-OPEN-REQUESTS",
+  "SETUP-IMPORT-BALANCES",
 ];
 
 /**

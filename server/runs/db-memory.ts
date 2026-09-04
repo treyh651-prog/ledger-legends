@@ -100,6 +100,8 @@ const TABLES: TableName[] = [
   "rec_batches",
   "statement_lines",
   "mapping_profiles",
+  "mapping_profile_columns",
+  "wizard_sessions",
   "import_batches",
   "staged_rows",
   "period_locks",

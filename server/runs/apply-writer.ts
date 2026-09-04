@@ -26,6 +26,9 @@ import type { RunTx } from "./db";
 import { ulid } from "./ids";
 import type {
   AgingSnapshotRow,
+  CategoryRow,
+  ChartAccountRow,
+  PracticeTaskCatalogRow,
   DeferralLineRow,
   DepreciationScheduleRow,
   InvoiceRow,
@@ -650,6 +653,24 @@ async function insertRow(
     case "offboard_exports":
       await tx.insert("offboard_exports", [
         withId as unknown as OffboardExportRow,
+      ]);
+      return;
+    /*
+     * Module 1 intake. The three setup tables a wizard finish seeds. All three
+     * are insert only from a run's point of view: INTAKE-BUILD-CHART and
+     * INTAKE-SEED-TASKS add the rows a client is missing and never rewrite one,
+     * so there is no matching field write branch above and a run that tried
+     * would be refused there by name.
+     */
+    case "chart_accounts":
+      await tx.insert("chart_accounts", [withId as unknown as ChartAccountRow]);
+      return;
+    case "categories":
+      await tx.insert("categories", [withId as unknown as CategoryRow]);
+      return;
+    case "practice_task_catalog":
+      await tx.insert("practice_task_catalog", [
+        withId as unknown as PracticeTaskCatalogRow,
       ]);
       return;
     default:

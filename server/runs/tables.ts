@@ -2182,6 +2182,87 @@ export interface OffboardExportRow {
   manualOverride: boolean;
 }
 
+/** import.mapping_profile_columns, migration 0018. */
+export interface MappingProfileColumnRow {
+  id: Ulid;
+  firmId: Ulid;
+  clientId: Ulid;
+  version: number;
+  profileId: Ulid;
+  profileVersion: number;
+  /** Zero based position in the file, which is what tells duplicate headers apart. */
+  sourceIndex: number;
+  /** The header text exactly as it appeared. Never a normalized copy of it. */
+  sourceName: string;
+  canonicalField: CanonicalField;
+  sampleValue: string;
+  isActive: boolean;
+  createdByRunId: string | null;
+  createdAt: string;
+  manualOverride: boolean;
+}
+
+/**
+ * The five fields the parser reads, plus the value that says a person looked at
+ * this column and decided to ignore it. The list is closed here and closed
+ * again by a check constraint in migration 0018.
+ */
+export type CanonicalField =
+  | "date"
+  | "description"
+  | "amount_cents"
+  | "memo"
+  | "external_id"
+  | "unmapped";
+
+/**
+ * intake.wizard_sessions, migration 0018. One row per client per wizard run.
+ *
+ * There is no password column and no credential column, in this type or in the
+ * table behind it. Step 2 records whether a contact should get a login and
+ * nothing about how they would prove who they are.
+ */
+export interface WizardSessionRow {
+  id: Ulid;
+  firmId: Ulid;
+  clientId: Ulid;
+  version: number;
+  legalName: string;
+  dbaName: string;
+  /** Four characters at most. There is nowhere here for a whole EIN. */
+  einLast4: string | null;
+  stateOfIncorporation: string | null;
+  entityType:
+    | "llc"
+    | "s_corporation"
+    | "c_corporation"
+    | "sole_proprietor"
+    | "nonprofit"
+    | "unknown";
+  fiscalYearEndMonth: number;
+  fiscalYearEndDay: number;
+  serviceTier: "story" | "journey" | "legend";
+  cutoverDate: string;
+  industryTemplate: string;
+  currentStep: number;
+  state: "in_progress" | "finished" | "abandoned";
+  stepCompany: Record<string, unknown>;
+  stepPeople: Record<string, unknown>[];
+  stepChart: Record<string, unknown>;
+  stepAccounts: Record<string, unknown>[];
+  stepBalances: Record<string, unknown>[];
+  stepReview: Record<string, unknown>;
+  chartRunId: string | null;
+  tasksRunId: string | null;
+  requestsRunId: string | null;
+  balancesRunId: string | null;
+  startedAt: string;
+  finishedAt: string | null;
+  createdByRunId: string | null;
+  createdAt: string;
+  manualOverride: boolean;
+}
+
 export interface RowMap {
   bank_accounts: BankAccountRow;
   chart_accounts: ChartAccountRow;
@@ -2189,6 +2270,8 @@ export interface RowMap {
   rec_batches: RecBatchRow;
   statement_lines: StatementLineRow;
   mapping_profiles: MappingProfileRow;
+  mapping_profile_columns: MappingProfileColumnRow;
+  wizard_sessions: WizardSessionRow;
   import_batches: ImportBatchRow;
   staged_rows: StagedRowRow;
   period_locks: PeriodLockRow;

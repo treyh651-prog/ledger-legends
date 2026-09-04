@@ -24,6 +24,11 @@ export * from "./undo";
 export * from "./sequence";
 export { txnPairTransfers } from "./runs/txn-pair-transfers";
 export type { PairTransfersScope } from "./runs/txn-pair-transfers";
+export * from "./runs/intake-shared";
+export * from "./runs/intake-build-chart";
+export * from "./runs/intake-seed-tasks";
+export * from "./runs/intake-open-requests";
+export * from "./runs/setup-import-balances";
 export * from "./runs/import-parse-feed";
 export * from "./runs/import-commit-batch";
 export * from "./runs/coding-cascade";
@@ -62,6 +67,7 @@ export {
   registry,
   lookupRun,
   AR_AP_ORDER,
+  INTAKE_ORDER,
   CLOSE_ORDER,
   CODING_CASCADE_ORDER,
   RECONCILIATION_ORDER,
