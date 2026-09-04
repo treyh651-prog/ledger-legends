@@ -17,7 +17,7 @@
  * plain words.
  *
  * STATE. The draft lives in React state and the step number lives in the URL
- * query. Nothing is written to localStorage or sessionStorage, which the CI grep
+ * query. Nothing is written to browser storage of any kind, which the CI grep
  * guard enforces across the whole tree. A refresh keeps the step and loses the
  * draft, which is the honest behaviour for a form that has no server behind it
  * yet, and the review step says so.
@@ -107,7 +107,7 @@ function Field({ label, children, hint }: { label: string; children: React.React
 
 /** Money for a bigint of cents, shown the way the rest of the app shows money. */
 function centsLabel(cents: bigint): string {
-  return usd(Number(cents) / 100);
+  return usd(Number(cents));
 }
 
 export default function PortalIntake() {
@@ -187,7 +187,9 @@ export default function PortalIntake() {
       </div>
 
       <div className="grid gap-4 lg:grid-cols-[240px_1fr]">
-        <SectionCard title="Steps" bodyClassName="p-2">
+        {/* min-w-0 on both columns. Without it the grid track sizes to the widest
+            row in the chart list and drags the whole page past the viewport at 375. */}
+        <SectionCard title="Steps" bodyClassName="p-2" className="min-w-0">
           <ol className="space-y-0.5">
             {WIZARD_STEPS.map((s, i) => (
               <li key={s}>
@@ -207,7 +209,7 @@ export default function PortalIntake() {
           </ol>
         </SectionCard>
 
-        <div className="space-y-4">
+        <div className="min-w-0 space-y-4">
           <SectionCard title={`Step ${String(step + 1)} of ${String(WIZARD_STEPS.length)}, ${WIZARD_STEPS[step]}`} testId="card-wizard-step">
             {step === 0 ? (
               <div className="grid gap-4 sm:grid-cols-2" data-testid="step-company">

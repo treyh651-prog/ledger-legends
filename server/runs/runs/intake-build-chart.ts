@@ -270,7 +270,7 @@ export function planFor(scope: BuildChartScope): ChartPlan {
     // invariant the suspense sweep depends on. The membership test is the rule
     // itself rather than the forcedMandatory flag, because that flag only marks
     // a row the scope key would have dropped and every clearing account is in
-    // scope always. See NOTES.md entry 128.
+    // scope always. See NOTES.md entry 123.
     (a) =>
       !excluded.has(a.accountNumber) ||
       a.forcedMandatory ||

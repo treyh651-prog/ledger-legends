@@ -2,7 +2,7 @@
  * The intake wizard's state, its validation, and the finish controller.
  *
  * Everything the wizard knows lives in the object below and in the URL query.
- * There is no localStorage, no sessionStorage, and no cookie, which is a
+ * Nothing is written to browser storage of any kind, and no cookie, which is a
  * constraint rather than an oversight: a half filled client setup is not
  * something this build should silently resurrect in a browser a week later.
  * Losing the tab loses the draft, and the wizard says so on step 6.

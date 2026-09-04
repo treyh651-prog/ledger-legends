@@ -287,7 +287,13 @@ export function AppShell({ children }: { children: ReactNode }) {
     useApp();
   const [mobileNav, setMobileNav] = useState(false);
   const [routePath] = useLocation();
-  const routePlane = routePath.startsWith("/portal") ? "portal" : "firm";
+  // Three screens live under /portal and are firm side work all the same: the
+  // client setup wizard, the mapping profile list, and the client setup record
+  // the wizard lands on. A bookkeeper opens a client file, the client never
+  // sees any of it, so the firm chrome has to stay up on those paths.
+  const FIRM_SIDE_PORTAL_PATHS = ["/portal/intake", "/portal/mapping-profiles", "/portal/clients"];
+  const firmSide = FIRM_SIDE_PORTAL_PATHS.some((p) => routePath.startsWith(p));
+  const routePlane = routePath.startsWith("/portal") && !firmSide ? "portal" : "firm";
   useEffect(() => {
     if (plane !== routePlane) setPlane(routePlane);
   }, [routePlane, plane, setPlane]);

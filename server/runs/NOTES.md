@@ -1395,7 +1395,7 @@ particular rows in the fixture.
     built the archive is not part of the client's history in any case, and this
     is the same reasoning entry 110 reached for the reporting change log.
 
-128. **A wizard checkbox could strike the mandatory clearing block.** Step 3 of
+123. **A wizard checkbox could strike the mandatory clearing block.** Step 3 of
     the intake wizard lets the firm exclude template rows before seeding, and
     `planFor` in `intake-build-chart.ts` kept a struck row only when its
     `forcedMandatory` flag was set. That flag is raised by `assembleAccounts`
@@ -1416,3 +1416,140 @@ particular rows in the fixture.
     flag is read as a reason string elsewhere, so widening it would make the
     reason wrong. Refusing the scope would be honest but turns a harmless
     checkbox into a dead end for the person finishing the wizard.
+
+124. **Five industry words against four published templates.** The wizard offers
+    services, product, restaurant, real estate and nonprofit, and doc 01 as
+    written publishes fewer template ids than that. Options: offer only the
+    published four and drop a word, map two words onto one template, publish new
+    template ids for the missing industries, ask the person to pick a template id
+    directly, or let the wizard build a template from scope keys on the fly.
+    Chosen: publish the missing ids and keep a single word to id map in
+    `INDUSTRY_TEMPLATE_ID`, so services resolves to TPL-SERVICE-STUDIO, product
+    to TPL-RETAIL-WHOLESALE, restaurant to TPL-RESTAURANT, real estate to
+    TPL-REAL-ESTATE and nonprofit to TPL-NONPROFIT. Mapping two words onto one
+    template would put a restaurant on a retail chart and the food cost lines
+    would land nowhere sensible. Building from scope keys at run time would make
+    the seeded chart depend on the order the keys arrive in, which is exactly
+    what a published template id exists to prevent. TPL-CONTRACTOR stays in the
+    table and is not offered in the dropdown, because nothing in module 1 seeds
+    from it yet and an option nobody can explain is worse than an absent one.
+
+125. **Two catalog categories are behaviours and not rows.**
+    `CAT-REFUND-FROM-VENDOR` and `CAT-FIXED-ASSET-ADDITION` read like categories
+    and are not. A refund from a vendor is a negative amount posted against
+    whatever the original expense was, and a fixed asset addition is a
+    capitalization decision taken against the threshold. Options: seed them as
+    rows, seed them as rows marked non postable, leave them out, or replace them
+    with a note on the accounts they touch. Chosen: leave them out. Seeding them
+    invites someone to code straight to them, which puts every vendor refund in
+    one bucket regardless of what was bought and hides asset additions from the
+    fixed asset schedule. Marking them non postable is the same row with a flag
+    that only one screen would honour.
+
+126. **The client app has one shared chart, so the Northgate fixture records the
+    template choice rather than a seeded chart.** The brief asks for Northgate to
+    carry a chart seeded from the services template, and `client/src/data/coa.ts`
+    holds a single `ACCOUNTS` list every fixture client reads. Options: give the
+    fixture a per client chart, seed Northgate's chart into the shared list,
+    record the template choice on the client record only, rewrite the client data
+    layer to be per client, or leave the fixture alone. Chosen: record the choice
+    on the client record, as `industryTemplate` and `cutoverDate`. A per client
+    chart in the mock is a data layer rewrite that touches every derived
+    statement and every gate in `check-books.ts`, for no visible gain, and
+    Northgate's posted ledger already references accounts by number. Rewriting
+    that ledger to sit on a freshly seeded chart would change every figure the
+    self checking script ties out, and the brief says Bramble stays untouched
+    precisely so that tie out keeps working.
+
+127. **A category id is the published slug, an account id is derived.** Accounts
+    get a derived id from `derivedId` the way every other run makes ids, and
+    categories keep the published `CAT-` slug as their primary key. Options: make
+    both derived, make both slugs, derive the account and keep the category slug,
+    keep both and carry the slug as a second column, or key categories on client
+    plus slug. Chosen: derive the account and keep the category slug. The slug is
+    the thing rules, reports and the taxonomy doc all name, so replacing it with
+    an opaque id would mean every reference needs a lookup. Known limit written
+    down rather than hidden: `MemoryRunDb` keys every row by id across the whole
+    store, so two clients sharing a category slug inside one memory database
+    raise a unique violation. The production schema keys on client and slug
+    together, the tests use one client per database, and the day the memory
+    database needs two it needs a composite key, not a different id scheme.
+
+128. **The offset foots or the run refuses, and it never plugs.** Account 3900
+    is derived as the negation of every other line, so any readable trial balance
+    can be posted. What can still go wrong is a supplied 3900 that disagrees with
+    the rest of the sheet. Options: trust the supplied figure and plug the
+    difference to suspense, trust the derived figure and drop the supplied one,
+    post both and let the entry fail to foot, refuse with an error naming both
+    numbers, or split the difference into a rounding line. Chosen: refuse, with
+    `OPENING_EQUITY_DISAGREES` naming the supplied figure and the derived one.
+    Plugging to suspense is the failure mode this whole system exists to prevent,
+    dropping the supplied figure silently discards the only evidence that the
+    prior books and the new ones disagree, and a rounding line hides a difference
+    that is almost never rounding.
+
+129. **The wizard controller lives in the client and mirrors the runs.** The four
+    setup runs are `Run<S,P>` implementations on the server, and nothing under
+    `client/src` imports from `server/runs`. Options: import the runs into the
+    client, run them through an HTTP endpoint, duplicate the logic by hand,
+    generate a client mirror from the server source, or move the shared parts to
+    a third package. Chosen: generate `client/src/lib/intake-templates.ts` from
+    `server/runs/runs/intake-shared.ts` and keep the ordering and the reporting
+    in `client/src/lib/wizard-controller.ts` by hand. Generating the chart
+    templates means the account numbers, the names and the category counts cannot
+    drift from what the run will actually seed, which is the part where a
+    divergence would be invisible and expensive. The ordering and the wording are
+    short enough to keep honest by reading. A third package is the right answer
+    the day there is a server to call, and there is not one tonight.
+
+130. **The strict amount reader, because a display parser answers zero.**
+    `parseAmountToCents` in `client/src/lib/money.ts` strips everything that is
+    not a digit and answers zero when nothing is left, which is right for a
+    display field and wrong for a trial balance. Options: reuse it as is, change
+    it and accept the blast radius across every screen that calls it, write a
+    strict reader in the wizard controller, validate the string before calling
+    it, or refuse anything that is not already normalized. Chosen: a strict
+    reader named `centsOf` in the controller, which accepts a sign, commas, a
+    dollar sign, up to two decimals and a parenthesised negative, and answers
+    null for anything else. It uses integer parts and BigInt and never touches a
+    float, which the CI guard on `parseFloat` requires anyway. Changing the
+    shared parser would alter what every existing screen shows for a malformed
+    figure, and a line reading "about four hundred" has to be reported as
+    unreadable rather than posted as zero.
+
+131. **Three screens under /portal that belong to the firm.** The brief fixes the
+    wizard at `/portal/intake`, and the shell picks its navigation from the path
+    prefix, so the wizard came up wearing client portal chrome while being a
+    screen the client must never see. Options: move the routes out of /portal and
+    break the brief, leave the portal chrome up, add an explicit firm side list
+    of /portal paths, carry a flag on each route, or split the plane decision out
+    of the shell entirely. Chosen: an explicit list of three prefixes,
+    `/portal/intake`, `/portal/mapping-profiles` and `/portal/clients`, checked
+    before the prefix rule. It is three lines, it is readable, and it puts the
+    exception where somebody looking at the navigation will find it. A per route
+    flag spreads the same decision across forty route declarations.
+
+132. **The fixture bank account needed a source the union did not have.**
+    Northgate's operating account imports a CSV through a saved mapping profile,
+    and `statementSource` offered bank feed, portal and PDF upload only. Options:
+    call it a bank feed and lie, call it a portal download, add a CSV mapping
+    value to the union, drop the field and read the profile instead, or leave the
+    account on PDF upload. Chosen: add CSV mapping to the union and to
+    `STATEMENT_SOURCES`. Calling it a feed would put it in the wrong bucket on the
+    reconciliation screen, which reads the source in its subtitle, and dropping
+    the field would make every screen that shows a source do a profile lookup for
+    the three accounts that have one. PDF upload keeps its meaning, which is that
+    the statement is filed as a document and reconciled by hand, because there is
+    no PDF parser and doc 05 D2 says there will not be one.
+
+133. **The draft survives a step change and not a refresh, and the wizard says
+    so.** State is memory and URL query only, no storage of any kind, which the
+    CI grep guard enforces. Options: put the whole draft in the query string, put
+    it in the URL fragment, keep a server side wizard session row, keep it in
+    memory and say so, or block the refresh with a confirm dialog. Chosen: the
+    step number in the query and the draft in memory, with a line on the review
+    step telling the person a refresh before Finish loses the draft. A whole
+    draft in the query string breaks at a few kilobytes and puts an EIN in the
+    browser history and in any proxy log along the way. The `intake.wizard_sessions`
+    table added in migration 0018 is where a resumable draft belongs the day
+    there is a server to write it to.
