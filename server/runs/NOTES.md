@@ -1394,3 +1394,25 @@ particular rows in the fixture.
     number in the manifest that the file does not have. The log of the run that
     built the archive is not part of the client's history in any case, and this
     is the same reasoning entry 110 reached for the reporting change log.
+
+128. **A wizard checkbox could strike the mandatory clearing block.** Step 3 of
+    the intake wizard lets the firm exclude template rows before seeding, and
+    `planFor` in `intake-build-chart.ts` kept a struck row only when its
+    `forcedMandatory` flag was set. That flag is raised by `assembleAccounts`
+    when the clearing block rule pulls a row in past a scope key it did not
+    answer, and all five clearing accounts carry the scope key `always`, so the
+    flag is never raised for any of them and `excludeAccountNumbers: ["1990"]`
+    produced a chart with no suspense account. Options: leave it and treat the
+    exclusion as the firm's decision, test the membership of
+    `MANDATORY_CLEARING_ACCOUNTS` in the filter alongside the flag, raise
+    `forcedMandatory` on every mandatory row whatever its scope key, refuse the
+    scope at validation time when it strikes a clearing account, or drop the
+    exclusion feature. Chosen: test the membership in the filter, which is one
+    added condition and no change to any other run. Leaving it would break the
+    suspense sweep, the transfer pairing, the processor split, and the payroll
+    clearing path on a client whose only mistake was unticking a box, and doc 00
+    Part 1 says those five accounts exist on every chart. Redefining
+    `forcedMandatory` to mean two different things was the alternative, and that
+    flag is read as a reason string elsewhere, so widening it would make the
+    reason wrong. Refusing the scope would be honest but turns a harmless
+    checkbox into a dead end for the person finishing the wizard.

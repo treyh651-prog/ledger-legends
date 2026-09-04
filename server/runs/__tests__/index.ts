@@ -105,6 +105,14 @@ import "./pay-post-register";
 import "./cpa-build-handoff";
 import "./offboard-build-export";
 
+// Module 1 intake and setup. Last in the file and first in the story: these are
+// the runs that create the client every suite above assumes already exists.
+import "./intake-build-chart";
+import "./intake-seed-tasks";
+import "./intake-open-requests";
+import "./setup-import-balances";
+import "./intake-pipeline";
+
 // The four hard lines, checked on their own rather than inside a run's suite.
 import "./compliance-tests";
 

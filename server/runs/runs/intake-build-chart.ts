@@ -53,6 +53,7 @@ import type { CategoryRow, ChartAccountRow } from "../tables";
 import { ZERO } from "./close-shared";
 import { periodWindow } from "./per-shared";
 import {
+  MANDATORY_CLEARING_ACCOUNTS,
   assembleAccounts,
   assembleCategories,
   byAccountNumber,
@@ -264,10 +265,16 @@ export function planFor(scope: BuildChartScope): ChartPlan {
   const excluded = new Set(scope.excludeAccountNumbers);
   const assembled = assembleAccounts(template, scope.scopeKeys);
   const kept = assembled.filter(
-    // A struck row that the clearing block forced in stays. Doc 00 Part 1 says
-    // those five accounts exist on every chart, and a wizard checkbox does not
-    // outrank the invariant the suspense sweep depends on.
-    (a) => !excluded.has(a.accountNumber) || a.forcedMandatory,
+    // A struck row from the clearing block stays. Doc 00 Part 1 says those five
+    // accounts exist on every chart, and a wizard checkbox does not outrank the
+    // invariant the suspense sweep depends on. The membership test is the rule
+    // itself rather than the forcedMandatory flag, because that flag only marks
+    // a row the scope key would have dropped and every clearing account is in
+    // scope always. See NOTES.md entry 128.
+    (a) =>
+      !excluded.has(a.accountNumber) ||
+      a.forcedMandatory ||
+      MANDATORY_CLEARING_ACCOUNTS.includes(a.accountNumber),
   );
   const added: AssembledAccount[] = scope.addAccounts
     .filter((a) => !kept.some((k) => k.accountNumber === a.accountNumber))
