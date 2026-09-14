@@ -1816,3 +1816,150 @@ particular rows in the fixture.
     for the first time wants one line per file in order, the table is nine rows
     behind and not wrong, and a generated listing needs a build step to keep a
     document honest that a person can keep honest in a minute.
+
+153. **The mismatch list was derived from the queries rather than taken from
+    the previous count of fifty five.** Options: trust the fifty five and fix
+    that list, re derive from the row interfaces the way the previous pass did,
+    derive from the named queries themselves, or derive from both and
+    reconcile. Chosen: derive from the named queries and then reconcile against
+    the fifty five. The fifty five was a comparison of row interface fields
+    against columns, which is the write path. The thing that fails first is a
+    named query, and a query names columns the row interface does not, so the
+    two lists are different questions. Resolving all 98 queries against
+    `information_schema.columns` gives 49 table and column pairs over 102
+    identifier occurrences in 26 queries. The two reconcile exactly: 34 of the
+    fifty five are columns no table had and migration 0021 adds them, 20 are
+    columns that exist under another name, and one is `posted`. The six that
+    are in the fifty five and not in the 49 are the fields whose select list
+    already carried the right column and whose only broken path was the write.
+
+154. **Array parameters are passed as json and unnested, and `encodeParam` is
+    left alone.** Options: make `encodeParam` emit a Postgres array literal so
+    the existing casts work, keep the encoder and rewrite the thirteen queries
+    to unnest json, pass each element as its own numbered parameter, or build a
+    typed array in SQL with `unnest`. Chosen: unnest the json. The encoder is
+    not free to change. Migration 0019 and 0020 moved `candidate_ids`,
+    `child_run_ids`, `related_ids` and `vendors.aliases` to jsonb precisely
+    because the encoder sends an array as json text, and those columns are
+    written through the same `encodeParam` on the insert path. An encoder that
+    emitted an array literal would fix thirteen reads and break four writes,
+    which is a worse trade than editing thirteen queries. Expanding the
+    placeholder list means the SQL text varies with the length of the input,
+    which defeats the plan cache and makes the catalog unparseable by a gate
+    that reads static text. A typed array constructed in SQL is the same array
+    literal problem one layer in. The form used is
+    `= any(select jsonb_array_elements_text($n::jsonb))`, which takes exactly
+    what the encoder already produces.
+
+155. **A rename is fixed in the query, not in the database, and the write path
+    reads the same map.** Options: rename the columns in the database, alias in
+    the query and leave the write path alone, alias in the query and give the
+    port one map both paths use, or rename the TypeScript fields to match the
+    columns. Chosen: one map. The schema is applied, verified and described in
+    the README, so a rename there is a migration, a lock and a second thing to
+    keep in step. Renaming the fields would touch every run and every test for
+    no gain in truth. Aliasing only the select list fixes the read and leaves
+    `insert` writing `trigger_source` as `source`, which is the same defect
+    facing the other way and invisible for the same reason, so
+    `COLUMN_OVERRIDES` is used by `insert`, `update` and the gate.
+
+156. **`journal_entries.posted` is read from `status` and written into it, not
+    given a column.** Options: add a boolean column, read it as
+    `status = 'posted'` and give the override a write conversion, change
+    `JournalEntryRow` to carry the status string, or drop the field. Chosen:
+    the expression and the conversion. `status` already distinguishes draft,
+    posted, reversed and void, and the `je_posted_complete` constraint is
+    written against it. A boolean beside it is two places saying one thing, and
+    the first row where they disagree has no answer.
+
+157. **`reversalOf` is `reverses_entry_id` and not `reverses_on`.** Options:
+    take the Postgres near miss suggestion, read migration 0002 and use what it
+    created, add a `reversal_of` column, or rename the field. Chosen: read the
+    migration. `reverses_on` is the date an auto reversing accrual undoes
+    itself, added by 0013, and `JournalEntryRow` already has it as `reversesOn`
+    next to `reversalOf`. Following the suggestion would have compared an entry
+    id to a date and would have type checked and failed live, which is the
+    exact shape of failure this whole task exists to remove.
+
+158. **The run log event counts became columns rather than keys in `detail`.**
+    Options: add the ten columns, read and write them through the existing
+    `detail` jsonb, move the consumers to read the counts off `run_log`, or
+    drop them from the event row. Chosen: the columns. Doc 04 Part 8 put the
+    counts on `run_log`, which holds the final state of a run and loses the
+    state at each event, and a retried run emits two terminal events whose
+    counts differ. Packing them into `detail` puts the same class of defect one
+    layer down, where a catalog check cannot see it, and makes every reader
+    parse json for values the framework already holds as scalars.
+
+159. **`journal_lines.entry_date` is a copy of the parent entry date.**
+    Options: add the column, join to `journal_entries` in the four queries that
+    need it, derive it in the port after the read, or drop it from the line
+    row. Chosen: add the column. The line is the grain the port writes and the
+    grain every period report groups by, the balanced entry trigger already
+    holds lines and their entry together so the copy cannot drift unnoticed,
+    and a join would leave the write path with nowhere to put the value the
+    row shape carries.
+
+160. **The rule ceiling column is `auto_post_ceiling_cents`.** Options: name it
+    `auto_post_ceiling` as the query did, name it `auto_post_ceiling_cents` as
+    the field and the insert path do, or keep both. Chosen: the cents suffix.
+    The field is `autoPostCeilingCents`, it is in `CENTS_FIELDS`, and every
+    other money column in the database ends in `_cents`. The query had already
+    disagreed with its own write path, which is how the name was noticed.
+
+161. **`script/check-queries.ts` also fails on a parameter cast and on a stale
+    column override.** Options: check identifiers only, check identifiers and
+    casts, check identifiers and the write path map, or check all three.
+    Chosen: all three. A cast to an array type is unreachable from the encoder,
+    fails live with 22P02 and type checks cleanly, which is the same class of
+    defect as a missing column. A stale override fails a write rather than a
+    read, and a gate that only reads would never see it. It was tested by
+    breaking one query each way: restoring `run_execution_id` in
+    `run_log_items_by_execution` gave
+    `run_log_items_by_execution: ledger.run_log_items has no column
+    run_execution_id`, and restoring `any($3::char(26)[])` in
+    `journal_lines_for_entries` gave the cast message with the 22P02
+    explanation. Both were restored.
+
+162. **Every corrected query was proved by preparing and executing it against
+    the live database inside a transaction that was rolled back.** Options:
+    trust the gate, prepare each query, prepare and execute each query with
+    values of the inferred parameter types, or write fixtures and assert on
+    rows. Chosen: prepare and execute. Preparing resolves the identifiers,
+    which the gate already does, and only executing tests the value the encoder
+    sends. It earned its place immediately: the surviving `uuid` cast on
+    `transactions_in_window` was still wrong after the identifiers were fixed,
+    because `ledger.transactions.bank_account_id` is `char(26)` and not
+    `uuid`, and the query failed with `operator does not exist: character =
+    uuid`. Nothing that only type checks would have found it. Fixtures would
+    prove more and would need rows in a database with foreign keys into four
+    other schemas, which is a separate piece of work.
+
+163. **`QUERIES` is exported from the port so the gate reads the catalog rather
+    than a copy of it.** Options: export the catalog, parse the source text of
+    `db-postgres.ts` in the gate, keep a list of query names in the gate, or
+    move the catalog to its own module. Chosen: export it, for the reason
+    `check-schema.ts` imports `PHYSICAL_TABLES`. A parser over source text is a
+    second grammar to maintain, and a copied list is the drift the gate exists
+    to find.
+
+164. **`import.batches` and `import.staged_rows` gained the `version` column
+    every other run table has.** Options: add the column, drop `version` from
+    the two row shapes, treat the import pipeline as single writer, or add an
+    updated at timestamp instead. Chosen: add the column. The port's `update`
+    path and every other table a run writes use `version` for optimistic
+    concurrency, and leaving these two out makes the import pipeline the one
+    place where two runs overwrite each other silently.
+
+165. **The connector call moved into `script/connector-sql.ts` and retries a
+    transport failure.** Options: leave the call copied in both gates, retry
+    inside each copy, extract one module both import, or have the gates read a
+    catalog snapshot committed to the repo. Chosen: extract and retry. A full
+    gate run failed once on a 504 from the connector while the database was
+    healthy and the same command passed on the next attempt, and a gate that
+    fails at random trains people to rerun it until it goes green, which is
+    worse than having no gate. Three attempts with a short backoff covers the
+    gateway, and a SQL error is still returned immediately because that one is
+    the answer. A committed snapshot removes the network and with it the whole
+    point, since the question the gate asks is what the database looks like
+    now.

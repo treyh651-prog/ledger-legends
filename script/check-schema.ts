@@ -39,15 +39,11 @@
  * Run it with: npx tsx script/check-schema.ts
  */
 
-import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { PHYSICAL_TABLES, physical } from "../server/runs/db-postgres";
 import { RUN_EXECUTION_ID_WIDTH, SEQUENCE_ID_WIDTH } from "../server/runs/ids";
 import type { TableName } from "../server/runs/tables";
-
-// The Supabase project reference, which is the host part of the project's API
-// URL and not a secret. Override it for a different environment.
-const PROJECT_ID = process.env.SUPABASE_PROJECT_ID ?? "jtqxklqbwsrjewasjfyf";
+import { PROJECT_ID, query } from "./connector-sql";
 
 /** The `RowMap` keys, read from the source so the two lists cannot diverge. */
 function rowMapKeys(): string[] {
@@ -64,30 +60,6 @@ function rowMapKeys(): string[] {
   }
   if (keys.length === 0) throw new Error("RowMap parsed to zero keys");
   return keys;
-}
-
-/**
- * The connector returns the rows inside an untrusted data envelope, because
- * query output is data and not instruction. Strip the envelope, parse the JSON.
- */
-function query(sql: string): Array<Record<string, unknown>> {
-  const input = JSON.stringify({ project_id: PROJECT_ID, query: sql });
-  const raw = execFileSync("pplx", ["connector", "call", "supabase", "execute_sql", "--input", input], {
-    encoding: "utf8",
-    maxBuffer: 32 * 1024 * 1024,
-  });
-  const outer = JSON.parse(raw) as { is_error?: boolean; error?: unknown; result?: unknown };
-  if (outer.is_error) throw new Error(`connector error ${JSON.stringify(outer.error)}`);
-  // The connector nests the payload twice: a JSON string holding an object
-  // whose `result` is the enveloped text.
-  let body = typeof outer.result === "string" ? outer.result : JSON.stringify(outer.result);
-  if (body.trimStart().startsWith("{")) {
-    const inner = JSON.parse(body) as { result?: unknown };
-    if (typeof inner.result === "string") body = inner.result;
-  }
-  const m = /<untrusted-data-[^>]*>\n([\s\S]*)\n<\/untrusted-data/.exec(body);
-  const payload = m ? m[1] : body;
-  return JSON.parse(payload) as Array<Record<string, unknown>>;
 }
 
 const keys = rowMapKeys();

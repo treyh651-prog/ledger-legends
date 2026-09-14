@@ -46,6 +46,14 @@ Verify the books foot:
 npx tsx script/check-books.ts
 ```
 
+Verify the run port against the real database. Both read the catalog through
+the Supabase connector and neither needs a password:
+
+```
+npx tsx script/check-schema.ts
+npx tsx script/check-queries.ts
+```
+
 ## Rules this codebase follows
 
 These are not style preferences, they are correctness rules. Do not relax them.

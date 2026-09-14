@@ -30,6 +30,7 @@ alters, per doc 05 Part 9 step 2.
 | `0018_intake.sql` | Per column mapping profile detail for wizard step 4, and the resumable wizard session a draft lives in. |
 | `0019_run_table_gaps.sql` | The seven row map tables that had no create statement in any earlier file, and the jsonb array columns that replaced the first two `char(26)[]` columns a run could reach. |
 | `0020_run_id_widths.sql` | Every run id column widened from `char(26)` to `text` with a named length check, because a run execution id is thirty one characters and a sequence id is thirty three. Also the last two array columns, `run_log.candidate_ids` and `vendors.aliases`, moved to jsonb. |
+| `0021_query_drift_columns.sql` | The columns the named queries read and the port writes that no earlier file created: the proposal on a log item, the counts on a terminal log event, entry provenance that is neither a transaction nor a document, the line entry date and net asset restriction, the feed side institution id, rule promotion state, the recurring amount window, the vendor default category version, the loan escrow account, and `version` on the two import tables. |
 
 ## Conventions held across every file
 

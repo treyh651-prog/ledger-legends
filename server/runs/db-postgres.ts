@@ -294,6 +294,84 @@ function camelToSnake(name: string): string {
   return name.replace(/[A-Z]/g, (c) => `_${c.toLowerCase()}`);
 }
 
+/**
+ * Row fields whose column is not `camelToSnake` of the field name.
+ *
+ * The named queries already carry this knowledge in their select lists, as
+ * `trigger_source as "source"`. The insert and update paths never see a select
+ * list, so without this map they write the field name and the write fails on a
+ * column no table has, which is the same defect as the read side and was
+ * invisible for the same reason. One map, used by both, so a rename cannot be
+ * fixed in one direction only. `script/check-queries.ts` resolves every entry
+ * here against the live catalog.
+ *
+ * `write` converts the field value to what the column holds. It exists for one
+ * case: `journal_entries.posted` is a boolean in the row shape and the table
+ * keeps the same fact in `status`, which also distinguishes reversed and void.
+ * Adding a boolean beside it would be two places to say one thing, and the
+ * first disagreement between them would be unresolvable.
+ */
+interface ColumnOverride {
+  column: string;
+  write?: (value: unknown) => unknown;
+}
+
+export const COLUMN_OVERRIDES: Partial<
+  Record<TableName, Record<string, ColumnOverride>>
+> = {
+  categories: {
+    class1099: { column: "class_1099" },
+    requiresReceiptOverCents: { column: "requires_receipt_over" },
+    capitalizeOverCents: { column: "capitalize_over" },
+  },
+  client_policies: {
+    capitalizeOverCents: { column: "capitalize_over" },
+  },
+  journal_entries: {
+    reversalOf: { column: "reverses_entry_id" },
+    createdByRunId: { column: "run_id" },
+    posted: {
+      column: "status",
+      write: (v) => (v === true ? "posted" : "draft"),
+    },
+  },
+  run_log: {
+    source: { column: "trigger_source" },
+    parentSequenceId: { column: "sequence_id" },
+    versions: { column: "versions_used" },
+  },
+  run_log_events: {
+    runExecutionId: { column: "run_id" },
+    occurredAt: { column: "created_at" },
+  },
+  run_log_items: {
+    runExecutionId: { column: "run_id" },
+    rowTable: { column: "target_table" },
+    rowId: { column: "target_id" },
+    reason: { column: "skip_reason" },
+    suspenseReasonCode: { column: "suspense_reason" },
+    beforeJson: { column: "before_values" },
+    afterJson: { column: "after_values" },
+  },
+  tax_data_lines: {
+    class1099: { column: "class_1099" },
+  },
+  transactions: {
+    normalizedVendor: { column: "vendor_normalized" },
+  },
+};
+
+/** The column a field is written to, and the value the column wants. */
+function columnFor(
+  table: TableName,
+  field: string,
+  value: unknown,
+): [string, unknown] {
+  const override = COLUMN_OVERRIDES[table]?.[field];
+  if (!override) return [camelToSnake(field), value];
+  return [override.column, override.write ? override.write(value) : value];
+}
+
 function encodeParam(value: unknown): unknown {
   if (typeof value === "bigint") return value.toString();
   if (Array.isArray(value)) return JSON.stringify(value);
@@ -317,7 +395,7 @@ function decodeRow(table: string, row: Record<string, unknown>): unknown {
  * Named query catalog as SQL. Column aliases produce camelCase keys so the row
  * types in tables.ts are the single definition of a row shape.
  */
-interface SqlSpec {
+export interface SqlSpec {
   table: string;
   sql: string;
   params: (p: Record<string, unknown>) => unknown[];
@@ -415,20 +493,24 @@ const RUN_LOG_COLUMNS = `
   id, firm_id as "firmId", client_id as "clientId", run_type as "runType",
   run_version as "runVersion", mode, status,
   idempotency_key as "idempotencyKey", scope_hash as "scopeHash",
-  actor_id as "actorId", actor_kind as "actorKind", source,
-  parent_sequence_id as "parentSequenceId", preview_run_id as "previewRunId",
+  actor_id as "actorId", actor_kind as "actorKind",
+  trigger_source as "source",
+  sequence_id as "parentSequenceId", preview_run_id as "previewRunId",
   original_run_id as "originalRunId", period_start::text as "periodStart",
   period_end::text as "periodEnd", candidate_count as "candidateCount",
-  candidate_ids as "candidateIds", scope_input as "scopeInput", versions,
+  candidate_ids as "candidateIds", scope_input as "scopeInput",
+  versions_used as "versions",
   started_at::text as "startedAt", git_sha as "gitSha", release_id as "releaseId"`;
 
 const JE_COLUMNS = `
   id, firm_id as "firmId", client_id as "clientId",
-  entry_date::text as "entryDate", memo, posted, reversal_of as "reversalOf",
+  entry_date::text as "entryDate", memo,
+  (status = 'posted') as "posted",
+  reverses_entry_id as "reversalOf",
   reversed_by_entry_id as "reversedByEntryId",
   redated_from_locked_period::text as "redatedFromLockedPeriod",
   source_table as "sourceTable", source_row_id as "sourceRowId",
-  source_version as "sourceVersion", created_by_run_id as "createdByRunId",
+  source_version as "sourceVersion", run_id as "createdByRunId",
   run_type as "runType", run_version as "runVersion",
   reverses_on::text as "reversesOn",
   linked_document_id as "linkedDocumentId",
@@ -1155,7 +1237,7 @@ const OFFBOARD_EXPORT_COLUMNS = `
   manual_override as "manualOverride"
 `;
 
-const QUERIES: Record<QueryName, SqlSpec> = {
+export const QUERIES: Record<QueryName, SqlSpec> = {
   bank_accounts_for_client: {
     table: "bank_accounts",
     sql: `select id, firm_id as "firmId", client_id as "clientId",
@@ -1200,7 +1282,8 @@ const QUERIES: Record<QueryName, SqlSpec> = {
             and client_id = $2
             and posted_date between $3::date and $4::date
             and ($5::boolean or manual_override = false)
-            and ($6::uuid[] is null or bank_account_id = any($6::uuid[]))
+            and ($6::jsonb is null or bank_account_id = any(
+                  select jsonb_array_elements_text($6::jsonb)))
           order by posted_date asc, abs(amount_cents) asc, id asc`,
     params: (p) => [
       p.firmId,
@@ -1251,33 +1334,33 @@ const QUERIES: Record<QueryName, SqlSpec> = {
   run_log_items_by_execution: {
     table: "run_log_items",
     sql: `select id, firm_id as "firmId", client_id as "clientId",
-            run_execution_id as "runExecutionId", row_table as "rowTable",
-            row_id as "rowId", decision, reason,
+            run_id as "runExecutionId", target_table as "rowTable",
+            target_id as "rowId", decision, skip_reason as "reason",
             cascade_level as "cascadeLevel", rule_id as "ruleId",
             rule_version as "ruleVersion", template_id as "templateId",
             template_version as "templateVersion",
-            suspense_reason_code as "suspenseReasonCode",
-            journal_entry_id as "journalEntryId", before_json as "beforeJson",
-            after_json as "afterJson", proposal_json as "proposalJson",
+            suspense_reason as "suspenseReasonCode",
+            journal_entry_id as "journalEntryId", before_values as "beforeJson",
+            after_values as "afterJson", proposal_json as "proposalJson",
             error_code as "errorCode", error_message as "errorMessage"
           from ${SCHEMA}.run_log_items
-          where firm_id = $1 and run_execution_id = $2
+          where firm_id = $1 and run_id = $2
           order by id asc`,
     params: (p) => [p.firmId, p.executionId],
   },
   run_log_events_by_execution: {
     table: "run_log_events",
-    sql: `select id, firm_id as "firmId", run_execution_id as "runExecutionId",
+    sql: `select id, firm_id as "firmId", run_id as "runExecutionId",
             event, attempt, detail, proposal_count as "proposalCount",
             skip_count as "skipCount", error_count as "errorCount",
             net_cents::text as "netCents", entries_created as "entriesCreated",
             entries_reversed as "entriesReversed",
             skip_counts_by_reason as "skipCountsByReason",
             duration_ms as "durationMs", related_run_id as "relatedRunId",
-            occurred_at::text as "occurredAt"
+            created_at::text as "occurredAt"
           from ${SCHEMA}.run_log_events
-          where firm_id = $1 and run_execution_id = $2
-          order by occurred_at asc, id asc`,
+          where firm_id = $1 and run_id = $2
+          order by created_at asc, id asc`,
     params: (p) => [p.firmId, p.executionId],
   },
   started_runs_before: {
@@ -1292,7 +1375,7 @@ const QUERIES: Record<QueryName, SqlSpec> = {
     table: "journal_entries",
     sql: `select ${JE_COLUMNS}
           from ${SCHEMA}.journal_entries
-          where firm_id = $1 and created_by_run_id = $2
+          where firm_id = $1 and run_id = $2
           order by id asc`,
     params: (p) => [p.firmId, p.executionId],
   },
@@ -1301,7 +1384,8 @@ const QUERIES: Record<QueryName, SqlSpec> = {
     sql: `select ${JE_COLUMNS}
           from ${SCHEMA}.journal_entries
           where firm_id = $1 and client_id = $2
-            and reversal_of = any($3::char(26)[])
+            and reverses_entry_id = any(
+                  select jsonb_array_elements_text($3::jsonb))
           order by id asc`,
     params: (p) => [p.firmId, p.clientId, p.entryIds],
   },
@@ -1333,7 +1417,8 @@ const QUERIES: Record<QueryName, SqlSpec> = {
     table: "transactions",
     sql: `select ${TXN_COLUMNS}
           from ${SCHEMA}.transactions
-          where firm_id = $1 and client_id = $2 and id = any($3::char(26)[])
+          where firm_id = $1 and client_id = $2 and id = any(
+                  select jsonb_array_elements_text($3::jsonb))
           order by id asc`,
     params: (p) => [p.firmId, p.clientId, p.ids],
   },
@@ -1368,7 +1453,8 @@ const QUERIES: Record<QueryName, SqlSpec> = {
           from ${SCHEMA}.transactions
           where firm_id = $1 and client_id = $2
             and bank_account_id = $3
-            and bank_transaction_id = any($4::text[])
+            and bank_transaction_id = any(
+                  select jsonb_array_elements_text($4::jsonb))
           order by posted_date asc, abs(amount_cents) asc, id asc`,
     params: (p) => [
       p.firmId,
@@ -1426,7 +1512,7 @@ const QUERIES: Record<QueryName, SqlSpec> = {
             rejected_count as "rejectedCount",
             auto_post_enabled as "autoPostEnabled",
             auto_post_enabled_by as "autoPostEnabledBy",
-            auto_post_ceiling::text as "autoPostCeilingCents"
+            auto_post_ceiling_cents::text as "autoPostCeilingCents"
           from ${SCHEMA}.rules
           where firm_id = $1 and client_id = $2 and is_active
           order by priority desc, condition_count desc, id asc`,
@@ -1541,7 +1627,8 @@ const QUERIES: Record<QueryName, SqlSpec> = {
             document_type as "documentType"
           from ${SCHEMA}.document_links
           where firm_id = $1 and client_id = $2
-            and transaction_id = any($3::text[])
+            and transaction_id = any(
+                  select jsonb_array_elements_text($3::jsonb))
           order by id asc`,
     params: (p) => [p.firmId, p.clientId, p.transactionIds],
   },
@@ -1604,7 +1691,8 @@ const QUERIES: Record<QueryName, SqlSpec> = {
             withdrawn_by_run_id as "withdrawnByRunId"
           from ${SCHEMA}.suspense_items
           where firm_id = $1 and client_id = $2
-            and transaction_id = any($3::text[])
+            and transaction_id = any(
+                  select jsonb_array_elements_text($3::jsonb))
           order by id asc`,
     params: (p) => [p.firmId, p.clientId, p.transactionIds],
   },
@@ -1635,7 +1723,8 @@ const QUERIES: Record<QueryName, SqlSpec> = {
     sql: `select ${JL_COLUMNS}
           from ${SCHEMA}.journal_lines
           where firm_id = $1 and client_id = $2
-            and entry_id = any($3::char(26)[])
+            and entry_id = any(
+                  select jsonb_array_elements_text($3::jsonb))
           order by entry_id asc, account_number asc, id asc`,
     params: (p) => [p.firmId, p.clientId, p.entryIds],
   },
@@ -1643,7 +1732,8 @@ const QUERIES: Record<QueryName, SqlSpec> = {
     table: "deferral_schedules",
     sql: `select ${DEFERRAL_SCHEDULE_COLUMNS}
           from subledger.deferral_schedules
-          where firm_id = $1 and client_id = $2 and kind = any($3::text[])
+          where firm_id = $1 and client_id = $2 and kind = any(
+                  select jsonb_array_elements_text($3::jsonb))
           order by id asc`,
     params: (p) => [p.firmId, p.clientId, p.kinds],
   },
@@ -1652,7 +1742,8 @@ const QUERIES: Record<QueryName, SqlSpec> = {
     sql: `select ${DEFERRAL_LINE_COLUMNS}
           from subledger.deferral_lines
           where firm_id = $1 and client_id = $2
-            and schedule_id = any($3::char(26)[])
+            and schedule_id = any(
+                  select jsonb_array_elements_text($3::jsonb))
           order by schedule_id asc, period_number asc, id asc`,
     params: (p) => [p.firmId, p.clientId, p.scheduleIds],
   },
@@ -1678,7 +1769,8 @@ const QUERIES: Record<QueryName, SqlSpec> = {
     sql: `select ${LOAN_SCHEDULE_COLUMNS}
           from subledger.loan_schedule
           where firm_id = $1 and client_id = $2
-            and loan_id = any($3::char(26)[])
+            and loan_id = any(
+                  select jsonb_array_elements_text($3::jsonb))
           order by due_date asc, payment_number asc, id asc`,
     params: (p) => [p.firmId, p.clientId, p.loanIds],
   },
@@ -1695,7 +1787,8 @@ const QUERIES: Record<QueryName, SqlSpec> = {
     sql: `select ${DEPRECIATION_COLUMNS}
           from subledger.depreciation_schedule
           where firm_id = $1 and client_id = $2
-            and asset_id = any($3::char(26)[])
+            and asset_id = any(
+                  select jsonb_array_elements_text($3::jsonb))
           order by asset_id asc, period_start asc, id asc`,
     params: (p) => [p.firmId, p.clientId, p.assetIds],
   },
@@ -1753,7 +1846,8 @@ const QUERIES: Record<QueryName, SqlSpec> = {
     sql: `select ${REMITTANCE_LINE_COLUMNS}
           from subledger.remittance_lines
           where firm_id = $1 and client_id = $2
-            and payment_id = any($3::char(26)[])
+            and payment_id = any(
+                  select jsonb_array_elements_text($3::jsonb))
           order by payment_id asc, line_number asc, id asc`,
     params: (p) => [p.firmId, p.clientId, p.paymentIds],
   },
@@ -1786,7 +1880,8 @@ const QUERIES: Record<QueryName, SqlSpec> = {
     sql: `select ${STATEMENT_ITEM_COLUMNS}
           from subledger.statement_items
           where firm_id = $1 and client_id = $2
-            and statement_id = any($3::char(26)[])
+            and statement_id = any(
+                  select jsonb_array_elements_text($3::jsonb))
           order by statement_id asc, line_number asc, id asc`,
     params: (p) => [p.firmId, p.clientId, p.statementIds],
   },
@@ -2182,9 +2277,10 @@ class PostgresTx implements RunTx {
       const entries = Object.entries(row as unknown as Record<string, unknown>).filter(
         ([, v]) => v !== undefined,
       );
-      const cols = entries.map(([k]) => camelToSnake(k)).join(", ");
+      const resolved = entries.map(([k, v]) => columnFor(table, k, v));
+      const cols = resolved.map(([c]) => c).join(", ");
       const placeholders = entries.map((_e, i) => `$${i + 1}`).join(", ");
-      const values = entries.map(([, v]) => encodeParam(v));
+      const values = resolved.map(([, v]) => encodeParam(v));
       try {
         await this.client.query(
           `insert into ${physical(table)} (${cols}) values (${placeholders})`,
@@ -2205,10 +2301,9 @@ class PostgresTx implements RunTx {
       ([, v]) => v !== undefined,
     );
     if (entries.length === 0) return;
-    const sets = entries
-      .map(([k], i) => `${camelToSnake(k)} = $${i + 1}`)
-      .join(", ");
-    const values = entries.map(([, v]) => encodeParam(v));
+    const resolved = entries.map(([k, v]) => columnFor(table, k, v));
+    const sets = resolved.map(([c], i) => `${c} = $${i + 1}`).join(", ");
+    const values = resolved.map(([, v]) => encodeParam(v));
     values.push(rowId);
     values.push(this.session.firmId);
     try {
