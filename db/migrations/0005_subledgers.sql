@@ -393,7 +393,7 @@ create table subledger.vendors (
   w9_status      text not null default 'not_requested',
   w9_requested_at timestamptz,
   w9_received_at  timestamptz,
-  w9_document_id char(26),                    -- vault.documents, the actual PDF
+  w9_document_id char(26),                    -- docvault.documents, the actual PDF
   tin_type       text,
   tin_last_four  char(4),
   tin_verified_at timestamptz,

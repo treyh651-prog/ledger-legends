@@ -46,3 +46,36 @@ Both are in `0003_run_log.sql` and are commented at the point of use.
    than a rewrite rule, because rules are not supported on partitioned tables. The
    rule form is kept on `run_log_events` and on the vault audit tables, which are
    not partitioned.
+
+## Applied against a real database, 2026-09-14
+
+First application to real Postgres, a Supabase project on Postgres 17. Four
+things came out of it, and all four are folded into the files above rather than
+patched on the side.
+
+1. **The `vault` schema is renamed `docvault`.** Supabase reserves `vault` for
+   Supabase Vault and owns it as `supabase_admin`, so `create table
+   vault.documents` fails with permission denied. The document store keeps every
+   table, column, constraint, policy and trigger it had. Only the schema name
+   moved. Prose in the specification documents still calls it the vault, because
+   that is what it is.
+
+2. **`0002a_client_policies.sql` is new.** `ledger.client_policies` is read by
+   the coding runs and altered by 0015, and no migration ever created it. It is
+   numbered 0002a so it lands with the rest of the ledger core, ahead of the
+   0015 alter that assumes it.
+
+3. **0017 reconciles `subledger.vendors` instead of re-adding to it.** 0005 had
+   already declared `entity_type` over a different vocabulary and a
+   `tin_last_four` column. 0017 now drops the older check, converts the existing
+   values to the vocabulary the runs read, sets the column not null with the
+   `unknown` default, moves the four digits onto `tin_last4`, and drops
+   `tin_last_four` so there is one spelling of that fact.
+
+4. **Seven tables the runs expect still have no create statement**:
+   `transfer_pairs`, `suspense_items`, `bank_code_mappings`, `settlement_rows`,
+   `document_links`, `portal_requests`, `documentation_exceptions`. Four more
+   exist under a schema the physical table map in `db-postgres.ts` does not
+   point at: `chart_accounts`, `mapping_profile_columns`, `wizard_sessions`,
+   `run_sequence`. None of this was visible while the runs only ever ran against
+   the in memory port.

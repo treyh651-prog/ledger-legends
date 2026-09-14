@@ -86,7 +86,7 @@ create table tenancy.engagements (
   scope           jsonb not null default '{}',
   start_date      date not null,
   end_date        date,
-  -- vault.documents id of the executed engagement letter. No foreign key, because
+  -- docvault.documents id of the executed engagement letter. No foreign key, because
   -- vault is created later and the vault side already references tenancy.
   letter_document_id char(26),
   signed_at       timestamptz,

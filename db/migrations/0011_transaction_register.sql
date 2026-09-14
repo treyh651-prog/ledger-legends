@@ -344,7 +344,7 @@ alter table subledger.loan_schedule
   add constraint loan_matched_transaction_fk
   foreign key (matched_transaction_id) references ledger.transactions(id);
 
-alter table vault.documents
+alter table docvault.documents
   add constraint doc_linked_transaction_fk
   foreign key (linked_transaction_id) references ledger.transactions(id);
 

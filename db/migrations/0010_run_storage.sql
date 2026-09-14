@@ -1,7 +1,7 @@
 -- 0010_run_storage.sql
 -- Implements the storage the remaining new runs in doc 05 need.
 --   Doc 05 Part 6 (D5): PAY-APPROVE-RUN and PAY-POST-REGISTER need an approval
---   record tied to a payroll register document that is already in the vault.
+--   record tied to a payroll register document that is already in the docvault.
 --   The firm never moves money, so the record states that in a column that can
 --   only hold one value.
 --   Doc 05 Part 5 (D4): CPA-BUILD-HANDOFF needs a package header, an item per
@@ -35,7 +35,7 @@ create table subledger.payroll_approvals (
 
   -- The register in the vault is the evidence that makes gate G11 meaningful.
   -- PAY-POST-REGISTER refuses to run against a manually keyed total.
-  register_document_id char(26) not null references vault.documents(id),
+  register_document_id char(26) not null references docvault.documents(id),
 
   gross_cents             bigint not null,
   employer_tax_cents      bigint not null default 0,
@@ -108,7 +108,7 @@ create table deliverable.cpa_handoff_packages (
   -- The point of the run. Compiled bookkeeping, not an audit, not a review, not a
   -- compilation report under professional standards, and not tax advice.
   scope_statement text not null,
-  archive_document_id char(26) references vault.documents(id),
+  archive_document_id char(26) references docvault.documents(id),
   manifest       jsonb not null default '{}',
   sha256_hex     char(64),
   file_count     integer not null default 0,
@@ -145,7 +145,7 @@ create table deliverable.cpa_handoff_items (
   row_count      integer,
   byte_size      bigint,
   sha256_hex     char(64),
-  document_id    char(26) references vault.documents(id),
+  document_id    char(26) references docvault.documents(id),
   detail         jsonb not null default '{}',
   created_at     timestamptz not null default now(),
 
@@ -186,8 +186,8 @@ create table deliverable.offboarding_exports (
 
   built_run_id   char(26),
   built_at       timestamptz,
-  archive_document_id char(26) references vault.documents(id),
-  manifest_document_id char(26) references vault.documents(id),
+  archive_document_id char(26) references docvault.documents(id),
+  manifest_document_id char(26) references docvault.documents(id),
   sha256_hex     char(64),
   file_count     integer not null default 0,
   total_bytes    bigint not null default 0,
@@ -226,7 +226,7 @@ create table deliverable.offboarding_export_files (
   row_count      integer,
   byte_size      bigint not null,
   sha256_hex     char(64) not null,
-  source_document_id char(26) references vault.documents(id),
+  source_document_id char(26) references docvault.documents(id),
   created_at     timestamptz not null default now(),
 
   unique (export_id, path),

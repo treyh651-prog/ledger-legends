@@ -16,10 +16,10 @@
 
 begin;
 
-create schema if not exists vault;
-grant usage on schema vault to app_web, app_worker;
+create schema if not exists docvault;
+grant usage on schema docvault to app_web, app_worker;
 
-create table vault.documents (
+create table docvault.documents (
   id             char(26) primary key,        -- ULID, and part of the object key
   client_id      uuid not null references tenancy.clients(id),
   firm_id        uuid not null references tenancy.firms(id),
@@ -98,17 +98,17 @@ create table vault.documents (
   constraint doc_scanned_at check (scan_status = 'pending' or scanned_at is not null)
 );
 
-create unique index doc_one_key on vault.documents (bucket, object_key);
-create index on vault.documents (client_id, doc_type, period_start desc);
-create index on vault.documents (firm_id);
-create index on vault.documents (client_id, status) where status <> 'verified';
-create index on vault.documents (client_id, tax_year) where doc_type = 'w9';
+create unique index doc_one_key on docvault.documents (bucket, object_key);
+create index on docvault.documents (client_id, doc_type, period_start desc);
+create index on docvault.documents (firm_id);
+create index on docvault.documents (client_id, status) where status <> 'verified';
+create index on docvault.documents (client_id, tax_year) where doc_type = 'w9';
 
-create table vault.audit_events (
+create table docvault.audit_events (
   id             char(26) primary key,        -- ULID
   client_id      uuid not null references tenancy.clients(id),
   firm_id        uuid not null references tenancy.firms(id),
-  document_id    char(26) references vault.documents(id),
+  document_id    char(26) references docvault.documents(id),
   action         text not null,
   actor_id       uuid,
   actor_kind     text not null,
@@ -124,9 +124,9 @@ create table vault.audit_events (
     'lock_applied','access_denied','scan_completed'))
 );
 
-create index on vault.audit_events (client_id, created_at desc);
-create index on vault.audit_events (document_id, created_at desc);
-create index on vault.audit_events (firm_id, created_at desc);
+create index on docvault.audit_events (client_id, created_at desc);
+create index on docvault.audit_events (document_id, created_at desc);
+create index on docvault.audit_events (firm_id, created_at desc);
 
 -- ---------------------------------------------------------------------------
 -- Doc 05 Part 7 (D8). Engagement letter signature evidence. A typed name alone is
@@ -134,11 +134,11 @@ create index on vault.audit_events (firm_id, created_at desc);
 -- the moment of signing, because none of it can be reconstructed afterward.
 -- ---------------------------------------------------------------------------
 
-create table vault.signature_evidence (
+create table docvault.signature_evidence (
   id             char(26) primary key,        -- ULID
   client_id      uuid not null references tenancy.clients(id),
   firm_id        uuid not null references tenancy.firms(id),
-  document_id    char(26) not null references vault.documents(id),
+  document_id    char(26) not null references docvault.documents(id),
   engagement_id  uuid references tenancy.engagements(id),
 
   -- The exact bytes presented, so the signed version can be proven later.
@@ -176,15 +176,15 @@ create table vault.signature_evidence (
 );
 
 create unique index sig_one_signed_per_document
-  on vault.signature_evidence (document_id) where status = 'signed';
-create index on vault.signature_evidence (client_id, signed_at desc);
-create index on vault.signature_evidence (firm_id);
-create index on vault.signature_evidence (engagement_id) where engagement_id is not null;
+  on docvault.signature_evidence (document_id) where status = 'signed';
+create index on docvault.signature_evidence (client_id, signed_at desc);
+create index on docvault.signature_evidence (firm_id);
+create index on docvault.signature_evidence (engagement_id) where engagement_id is not null;
 
 -- The full sequence of view, scroll to end, consent and sign events, in order.
-create table vault.signature_events (
+create table docvault.signature_events (
   id             char(26) primary key,        -- ULID
-  evidence_id    char(26) not null references vault.signature_evidence(id),
+  evidence_id    char(26) not null references docvault.signature_evidence(id),
   client_id      uuid not null references tenancy.clients(id),
   firm_id        uuid not null references tenancy.firms(id),
   sequence_number integer not null,
@@ -201,47 +201,47 @@ create table vault.signature_events (
   constraint sigev_sequence check (sequence_number > 0)
 );
 
-create index on vault.signature_events (evidence_id, sequence_number);
-create index on vault.signature_events (client_id, occurred_at desc);
-create index on vault.signature_events (firm_id);
+create index on docvault.signature_events (evidence_id, sequence_number);
+create index on docvault.signature_events (client_id, occurred_at desc);
+create index on docvault.signature_events (firm_id);
 
 -- ---------------------------------------------------------------------------
 -- RLS and immutability.
 -- ---------------------------------------------------------------------------
 
-alter table vault.documents enable row level security;
-alter table vault.documents force row level security;
-alter table vault.audit_events enable row level security;
-alter table vault.audit_events force row level security;
-alter table vault.signature_evidence enable row level security;
-alter table vault.signature_evidence force row level security;
-alter table vault.signature_events enable row level security;
-alter table vault.signature_events force row level security;
+alter table docvault.documents enable row level security;
+alter table docvault.documents force row level security;
+alter table docvault.audit_events enable row level security;
+alter table docvault.audit_events force row level security;
+alter table docvault.signature_evidence enable row level security;
+alter table docvault.signature_evidence force row level security;
+alter table docvault.signature_events enable row level security;
+alter table docvault.signature_events force row level security;
 
-create policy client_isolation on vault.documents
+create policy client_isolation on docvault.documents
   using ( (select tenancy.has_client_access(client_id)) )
   with check ( (select tenancy.has_client_access(client_id)) );
-create policy client_isolation on vault.audit_events
+create policy client_isolation on docvault.audit_events
   using ( (select tenancy.has_client_access(client_id)) )
   with check ( (select tenancy.has_client_access(client_id)) );
-create policy client_isolation on vault.signature_evidence
+create policy client_isolation on docvault.signature_evidence
   using ( (select tenancy.has_client_access(client_id)) )
   with check ( (select tenancy.has_client_access(client_id)) );
-create policy client_isolation on vault.signature_events
+create policy client_isolation on docvault.signature_events
   using ( (select tenancy.has_client_access(client_id)) )
   with check ( (select tenancy.has_client_access(client_id)) );
 
-create trigger trg_freeze_discriminators before update on vault.documents
+create trigger trg_freeze_discriminators before update on docvault.documents
   for each row execute function tenancy.freeze_discriminators();
-create trigger trg_freeze_discriminators before update on vault.signature_evidence
+create trigger trg_freeze_discriminators before update on docvault.signature_evidence
   for each row execute function tenancy.freeze_discriminators();
 
-revoke update, delete, truncate on vault.audit_events from app_web, app_worker;
-revoke update, delete, truncate on vault.signature_events from app_web, app_worker;
+revoke update, delete, truncate on docvault.audit_events from app_web, app_worker;
+revoke update, delete, truncate on docvault.signature_events from app_web, app_worker;
 
-create rule audit_events_no_update as on update to vault.audit_events do instead nothing;
-create rule audit_events_no_delete as on delete to vault.audit_events do instead nothing;
-create rule signature_events_no_update as on update to vault.signature_events do instead nothing;
-create rule signature_events_no_delete as on delete to vault.signature_events do instead nothing;
+create rule audit_events_no_update as on update to docvault.audit_events do instead nothing;
+create rule audit_events_no_delete as on delete to docvault.audit_events do instead nothing;
+create rule signature_events_no_update as on update to docvault.signature_events do instead nothing;
+create rule signature_events_no_delete as on delete to docvault.signature_events do instead nothing;
 
 commit;

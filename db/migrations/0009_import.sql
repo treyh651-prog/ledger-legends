@@ -103,7 +103,7 @@ create table import.batches (
 
   name           text not null,
   source_format  text not null,
-  source_document_id char(26) references vault.documents(id),
+  source_document_id char(26) references docvault.documents(id),
   account_number char(4),
   mapping_profile_id char(26) references import.mapping_profiles(id),
   mapping_profile_version integer,

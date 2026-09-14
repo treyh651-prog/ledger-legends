@@ -55,7 +55,7 @@
 --
 -- Migration 0010 already created subledger.payroll_approvals,
 -- deliverable.cpa_handoff_packages, and deliverable.offboarding_exports against
--- vault.documents with a not null register reference. Those tables assume bytes
+-- docvault.documents with a not null register reference. Those tables assume bytes
 -- already exist in the vault, which a run cannot produce. The four runs here
 -- carry the object key they will occupy instead, the same call NOTES.md entry
 -- 101 made for the report package, so the 0010 tables are left untouched and
@@ -105,10 +105,42 @@ grant usage on schema practice to app_web, app_worker;
 -- TAX-TRACK-W9 rule 5 enforceable rather than aspirational.
 -- ---------------------------------------------------------------------------
 
+-- Reconciliation note. Migration 0005 already gave subledger.vendors a
+-- nullable entity_type over a different vocabulary, and a tin_last_four
+-- column. Adding them again fails on a real database, and leaving two spellings
+-- of the same fact is worse than either one alone. So entity_type is converted
+-- to the vocabulary the runs actually read, and the four digits are
+-- consolidated onto the single column TAX-BUILD-1099 and TAX-TRACK-W9 use.
+
+alter table subledger.vendors drop constraint if exists vendor_entity;
+
+update subledger.vendors set entity_type = case entity_type
+  when 'sole_prop'         then 'sole_proprietor'
+  when 'single_member_llc' then 'llc'
+  when 'c_corp'            then 'c_corporation'
+  when 's_corp'            then 's_corporation'
+  when 'nonprofit'         then 'tax_exempt'
+  when 'foreign'           then 'unknown'
+  when 'individual'        then 'individual'
+  when 'partnership'       then 'partnership'
+  when 'llc'               then 'llc'
+  when 'government'        then 'government'
+  else 'unknown'
+end;
+
 alter table subledger.vendors
-  add column entity_type text not null default 'unknown',
+  alter column entity_type set default 'unknown',
+  alter column entity_type set not null;
+
+alter table subledger.vendors
   add column payment_hold boolean not null default false,
   add column tin_last4 char(4);
+
+update subledger.vendors set tin_last4 = tin_last_four
+  where tin_last_four is not null;
+
+alter table subledger.vendors drop constraint if exists vendor_tin_last_four;
+alter table subledger.vendors drop column tin_last_four;
 
 alter table subledger.vendors
   add constraint vendor_entity_type check (entity_type in (

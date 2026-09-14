@@ -44,14 +44,14 @@
 --      NOTES.md entry 103.
 --   9. report.report_audit_events. The module sends nothing. Its only delivery
 --      side effect is an audit row of type report_available or
---      narrative_available. vault.audit_events constrains its action column to
+--      narrative_available. docvault.audit_events constrains its action column to
 --      a list that does not contain either value, so the reporting audit trail
---      gets its own table rather than a loosened constraint on the vault. See
+--      gets its own table rather than a loosened constraint on the docvault. See
 --      NOTES.md entry 102.
 --
--- Vault retention lives on the package row rather than in vault.documents. A
+-- Vault retention lives on the package row rather than in docvault.documents. A
 -- run has no bytes to upload and cannot satisfy the scan and magic verification
--- columns vault.documents requires before a document is usable, so the package
+-- columns docvault.documents requires before a document is usable, so the package
 -- carries the object key it will occupy, the governance lock mode, the
 -- retention start at period end, and the seven year lock date. See NOTES.md
 -- entry 101.
