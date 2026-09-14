@@ -124,6 +124,9 @@ export async function executeSequence(
       clientId: opts.clientId,
       actorId: opts.actorId,
       actorKind: "sequence",
+      // The sequence's own row is written under the sequence's identity, which
+      // is what makes the override guard treat it as automation.
+      runId: sequenceId,
     },
     async (tx) => {
       await tx.insert("run_sequence", [row]);

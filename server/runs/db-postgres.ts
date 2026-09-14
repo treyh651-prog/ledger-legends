@@ -1,15 +1,19 @@
 /**
  * Postgres implementation of the run port, written against the `pg` style API.
  *
- * It is not exercised in this sandbox because there is no Postgres here, and
- * `pg` is deliberately not installed, so the client type is declared
- * structurally below. Correctness is by inspection against doc 03.
+ * The client type is declared structurally below rather than imported from
+ * `pg`. That began as a necessity, because the driver was not installed, and it
+ * is kept because the port needs four methods and nothing about the driver's
+ * own type surface. `server/db/pool.ts` asserts at compile time that the real
+ * `Pool` and `PoolClient` satisfy these declarations.
  *
  * Points worth reading closely:
  *   Isolation is set on the transaction, serializable for anything that both
  *   reads and writes ledger rows.
- *   Tenant context and actor kind are set with set_config, which is what the
- *   override guard and the row level security policies read.
+ *   Tenant context is set with set_config, transaction local. app.user_id is
+ *   the one the row level security policies read through
+ *   tenancy.current_actor(), and app.run_id is the one that arms the override
+ *   guard. See sessionSettings below for why the other four are still sent.
  *   The advisory lock is the two key form of pg_try_advisory_xact_lock, taken
  *   inside the transaction so it releases on commit or rollback.
  *   Every candidate query carries firm_id and client_id terms, because a
@@ -2318,6 +2322,46 @@ class PostgresTx implements RunTx {
   }
 }
 
+/**
+ * The session settings the database actually reads, and the ones it does not.
+ *
+ * Migration 0001 defines tenancy.current_actor() as app.user_id, and migration
+ * 0003 arms the override guard on app.run_id being present. Those two names are
+ * the contract. The four settings this port sent before, app.firm_id,
+ * app.client_id, app.actor_id and app.actor_kind, are read by nothing in the
+ * schema, so every row level security policy saw a null actor and the override
+ * guard never fired. They are still sent, because they cost one round trip that
+ * was already happening and they are what a person reads in pg_stat_activity
+ * when working out which tenant a stuck transaction belongs to, but app.user_id
+ * and app.run_id are the two that change behaviour.
+ *
+ * app.run_id is set only for automation. A human session must not carry one, or
+ * the guard would refuse a person's own edit of a row that person overrode,
+ * which is the opposite of what doc 00 Part 7 asks for. When automation has no
+ * run id to offer, the guard is left disarmed rather than armed with a
+ * placeholder, because a placeholder run id in the log of a refusal would name
+ * an execution that never existed.
+ */
+function sessionSettings(session: TxSession): [string, unknown[]] {
+  const runId = session.actorKind === "human" ? "" : (session.runId ?? "");
+  return [
+    `select set_config('app.user_id', $1, true),
+            set_config('app.run_id', $2, true),
+            set_config('app.firm_id', $3, true),
+            set_config('app.client_id', $4, true),
+            set_config('app.actor_id', $5, true),
+            set_config('app.actor_kind', $6, true)`,
+    [
+      session.actorId,
+      runId,
+      session.firmId,
+      session.clientId,
+      session.actorId,
+      session.actorKind,
+    ],
+  ];
+}
+
 export class PostgresRunDb implements RunDb {
   constructor(private readonly pool: PgPoolLike) {}
 
@@ -2330,13 +2374,11 @@ export class PostgresRunDb implements RunDb {
         `begin isolation level ${isolation}${session.readOnly ? " read only" : ""}`,
       );
       // Tenant context and actor kind, read by the guards and the RLS policies.
-      await client.query(
-        `select set_config('app.firm_id', $1, true),
-                set_config('app.client_id', $2, true),
-                set_config('app.actor_id', $3, true),
-                set_config('app.actor_kind', $4, true)`,
-        [session.firmId, session.clientId, session.actorId, session.actorKind],
-      );
+      // Every one of these is transaction local, the third argument to
+      // set_config, so a pooled connection handed back with leftover state
+      // cannot carry another tenant's context into this transaction.
+      const [sql, params] = sessionSettings(session);
+      await client.query(sql, params);
       const out = await fn(new PostgresTx(client, session));
       await client.query("commit");
       return out;
@@ -2349,6 +2391,51 @@ export class PostgresRunDb implements RunDb {
       throw translateError(err);
     } finally {
       client.release();
+    }
+  }
+}
+
+/**
+ * A RunDb that maps every transaction onto a savepoint of one caller owned
+ * transaction, so the caller can roll the whole thing back.
+ *
+ * This exists for `npm run db:verify`, which has to execute a real run against
+ * the real database and leave nothing behind, including the run log rows a
+ * preview legitimately commits as evidence. Wrapping the port in an outer
+ * transaction and rolling back is the only way to get a genuine end to end
+ * execution with a guaranteed empty aftermath.
+ *
+ * Two honest limitations, both acceptable for a verification harness and
+ * neither acceptable in the application. Isolation is whatever the caller set
+ * on the outer transaction, because a savepoint cannot change isolation level.
+ * A read only session is not enforced, because a savepoint cannot make a
+ * writable transaction read only either. Nothing survives the rollback, so
+ * neither limitation can affect anything but the verification run itself.
+ */
+export class PostgresSavepointRunDb implements RunDb {
+  private depth = 0;
+
+  constructor(private readonly client: PgClientLike) {}
+
+  async tx<T>(session: TxSession, fn: (tx: RunTx) => Promise<T>): Promise<T> {
+    this.depth += 1;
+    const name = `run_verify_${this.depth}`;
+    try {
+      await this.client.query(`savepoint ${name}`);
+      const [sql, params] = sessionSettings(session);
+      await this.client.query(sql, params);
+      const out = await fn(new PostgresTx(this.client, session));
+      await this.client.query(`release savepoint ${name}`);
+      return out;
+    } catch (err) {
+      try {
+        await this.client.query(`rollback to savepoint ${name}`);
+      } catch {
+        // The outer rollback is what guarantees cleanliness, not this one.
+      }
+      throw translateError(err);
+    } finally {
+      this.depth -= 1;
     }
   }
 }

@@ -10,7 +10,9 @@
  * How it works:
  *   The key list is parsed out of the `export interface RowMap` block in
  *   `server/runs/tables.ts`, so a key added there is checked here without
- *   anybody remembering to add it twice.
+ *   anybody remembering to add it twice. The parser lives in
+ *   `script/row-map-keys.ts` because `script/db-verify.ts` asks the same
+ *   question of the live connection and two parsers would drift.
  *   Resolution imports `PHYSICAL_TABLES` and `physical` from the Postgres port
  *   itself. A second copy of the map would drift, and a drifted copy of the
  *   map is the bug this gate exists to find.
@@ -39,28 +41,11 @@
  * Run it with: npx tsx script/check-schema.ts
  */
 
-import { readFileSync } from "node:fs";
 import { PHYSICAL_TABLES, physical } from "../server/runs/db-postgres";
 import { RUN_EXECUTION_ID_WIDTH, SEQUENCE_ID_WIDTH } from "../server/runs/ids";
 import type { TableName } from "../server/runs/tables";
 import { PROJECT_ID, query } from "./connector-sql";
-
-/** The `RowMap` keys, read from the source so the two lists cannot diverge. */
-function rowMapKeys(): string[] {
-  const src = readFileSync("server/runs/tables.ts", "utf8");
-  const start = src.indexOf("export interface RowMap {");
-  if (start < 0) throw new Error("RowMap interface not found in server/runs/tables.ts");
-  const end = src.indexOf("\n}", start);
-  if (end < 0) throw new Error("RowMap interface has no closing brace");
-  const body = src.slice(start, end);
-  const keys: string[] = [];
-  for (const line of body.split("\n").slice(1)) {
-    const m = /^\s*([a-z0-9_]+)\s*:/.exec(line);
-    if (m) keys.push(m[1]);
-  }
-  if (keys.length === 0) throw new Error("RowMap parsed to zero keys");
-  return keys;
-}
+import { rowMapKeys } from "./row-map-keys";
 
 const keys = rowMapKeys();
 const wanted = new Map<string, string>();

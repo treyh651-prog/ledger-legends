@@ -1975,3 +1975,194 @@ particular rows in the fixture.
     itself. Writing a token into the repo config or into a dotfile leaves a
     secret on disk for the next agent to find, which is the same rule that
     keeps the database password out of this work.
+
+167. **`pg` and `@types/pg` installed, and the structural declarations needed no
+    change at all.** `PgPoolLike` and `PgClientLike` were written by hand because
+    the driver was deliberately absent, so the first question was how far the
+    real types differ. Options: import the driver types into the port and delete
+    the declarations, keep the declarations and adjust them to fit, keep them and
+    assert compatibility somewhere that the type checker sees, or leave the
+    driver out and keep the port unexercised. Chosen: keep the declarations, and
+    assert compatibility with two assignments in `server/db/pool.ts` that
+    `npx tsc --noEmit` checks. `pg.Pool` satisfies `PgPoolLike` and
+    `pg.PoolClient` satisfies `PgClientLike` unmodified, including
+    `rowCount: number | null` and the unconstrained row generic, so nothing was
+    adjusted and nothing differed. Importing the driver types into the port would
+    tie 2400 lines of query catalog to one driver's type surface for no
+    correctness gain, and the port needs four methods.
+
+168. **The port was setting four session variables the database does not read,
+    and neither of the two it does.** `tenancy.current_actor()` in migration 0001
+    reads `app.user_id`, and the override guard in migration 0003 arms on
+    `app.run_id` being present. The port sent `app.firm_id`, `app.client_id`,
+    `app.actor_id` and `app.actor_kind`, which nothing in the schema reads. The
+    consequence is not cosmetic: every row level security policy calls
+    `has_client_access`, which resolves the actor through `current_actor()`, so
+    under the app roles every policy saw null and denied everything, and the
+    override guard never fired, which means a run could have written over a row a
+    person had protected. Options: change the two SQL functions to read the names
+    the port sends, send the names the schema reads, send both sets, or rename
+    the port's four to match and accept a change at every call site. Chosen: send
+    both sets, with `app.user_id` and `app.run_id` added and the original four
+    kept. Changing the functions is a migration against the one contract doc 04
+    Part 0 states, and `app.user_id` is the name the doc uses. Renaming inside
+    the port loses the four settings, which cost one round trip that was already
+    happening and are what somebody reads out of `pg_stat_activity` when working
+    out which tenant a stuck transaction belongs to. Every one of the six is
+    transaction local, the third argument to `set_config`, so a pooled connection
+    handed back with leftover state cannot leak a tenant into the next
+    transaction. That is the answer to whether the pool defeats the context: it
+    cannot, because there is no session level state to leave behind.
+
+169. **`runId` is a new optional field on `TxSession` rather than a value the
+    port invents.** The override guard needs a run id present to fire, and the
+    port had no way to know one. Options: set `app.run_id` to the actor id, set
+    it to a fixed placeholder whenever the actor kind is not human, add the run
+    execution id to `TxSession` and thread it through `execute`, or derive it
+    inside the port from the actor kind alone. Chosen: the field, threaded from
+    `execute` and from `runSequence`. A placeholder would arm the guard, which is
+    the important half, but the value ends up in nothing today and would end up
+    in a log line tomorrow naming an execution that never existed. The field is
+    optional so the in memory port and the tests are untouched, and it is set on
+    the read only transactions too, because a read taken under a different
+    identity than the write it justifies is not evidence of anything.
+
+170. **Pool size ten, statement timeout thirty seconds, acquisition timeout ten
+    seconds, idle timeout thirty seconds.** Options considered for the size: the
+    driver default of ten, one per expected concurrent run, a large number on the
+    theory that the pooler absorbs it, or a computed fraction of the project's
+    connection allowance. Chosen: ten, which happens to match the default and is
+    kept for a stated reason rather than by accident. A run holds a connection
+    for one transaction, runs are triggered by people pressing buttons rather
+    than by request volume, and Supabase shares a few hundred client connections
+    across the whole project including the dashboard. Ten leaves room for several
+    processes without one of them exhausting the project. Thirty seconds for a
+    statement, because the slowest thing a run does is a bounded date window read
+    on an indexed tenant pair, so anything reaching thirty seconds is stuck
+    rather than slow and failing loudly beats a request that never returns. The
+    idle timeout matters more on a pooler than it looks: an idle connection this
+    process holds is one the project cannot give anybody else.
+
+171. **TLS is set in code, not through `sslmode` in the connection string.**
+    Options: require the operator to append `sslmode=require`, set `ssl` in code
+    with certificate verification off, set it in code with a pinned Supabase
+    root certificate committed to the repository, or read a certificate from an
+    optional environment variable and verify when it is present. Chosen: set in
+    code, verification off by default, with `PGSSLROOTCERT_PEM` honoured when the
+    operator supplies it. A parameter in the URL is a thing that gets dropped
+    when a string is copied between environments, and a silent fallback to
+    plaintext sends every ledger row and the password itself across the network
+    in the clear. A committed certificate expires and becomes a support ticket
+    somebody resolves by turning verification off. This encrypts, which defeats a
+    passive listener, and `docs/RUNNING.md` says plainly that it does not by
+    itself defeat an active man in the middle and what to set when that matters.
+
+172. **Port selection defaults to memory outside production and to Postgres
+    inside it, and refuses rather than falling back.** Options: default to
+    Postgres everywhere and let developers set `RUN_DB=memory`, default to memory
+    everywhere and let production set `RUN_DB=postgres`, key it on `NODE_ENV`, or
+    key it on whether `DATABASE_URL` happens to be present. Chosen: key it on
+    `NODE_ENV`, with `RUN_DB` as an explicit override in both directions.
+    Keying on the presence of `DATABASE_URL` is the dangerous one, because a
+    typo in the secret's name silently becomes a month of bookkeeping into a
+    store that vanishes on restart. Defaulting to Postgres everywhere breaks
+    every developer machine and the test suite. The refusal lives in
+    `server/index.ts` before any route is registered, so a misconfigured deploy
+    fails to start and the platform reports it, rather than starting and failing
+    on the first run somebody tries.
+
+173. **`db:verify` runs the run through a savepoint harness inside a transaction
+    it rolls back, rather than relying on preview writing nothing.** Preview
+    posts no journal entries, but it does commit run log evidence in a short
+    follow up transaction, by design, and the brief's description of preview as
+    writing nothing is therefore not quite right. Options: run preview and accept
+    the log rows, run preview and delete the log rows afterwards, wrap the port
+    in an outer transaction and map each inner transaction to a savepoint, or
+    skip the run step and verify only the reads. Chosen: the savepoint harness,
+    `PostgresSavepointRunDb`. Accepting the log rows means a verification command
+    the operator is told to run whenever something looks wrong writes to the
+    audit trail every time, and an audit trail with test rows in it is weaker
+    evidence. Deleting them afterwards is worse, because the log is insert only
+    by trigger and a delete path would have to defeat that. Verifying only reads
+    leaves the thing the whole task exists to prove unproven. Two honest
+    limitations are written next to the class: a savepoint cannot change
+    isolation level and cannot make a writable transaction read only, so the
+    harness runs everything at the outer serializable level. Nothing survives the
+    rollback, so neither limitation can affect anything but the verification.
+
+174. **`db:verify` picks its firm, client and user out of `tenancy.memberships`
+    instead of taking them from the environment.** Options: three more
+    environment variables, hard coded ids, the first row of `tenancy.clients`, or
+    a join that reproduces the body of `has_client_access`. Chosen: the join. The
+    first client row is not necessarily one any user can see, so the run would
+    fail on a policy denial that looks exactly like a broken wire, which is the
+    ambiguity this command exists to remove. More environment variables mean more
+    for the operator to get wrong on the one command they have to get right, and
+    hard coded ids belong to whichever database they were copied from. When the
+    join returns nothing the step is a skip and not a failure, because an empty
+    database is a correct database that nobody has onboarded a client into yet.
+
+175. **Three verdict words and three exit codes, with `INCOMPLETE` in the
+    middle.** Options: pass or fail only, with a skip counting as a pass; pass or
+    fail only, with a skip counting as a fail; a third verdict with its own exit
+    code; or per step exit codes. Chosen: the third verdict, exit code 2. A skip
+    counted as a pass tells the operator the run path works when it was never
+    executed, and a skip counted as a failure sends somebody looking for a
+    connection fault on a perfectly good connection to a database that simply has
+    no clients in it yet. The one command has to give one unambiguous answer, and
+    the honest answer here is a third one.
+
+176. **The `RowMap` key parser moved to `script/row-map-keys.ts`.** `db:verify`
+    asks the same relation existence question of the live connection that
+    `check-schema.ts` asks through the connector, and it has to resolve keys the
+    same way or it proves something weaker than it claims. Options: import the
+    function from `check-schema.ts`, which runs its checks at import time and
+    would run them twice; copy the parser; have `db:verify` shell out to
+    `check-schema.ts`; or extract the parser. Chosen: extract. A copied parser is
+    the drift the gate exists to find, and shelling out would make `db:verify`
+    depend on the Supabase connector being reachable, which is a second failure
+    mode in a command whose whole purpose is to isolate one.
+
+177. **A throwaway local Postgres to prove the harness end to end was attempted
+    and abandoned.** The savepoint harness and the pool are the two pieces no
+    gate in this repository can exercise, so the idea was a local Postgres 17,
+    the migrations applied, a seeded tenant, and `db:verify` run against it.
+    Options: an embedded Postgres binary with password authentication disabled so
+    that no password exists anywhere, an embedded Postgres with a password
+    invented locally, a Postgres emulator in JavaScript, or no local proof and a
+    report that says exactly what is unproven. Chosen: no local proof. Disabling
+    authentication on a database server is a thing that gets left behind and
+    copied, and it was refused by the sandbox for exactly that reason, which was
+    the right call. Inventing a password, even a throwaway one for a listener on
+    localhost, is the habit this task exists to avoid, and an emulator does not
+    implement savepoints and isolation levels faithfully enough for the proof to
+    mean anything. The failure modes of the harness are instead narrowed by type
+    checking, by the structural assertion in `pool.ts`, and by the two schema
+    gates, and what remains unproven is stated plainly in the report.
+
+178. **The driver is external to the server bundle and absent from the client
+    bundle, checked rather than assumed.** `script/build.ts` externalises every
+    dependency that is not on its allowlist, so `pg` needed no build change, but
+    a native driver quietly bundled into browser code would be the defect the
+    brief warned about. Options: add `pg` to the esbuild allowlist, leave it
+    external, mark it external explicitly in `vite.config.ts` as well, or add a
+    gate that greps the built assets. Chosen: leave it external and verify by
+    inspection of the output. `dist/index.cjs` contains one `require("pg")` and
+    the client bundle contains no trace of the driver, its connection string
+    parser, or its authentication code. A grep gate was considered and left out
+    because the build already fails loudly if a browser bundle reaches for
+    `node:net`, and a gate that only greps for one package name would not catch
+    the next one.
+
+179. **Migrations stay on the Supabase connector, and the direct connection is
+    documented rather than used.** Doc 04 Part 13 requires schema changes over a
+    direct connection and never over a transaction mode pooler, because a
+    migration depends on session state a pooler may hand to somebody else between
+    statements. Options: add a migration runner to this repository that uses
+    `DATABASE_URL`, add one that requires a separate `MIGRATION_DATABASE_URL`,
+    keep applying migrations through the connector and document both forms, or
+    say nothing about it. Chosen: keep the connector and document both forms in
+    `docs/RUNNING.md`, with the port numbers, the user name difference, and the
+    reason the pooler is wrong for the job. A migration runner in this repository
+    would need the credential the whole task is built around not having, and
+    every migration so far has been applied through the connector without one.

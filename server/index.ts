@@ -2,6 +2,7 @@ import "dotenv/config";
 import express, { Response, NextFunction } from 'express';
 import type { Request } from 'express';
 import { registerRoutes } from "./routes";
+import { resolveRunDb } from "./db/run-db";
 import { serveStatic } from "./static";
 import { createServer } from "node:http";
 
@@ -62,6 +63,12 @@ app.use((req, res, next) => {
 });
 
 (async () => {
+  // Before anything serves a request. A production process with no DATABASE_URL
+  // throws here, on purpose, because starting and then failing on the first run
+  // hides the configuration mistake behind a broken feature.
+  const runDb = resolveRunDb();
+  log(runDb.description, "db");
+
   await registerRoutes(httpServer, app);
 
   app.use((err: any, _req: Request, res: Response, next: NextFunction) => {
@@ -102,4 +109,10 @@ app.use((req, res, next) => {
       log(`serving on port ${port}`);
     },
   );
-})();
+})().catch((err: unknown) => {
+  // A startup refusal, most often DATABASE_URL missing in production. Print the
+  // message and nothing else, then exit non zero so the platform reports a
+  // failed deploy rather than a running process that cannot work.
+  console.error(err instanceof Error ? err.message : String(err));
+  process.exit(1);
+});

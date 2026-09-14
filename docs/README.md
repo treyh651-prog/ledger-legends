@@ -11,6 +11,7 @@ Read in order. `00` is the authority. When two documents disagree, `00` wins and
 | `04-data-structures.md` | Annotated Postgres DDL for everything the runs need and the app does not have yet, with row level security enabled and forced on every tenant table, and a migration order. |
 | `05-decisions.md` | The nine binding decisions taken September 3, 2026, and the amendments they force. Bundled entitlement with no payment processor in the product, the import pipeline and accepted file formats, the accrual native ledger with cash basis as a derived view, the firm scope boundary for two people who are not CPAs, payroll approval without disbursement, and the four remaining open items closed. Plus the six new runs, gates G18 and G19, and the revised build order. |
 | `06-schema-corrections.md` | Nine defects in document 04 found by writing the migrations, what the migrations do instead, and the one still open: the bank transaction register does not exist yet and blocks the import pipeline. |
+| `RUNNING.md` | How the operator points a deployment at the real database. Where the Supabase connection string comes from, which of the direct and pooled forms belongs to migrations and which to application queries, how to hold it as a secret, what `npm run db:verify` prints when it passes, and what every failure line means. Written for the person who owns the firm rather than for a database administrator. |
 
 ## The three ideas that carry the design
 

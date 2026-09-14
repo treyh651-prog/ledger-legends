@@ -2,7 +2,7 @@ node_modules/
 dist/
 .vite/
 
-# SQLite database files — never commit; exposes demo data at rest
+# SQLite database files, never commit, they expose demo data at rest
 data.db
 data.db-shm
 data.db-wal

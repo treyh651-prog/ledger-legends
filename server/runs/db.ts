@@ -110,6 +110,14 @@ export interface TxSession {
   actorId: Ulid;
   /** 'run', 'schedule', or 'sequence' for automation, 'human' for a person. */
   actorKind: "human" | "run" | "schedule" | "sequence";
+  /**
+   * The run execution id, or the sequence id for a sequence's own bookkeeping
+   * transaction. Optional because the in memory port derives the run context
+   * from actorKind, but Postgres cannot: the override guard trigger keys on the
+   * session setting app.run_id being present, so a transaction that carries no
+   * run id reaches a protected row with the guard disarmed.
+   */
+  runId?: string;
 }
 
 /** The named query catalog. Params in, rows out, both typed. */

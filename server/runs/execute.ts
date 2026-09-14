@@ -117,6 +117,7 @@ function sessionActorKind(actor: RunActor): TxSession["actorKind"] {
 function sessionFor<S, P>(
   run: Run<S, P>,
   opts: ExecuteOptions,
+  runId: string,
   overrides: Partial<TxSession> = {},
 ): TxSession {
   return {
@@ -126,6 +127,11 @@ function sessionFor<S, P>(
     clientId: opts.clientId,
     actorId: opts.actor.userId,
     actorKind: sessionActorKind(opts.actor),
+    // Carried so the Postgres port can arm the override guard on app.run_id.
+    // Every transaction a run opens belongs to that run, including the read
+    // only ones, because a read taken under a different identity than the
+    // write it justifies is not evidence of anything.
+    runId,
     ...overrides,
   };
 }
@@ -236,7 +242,7 @@ export async function execute<S, P>(
   // Phase 0. Freeze the scope in a read only transaction so the idempotency key
   // exists before the intent row is written. No lock, no writes.
   const frozen0 = await db.tx(
-    sessionFor(run, opts, { readOnly: true, isolation: "repeatable read" }),
+    sessionFor(run, opts, executionId, { readOnly: true, isolation: "repeatable read" }),
     async (tx) => {
       const ctx = buildContext(db, opts, executionId, "pending", tx);
       return run.resolveScope(scope, ctx);
@@ -256,7 +262,7 @@ export async function execute<S, P>(
   // lock and never executes.
   if (opts.mode === "apply") {
     const priorRows = await db.tx(
-      sessionFor(run, opts, { readOnly: true, isolation: "repeatable read" }),
+      sessionFor(run, opts, executionId, { readOnly: true, isolation: "repeatable read" }),
       async (tx) =>
         tx.query("applied_run_by_idempotency_key", { idempotencyKey }),
     );
@@ -302,13 +308,13 @@ export async function execute<S, P>(
     env,
   });
   try {
-    await db.tx(sessionFor(run, opts), async (tx) => {
+    await db.tx(sessionFor(run, opts, executionId), async (tx) => {
       await tx.insert("run_log", [intent]);
     });
   } catch (err) {
     if (err instanceof UniqueViolation) {
       const priorRows = await db.tx(
-        sessionFor(run, opts, { readOnly: true }),
+        sessionFor(run, opts, executionId, { readOnly: true }),
         async (tx) =>
           tx.query("applied_run_by_idempotency_key", { idempotencyKey }),
       );
@@ -360,7 +366,7 @@ export async function execute<S, P>(
     } catch (err) {
       if (isRetryable(err) && attempt < maxAttempts) {
         lastTransient = err;
-        await db.tx(sessionFor(run, opts), async (tx) => {
+        await db.tx(sessionFor(run, opts, executionId), async (tx) => {
           await appendBareEvent(
             tx,
             frozen0.firmId,
@@ -618,7 +624,7 @@ async function runOnce<S, P>(
 
   let attempted: Attempted;
   try {
-    attempted = await db.tx(sessionFor(run, opts), runTransaction);
+    attempted = await db.tx(sessionFor(run, opts, executionId), runTransaction);
   } catch (err) {
     if (err instanceof RollbackSignal) {
       previewPayload = err.payload as Attempted;
@@ -683,7 +689,7 @@ async function writeTerminalOnly<S, P>(
   detail: string,
   entryIdByProposalIndex: Record<number, Ulid> = {},
 ): Promise<void> {
-  await db.tx(sessionFor(run, opts), async (tx) => {
+  await db.tx(sessionFor(run, opts, executionId), async (tx) => {
     const ctx = buildContext(db, opts, executionId, idempotencyKey, tx);
     await writeRunLog(tx, {
       run,

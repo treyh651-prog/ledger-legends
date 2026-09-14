@@ -54,6 +54,18 @@ npx tsx script/check-schema.ts
 npx tsx script/check-queries.ts
 ```
 
+Point the application at the real database, and prove it reached it:
+
+```
+npm run db:verify
+```
+
+That one needs `DATABASE_URL` set in the environment, which is the only secret
+this project has and is never stored in the repository. `docs/RUNNING.md` says
+where the value comes from, which of the Supabase connection forms belongs to
+which job, what a pass looks like, and what every failure means. With nothing
+set, `npm run dev` keeps running on the in memory store exactly as before.
+
 ## Rules this codebase follows
 
 These are not style preferences, they are correctness rules. Do not relax them.
