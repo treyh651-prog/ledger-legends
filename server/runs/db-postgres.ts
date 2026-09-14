@@ -62,8 +62,13 @@ const SCHEMA = "ledger";
  * carry a different physical name than the row map key. Qualification is a
  * lookup rather than a prefix so the mismatch stays in one place.
  */
-const PHYSICAL_TABLES: Partial<Record<TableName, string>> = {
+export const PHYSICAL_TABLES: Partial<Record<TableName, string>> = {
   mapping_profiles: "import.mapping_profiles",
+  mapping_profile_columns: "import.mapping_profile_columns",
+  wizard_sessions: "intake.wizard_sessions",
+  // Plural in SQL, singular in the row map, and the mismatch is why every read
+  // of a sequence went to a table that does not exist.
+  run_sequence: "ledger.run_sequences",
   import_batches: "import.batches",
   staged_rows: "import.staged_rows",
   recurring_templates: "subledger.recurring_templates",
@@ -123,7 +128,7 @@ const PHYSICAL_TABLES: Partial<Record<TableName, string>> = {
   offboard_exports: "deliverable.offboard_exports",
 };
 
-function physical(table: TableName): string {
+export function physical(table: TableName): string {
   return PHYSICAL_TABLES[table] ?? `${SCHEMA}.${table}`;
 }
 
@@ -1545,7 +1550,8 @@ const QUERIES: Record<QueryName, SqlSpec> = {
     sql: `select id, firm_id as "firmId", client_id as "clientId",
             transaction_id as "transactionId", reason_code as "reasonCode",
             detail, status, opened_on::text as "openedOn",
-            due_on::text as "dueOn", created_by_run_id as "createdByRunId"
+            due_on::text as "dueOn", created_by_run_id as "createdByRunId",
+            requested_at::text as "requestedAt"
           from ${SCHEMA}.portal_requests
           where firm_id = $1 and client_id = $2 and status = 'open'
           order by id asc`,

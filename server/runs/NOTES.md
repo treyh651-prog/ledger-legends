@@ -1553,3 +1553,137 @@ particular rows in the fixture.
     browser history and in any proxy log along the way. The `intake.wizard_sessions`
     table added in migration 0018 is where a resumable draft belongs the day
     there is a server to write it to.
+
+134. **Three of the eleven unresolved row map keys were a map problem and not a
+    missing table.** `mapping_profile_columns` and `wizard_sessions` exist,
+    created by migration 0018 in the `import` and `intake` schemas, and
+    `PHYSICAL_TABLES` had no entry for either, so the port qualified them as
+    `ledger.` and addressed nothing. `run_sequence` is singular in `RowMap` and
+    the table migration 0003 created is `ledger.run_sequences`. Options: move
+    the two tables into `ledger` so the default prefix works, rename the table
+    to match the key, rename the key to match the table, or add the three
+    entries to the physical table map. Chosen: three entries in the map. Moving
+    tables would undo the schema split doc 03 asks for, and renaming the key
+    touches every row interface, every query catalog entry and every test that
+    names it. The map exists for exactly this mismatch and it keeps the
+    mismatch in one readable place.
+
+135. **`chart_accounts` is a view over `ledger.accounts` with an instead of
+    insert trigger, and the 8000 and 9000 blocks refuse.** `ChartAccountRow` is
+    five fields, the real chart is keyed by `(client_id, account_number)` with
+    no id column, and it requires `account_type` and `normal_side`. Options: a
+    second physical chart table, rewrite INTAKE-BUILD-CHART to emit full
+    account rows, add nullable type columns to `ledger.accounts`, or a view
+    with a trigger that derives the type from the account number. Chosen: the
+    view. Two chart tables drift and there is no tiebreak between them when
+    they do, rewriting the intake run puts a schema change and a run change in
+    one commit, and nullable type columns would let an account with no normal
+    side reach the trial balance. The derivation is the doc 00 block map
+    migration 0002 already enforces as `acct_block_matches_type`, so the
+    trigger is not inventing a rule, it is applying the one that is already
+    there. The 8000 block is other income or other expense and the 9000 block
+    is tax or memo, and nothing in five fields chooses between them, so the
+    trigger raises and names the account and tells the caller to insert into
+    `ledger.accounts` with an explicit type. A guessed account type is a
+    misstatement that survives into every statement built on top of it.
+
+    Two consequences worth knowing. The view's id is derived,
+    `client_id` and `account_number` joined by a hyphen, and
+    `intake-build-chart.ts` mints a different derived ULID for the same row.
+    Idempotency still holds because the run skips by account number before it
+    ever looks at an id. And the grant is select and insert only, with no
+    instead of update trigger, because no field write path for a chart account
+    exists in the port. A rename goes to `ledger.accounts`, which is where the
+    row lives.
+
+136. **Array valued columns on the new tables are jsonb, not `char(26)[]`.**
+    `encodeParam` in the Postgres port JSON stringifies every array before it
+    reaches the driver, so `'["A","B"]'` arrives at a `char(26)[]` column and
+    Postgres answers `22P02 malformed array literal`. Confirmed against the
+    real database. Options: change `encodeParam` to emit a Postgres array
+    literal, pass arrays through the driver's own array binding, declare the
+    columns jsonb, or store a delimited string. Chosen: jsonb for
+    `suspense_items.related_ids` and for `run_sequences.child_run_ids`.
+    Changing the encoder is a change to every insert the port makes and would
+    need a per column type map to know which arrays are text and which are not,
+    and a delimited string gives up any ability to index or count the contents.
+    This does diverge from the `char(26)[]` spelling migration 0003 used for
+    `run_log.candidate_ids`, which has the same defect and is written up in the
+    report rather than changed here.
+
+137. **`ledger.run_sequences` could not accept the row `sequence.ts` writes, in
+    three separate ways.** `id` was `char(26)` and a sequence id is `RUNSEQ-`
+    and a ULID, which is 33. `actorId` is on the row and there was no
+    `actor_id` column. `status` was not null with no default and is not on the
+    row at all. Options for status: give the column a default of `completed`,
+    drop the column, add a `status` field to `RunSequenceRow` and to every
+    caller, make it nullable and let reads cope, or derive it. Chosen: derive
+    it in a before insert trigger from `stopped_at_step`, null meaning
+    completed and a step number meaning stopped. A default of completed would
+    label a stopped sequence completed, which is the one wrong answer that
+    nobody notices. Dropping the column loses the only field a practice screen
+    filters on. Adding the field to the row type spreads a value that is
+    already implied across every call site, and two sources for one fact
+    eventually disagree.
+
+138. **No check constraint that gross plus fee equals net on
+    `settlement_rows`.** The invariant is real, doc 02 TXN-SPLIT-SETTLEMENTS
+    step 2, and fees are stored negative so the relation is a sum and not a
+    difference. Options: a check constraint, a trigger that repairs net, a
+    trigger that warns, or no constraint. Chosen: no constraint, with
+    `fee_cents <= 0` kept because that one is a storage convention rather than
+    a claim about the processor. A processor report that does not add up is a
+    thing that actually arrives, and the run already detects it and reports the
+    payout by name. A constraint would refuse to store the row, which means the
+    firm cannot see the report it needs to argue with the processor about, and
+    the run's mismatch branch would become unreachable code.
+
+139. **All seven new tables carry the version column, the three override
+    columns and both triggers, including the ones no run updates.** None of the
+    seven row interfaces carry `manualOverride`, and two of the seven are read
+    only to runs today. Options: add the columns only where a run writes them,
+    add them only where a row interface names them, add them everywhere, or add
+    them later when a screen needs them. Chosen: everywhere, matching how
+    migration 0015 treated its tables. A firm maintained bank code mapping and
+    a document link a person filed by hand are both things somebody will edit,
+    the guard costs nothing on a table nothing updates, and adding a column to
+    a table with rows in it later is a migration plus a backfill plus a window
+    where half the tables answer the override question differently.
+
+140. **The run id width split is real across eighty odd columns and only the
+    two 0018 tables are widened here.** A run execution id is 31 characters.
+    Migrations 0003 through 0014 declared run id columns `char(26)`, which is
+    the ULID width without the `RUNX-` prefix, and 0015 through 0017 use
+    `char(31)`. Options: widen every column now, widen nothing and report,
+    change ids to fit 26, or widen only the columns this migration's own work
+    touches. Chosen: widen the five columns on `intake.wizard_sessions` and the
+    one on `import.mapping_profile_columns`, because those two tables are
+    targets of this migration and would fail on the first run write, and leave
+    the rest to a dedicated migration. Same reasoning that kept the intake run
+    rewrite out of this commit. A width change across the run log partitions
+    is its own piece of work with its own way of going wrong, and bundling it
+    here means a failure in either half rolls back both.
+
+141. **`script/check-schema.ts` imports the physical table map instead of
+    copying it, and talks to the database through the Supabase connector.**
+    The gate has to resolve a row map key the same way the port resolves it, or
+    it proves nothing. Options: duplicate the map in the script, read the map
+    out of the source with a regex, export the map and the resolver from
+    `db-postgres.ts` and import them, or generate a schema snapshot file and
+    diff against it. Chosen: export and import. A duplicated map drifts, and a
+    drifted copy of that map is the exact bug this gate exists to find. The key
+    list itself is parsed from the `export interface RowMap` block, because a
+    type cannot be enumerated at runtime and a hand kept list would drift for
+    the same reason. Credentials never enter the script: the connector holds
+    its own, and the script spawns it and strips the untrusted data envelope
+    off the rows.
+
+142. **`open_portal_requests_for_client` returned a row that was missing a
+    field its own type promises.** The query selected ten of the eleven columns
+    of `PortalRequestRow` and left out `requested_at`, so the same call gave a
+    `requestedAt` under the memory port and `undefined` under Postgres.
+    Options: drop the field from the row type, make it optional, have the
+    memory port stop returning it, or add the column to the select. Chosen: add
+    it to the select. The field is written on every insert and the aging the
+    practice runs report needs it, so the type was right and the query was
+    short.

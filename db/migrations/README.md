@@ -79,3 +79,44 @@ patched on the side.
    point at: `chart_accounts`, `mapping_profile_columns`, `wizard_sessions`,
    `run_sequence`. None of this was visible while the runs only ever ran against
    the in memory port.
+
+## The eleven row map gaps, closed by 0019
+
+`0019_run_table_gaps.sql` answers item 4 above, and `script/check-schema.ts` is
+the gate that keeps it answered. The gate parses the `RowMap` keys out of
+`server/runs/tables.ts`, resolves each one through the physical table map the
+Postgres port itself exports, and fails if any key names a relation the
+database does not have. It reads the database through the Supabase connector,
+so it needs no credential of its own.
+
+Seven of the eleven were genuinely missing and are created by 0019:
+`ledger.transfer_pairs`, `ledger.suspense_items`, `ledger.bank_code_mappings`,
+`subledger.settlement_rows`, `ledger.document_links`, `ledger.portal_requests`
+and `ledger.documentation_exceptions`. Each holds the full tenant convention
+listed above, plus the override guard and a named check constraint on every
+enumerated column.
+
+`chart_accounts` was not missing a table, it was asking for a second one.
+`ChartAccountRow` is five fields and `ledger.accounts` needs an account type
+and a normal side, so 0019 creates `ledger.chart_accounts` as a view with
+`security_invoker` on and an instead of insert trigger that derives the type
+from the doc 00 account block. The 8000 and 9000 blocks each carry two possible
+types, so the trigger raises and names the account rather than guessing.
+
+The remaining three, `mapping_profile_columns`, `wizard_sessions` and
+`run_sequence`, exist in SQL under names the physical table map did not carry.
+That map is fixed in `db-postgres.ts`, not here.
+
+0019 also repairs `ledger.run_sequences`, which could not accept the row the
+sequence runner writes: the id was seven characters too short for a `RUNSEQ-`
+prefixed ULID, there was no `actor_id`, and `status` was mandatory with no
+default and no field behind it. It is now derived on insert from
+`stopped_at_step`. `child_run_ids` moves to jsonb, because the port JSON
+encodes every array before it reaches the driver and a text array column
+rejects that literal.
+
+Two things found and deliberately not fixed in 0019, both written up in
+`postgres-wire-report.md`: seventy seven run id columns across migrations 0003
+to 0014 are still `char(26)` and cannot hold a 31 character run id, and
+`ledger.run_log.candidate_ids` is a `char(26)[]` with the same array encoding
+problem `child_run_ids` had. Both want their own migration.
