@@ -1963,3 +1963,15 @@ particular rows in the fixture.
     the answer. A committed snapshot removes the network and with it the whole
     point, since the question the gate asks is what the database looks like
     now.
+
+166. **The push to main went through the platform credential preset rather
+    than a token written into git config.** Options: put the agent proxy token
+    in a credential helper, send it as an Authorization header, write it to
+    `~/.git-credentials`, push the tree through the GitHub connector instead,
+    or run the push under the platform credential preset. Chosen: the preset.
+    A plain `git push` failed with no username, the token in a helper and the
+    same token as a bearer header both returned 403, and the token as the
+    username returned 500, so the proxy clearly wants credentials it supplies
+    itself. Writing a token into the repo config or into a dotfile leaves a
+    secret on disk for the next agent to find, which is the same rule that
+    keeps the database password out of this work.
