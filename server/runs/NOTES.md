@@ -1687,3 +1687,132 @@ particular rows in the fixture.
     it to the select. The field is written on every insert and the aging the
     practice runs report needs it, so the type was right and the query was
     short.
+
+143. **A run id is thirty one characters, and a sequence id is thirty three, and
+    both numbers come from the minting code rather than from a count of what the
+    columns hold.** `ids.ts` builds a run execution id as `RUNX-` in front of a
+    twenty six character Crockford base32 ULID, and `sequence.ts` builds its own
+    as `RUNSEQ-` in front of the same ULID. Options for what to call the true
+    width: twenty six, on the theory that the prefix is display only, thirty one
+    for every run id column with sequences folded in, thirty three everywhere so
+    one number covers both, thirty one and thirty three kept apart, or a round
+    forty with headroom. Chosen: thirty one and thirty three kept apart, taken
+    from exported constants. The prefix is not decoration, it is stored, the
+    probe below reads it back at full length, and two honest numbers describe
+    two different ids better than one number that is wrong about both. The
+    round number was tempting and was refused because nothing would then say
+    where the limit came from.
+
+144. **The columns became `text` with a named length check instead of a wider
+    `char`.** Options: `char(31)`, `varchar(31)`, `text` bare, or `text` with a
+    named check constraint. Chosen: the last one. `char` blank pads, and a
+    padded id compares unequal to the id the run holds in memory unless every
+    read trims, which is a promise no single query can keep. Bare `text` throws
+    away the only statement the schema makes about the shape of the value.
+    The check names itself, so a refusal arrives as `run_id_width` rather than
+    as a value too long for type character(26), and widening later is a
+    constraint swap on an unchanged column type.
+
+145. **The forty columns that were already wide enough converted too.** Options:
+    touch only the twenty seven narrow ones, touch every run id column, or
+    split the file into a defect section and a tidy section. Chosen: every
+    column. A schema where the same value is `char(26)` in some tables,
+    `char(31)` in others and `text` in the rest invites the next author to pick
+    whichever they saw last, and the gate added in 150 can only state one rule.
+    The tables are all empty, so the rewrite costs nothing beyond the lock.
+
+146. **The affected column list was derived from the row interfaces and the live
+    catalog, not from the name of the column.** Options: match every column
+    ending in `run_id`, grep the migrations, read the row interface field types,
+    or take the previous report's list as given. Chosen: the field types, then
+    reconciled against `information_schema`. A field typed `string` on a row
+    interface is a framework minted run id and a field typed `Ulid` is an
+    entity id that happens to sit in a column named for a run.
+    `close_gate_results.close_run_id`, `cash_forecast_weeks.forecast_run_id`
+    and `pay_register_entries.pay_run_id` are the second kind, each a foreign
+    key into the table that mints the ULID, so widening them would break the
+    reference and say something untrue. Nine more columns are the opposite case,
+    real run ids the row map cannot reach, and they were read out of the
+    migration text that created them. The previous report counted seventy seven
+    columns across forty seven tables and this pass counts sixty seven across
+    fifty two, and the divergence is explained in the report rather than split
+    down the middle.
+
+147. **Partitioned parents were altered once and the partitions followed.**
+    Options: alter the parent, alter each of the twelve monthly partitions of
+    `run_log` and `run_log_items`, detach and reattach around the change, or
+    build new partitions and copy. Chosen: the parent alone. A type change on a
+    partitioned table recurses to every partition by definition, and the
+    verification count of a hundred and twenty eight run id columns includes
+    the partitions, which is the proof the recursion happened. Naming the
+    partitions in the file would have added a hundred and fifty lines that go
+    stale the first month a new partition is created.
+
+148. **`apply_migration` refused the first version of the `candidate_ids`
+    conversion with 0A000, cannot use subquery in transform expression.** The
+    using clause had an `unnest` inside an `array(select ...)` to trim the
+    blank padding bpchar leaves behind. Options: drop the trim and accept
+    padded ids in the json, cast the array to `text[]` first and let the
+    documented cast rule do the trimming, create a helper function and drop it
+    at the end of the migration, move the trim into a later data migration, or
+    trim on read in the port. Chosen: the cast. A `char(n)[]` to `text[]` cast
+    removes trailing blanks, which a probe confirmed before the rewrite went
+    in, so `to_jsonb(candidate_ids::text[])` is both shorter than the subquery
+    and legal where a subquery is not. Trimming on read was refused because it
+    puts the padding problem in every caller.
+
+149. **`subledger.vendors.aliases` moved to jsonb before anything wrote to it.**
+    It was the last array column any mapped table had, a `text[]` with a gin
+    index from migration 0005. Options: leave it, since no write path exists
+    today, convert it now, fix `encodeParam` in the port to send a Postgres
+    array literal, or keep a per column list of which arrays to stringify.
+    Chosen: convert it. `VendorRow.aliases` is a `string[]`, so the first
+    vendor insert through the port would have refused with the same 22P02 that
+    `run_sequences.child_run_ids` did in migration 0019, and a defect that is
+    only waiting for a caller is still a defect. The gin index was dropped and
+    recreated on the jsonb column so an alias containment lookup still has an
+    index, and the probe confirms `aliases @> '["PROBEVENDOR"]'` finds the row.
+    Changing `encodeParam` was refused because the port already round trips
+    jsonb correctly everywhere else and one encoding for arrays is easier to
+    reason about than two.
+
+150. **`script/check-schema.ts` grew two checks, and neither one carries a copy
+    of the width.** Options: hard code thirty one and thirty three, import the
+    constants from `server/runs/ids.ts`, derive the width by minting an id at
+    gate time, or read the numbers out of the migration file. Chosen: import
+    the constants, which is why `ids.ts` now exports `RUN_EXECUTION_ID_WIDTH`
+    and `SEQUENCE_ID_WIDTH` and why `sequence.ts` mints through a shared
+    `sequenceRunId`. A gate with its own copy of a number stops testing
+    anything the day the prefix changes. The width check fails on any run id
+    column that is a fixed width character type at all, not only a short one,
+    because `char(31)` pads and is therefore the wrong type even at the right
+    length. The array check is scoped to the tables the row map addresses,
+    since an array column on a table no run can reach is not a defect the port
+    can hit, and the same scoping is why a probe table with a `text[]` did not
+    trip it while its `char(26)` run id did.
+
+151. **The named queries in the port disagree with the column names in the
+    database in fifty five places, and this migration deliberately did not
+    touch them.** `run_log_items_by_execution` and
+    `run_log_events_by_execution` select `run_execution_id` from tables that
+    migration 0003 created with a `run_id` column, `journal_entries` is queried
+    on `reversal_of` and has no such column, and thirteen queries pass an array
+    parameter as `any($n::char(26)[])` or `any($n::uuid[])`, which `encodeParam`
+    stringifies into a json literal that Postgres rejects with 22P02. All three
+    were confirmed live. Options: fix the names and the casts here, fix only the
+    thirteen casts, fix nothing and report, or fix the casts and add a gate that
+    checks every named query against the catalog. Chosen: report, and recommend
+    the gate. The rewrite is fifty five renames spread across a dozen features
+    and it cannot be verified by running a query, because the queries fail for
+    two independent reasons at once, so folding it into a width migration would
+    produce a change nobody could review. The width fix is complete and
+    provable on its own, and the drift is now written down with the evidence
+    that found it.
+
+152. **The migration README file table now runs to 0020.** It had stopped at
+    0011 while nine files were added. Options: extend the table, replace it with
+    a generated listing, delete it as a thing that will always rot, or add a
+    note that it is partial. Chosen: extend it. Someone reading the directory
+    for the first time wants one line per file in order, the table is nine rows
+    behind and not wrong, and a generated listing needs a build step to keep a
+    document honest that a person can keep honest in a minute.

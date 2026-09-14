@@ -54,9 +54,28 @@ export function ulid(now?: Date): string {
   return encodeTime(ms) + lastRandom.map((c) => ALPHABET[c]).join("");
 }
 
+/**
+ * A ULID is 26 characters, and every id the framework mints is a prefix plus
+ * one. The widths live next to the prefixes because a column sized for the bare
+ * ULID accepts nothing this file produces, and migration 0020 exists to repair
+ * exactly that. `script/check-schema.ts` reads these numbers rather than
+ * carrying its own copy, so a new prefix cannot widen an id without also
+ * widening what the gate demands of the database.
+ */
+export const ULID_WIDTH = 26;
+export const RUN_EXECUTION_ID_PREFIX = "RUNX-";
+export const SEQUENCE_ID_PREFIX = "RUNSEQ-";
+export const RUN_EXECUTION_ID_WIDTH = RUN_EXECUTION_ID_PREFIX.length + ULID_WIDTH;
+export const SEQUENCE_ID_WIDTH = SEQUENCE_ID_PREFIX.length + ULID_WIDTH;
+
 /** A run execution id is "RUNX-" plus a ULID. */
 export function runExecutionId(now?: Date): string {
-  return `RUNX-${ulid(now)}`;
+  return `${RUN_EXECUTION_ID_PREFIX}${ulid(now)}`;
+}
+
+/** A sequence id is "RUNSEQ-" plus a ULID, minted once per sequence run. */
+export function sequenceRunId(now?: Date): string {
+  return `${SEQUENCE_ID_PREFIX}${ulid(now)}`;
 }
 
 /**

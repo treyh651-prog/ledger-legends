@@ -21,12 +21,28 @@
  * a legitimate target for a run write, so the existence query unions
  * pg_catalog relation kinds r, p and v.
  *
+ * Two more checks were added with migration 0020, because a gate that only
+ * asks whether a table exists cannot see either of the defects that migration
+ * repaired.
+ *
+ *   Run id width. A run id is a prefix plus a 26 character ULID, and the widths
+ *   are imported from `server/runs/ids.ts` rather than written down again here.
+ *   Migrations 0003 through 0014 sized these columns char(26), so the first run
+ *   to write to Postgres would have refused part way through. Any run id column
+ *   that is a fixed width character type, or narrower than the id it holds,
+ *   fails the gate.
+ *
+ *   Array columns. The port JSON stringifies every array before it reaches the
+ *   driver, so a text[] or char(26)[] column refuses the literal with 22P02. No
+ *   column of a table the row map addresses may be an array type.
+ *
  * Run it with: npx tsx script/check-schema.ts
  */
 
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { PHYSICAL_TABLES, physical } from "../server/runs/db-postgres";
+import { RUN_EXECUTION_ID_WIDTH, SEQUENCE_ID_WIDTH } from "../server/runs/ids";
 import type { TableName } from "../server/runs/tables";
 
 // The Supabase project reference, which is the host part of the project's API
@@ -103,9 +119,112 @@ for (const [key, table] of Object.entries(PHYSICAL_TABLES)) {
 }
 
 console.log(`Checked ${keys.length} row map keys against ${present.size} relations in ${PROJECT_ID}.`);
-if (missing.length > 0) {
-  for (const m of missing.sort()) console.log(`MISSING ${m}`);
-  console.log(`SCHEMA CHECK FAILED, ${missing.length} unresolved`);
+
+// ---------------------------------------------------------------------------
+// Run id widths, migration 0020.
+// ---------------------------------------------------------------------------
+
+/** The schemas this project owns. Supabase owns the rest of the database. */
+const OWNED_SCHEMAS = [
+  "close", "deliverable", "docvault", "entitlement", "import", "intake",
+  "ledger", "practice", "report", "subledger", "tax", "tenancy",
+];
+
+/**
+ * Columns whose name ends in run_id but whose row field is typed `Ulid`, so the
+ * value is an entity id and not a run execution id. Each one is a foreign key
+ * into the table that mints it, and widening them would both say something
+ * untrue and break the reference.
+ */
+const ENTITY_ID_COLUMNS = new Set([
+  "ledger.close_gate_results.close_run_id",
+  "report.cash_forecast_weeks.forecast_run_id",
+  "subledger.pay_register_entries.pay_run_id",
+]);
+
+/**
+ * Columns named `id` on a run log table that hold a plain ULID rather than a
+ * run id. A log item and a log event each get their own ULID, and only the
+ * run_log row is keyed by the run execution id.
+ */
+const PLAIN_ULID_IDS = /^ledger\.run_log_(items|events)(_\d{4}_\d{2})?\.id$/;
+
+/** Sequence ids carry the longer prefix, so they need the larger width. */
+function requiredWidth(column: string): number {
+  return column === "sequence_id" ? SEQUENCE_ID_WIDTH : RUN_EXECUTION_ID_WIDTH;
+}
+
+const schemaList = OWNED_SCHEMAS.map((s) => `'${s}'`).join(", ");
+
+const runIdRows = query(
+  `select c.table_schema || '.' || c.table_name as tbl, c.column_name as col,
+          c.data_type as kind, c.character_maximum_length as len
+     from information_schema.columns c
+     join pg_class cl on cl.relname = c.table_name
+     join pg_namespace ns on ns.oid = cl.relnamespace and ns.nspname = c.table_schema
+    where c.table_schema in (${schemaList})
+      and cl.relkind in ('r', 'p')
+      and (c.column_name ~ '(^|_)run_id$' or c.column_name ~ '(^|_)run_ids$'
+           or c.column_name in ('run_execution_id', 'sequence_id')
+           or (c.table_name like 'run_log%' and c.column_name = 'id')
+           or (c.table_name = 'run_sequences' and c.column_name = 'id'))`,
+);
+
+const tooNarrow: string[] = [];
+let runIdChecked = 0;
+for (const row of runIdRows) {
+  const name = `${String(row.tbl)}.${String(row.col)}`;
+  if (ENTITY_ID_COLUMNS.has(name) || PLAIN_ULID_IDS.test(name)) continue;
+  const kind = String(row.kind);
+  if (kind === "jsonb" || kind === "text") {
+    runIdChecked += 1;
+    continue;
+  }
+  runIdChecked += 1;
+  const width = requiredWidth(String(row.col));
+  const len = row.len === null ? 0 : Number(row.len);
+  if (kind === "character") {
+    // Blank padded as well as usually short. Either way it is not the type the
+    // rest of the run id columns are.
+    tooNarrow.push(`${name} is char(${len}), wanted text holding ${width}`);
+  } else if (len < width) {
+    tooNarrow.push(`${name} is ${kind}(${len}), wanted at least ${width}`);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Array columns, migration 0020 sections 2 and 3.
+// ---------------------------------------------------------------------------
+
+const mapped = new Set(Array.from(wanted.values()));
+const arrays: string[] = [];
+for (const row of query(
+  `select c.table_schema || '.' || c.table_name as tbl, c.column_name as col,
+          c.udt_name as udt
+     from information_schema.columns c
+     join pg_class cl on cl.relname = c.table_name
+     join pg_namespace ns on ns.oid = cl.relnamespace and ns.nspname = c.table_schema
+    where c.table_schema in (${schemaList})
+      and cl.relkind in ('r', 'p', 'v')
+      and c.data_type = 'ARRAY'`,
+)) {
+  const tbl = String(row.tbl);
+  if (!mapped.has(tbl)) continue;
+  arrays.push(`${tbl}.${String(row.col)} is ${String(row.udt)}, the port sends json`);
+}
+
+console.log(
+  `Checked ${runIdChecked} run id columns against ${RUN_EXECUTION_ID_WIDTH} and ${SEQUENCE_ID_WIDTH} characters, and ${mapped.size} mapped tables for array columns.`,
+);
+
+const failures = [
+  ...missing.sort().map((m) => `MISSING ${m}`),
+  ...tooNarrow.sort().map((m) => `NARROW ${m}`),
+  ...arrays.sort().map((m) => `ARRAY ${m}`),
+];
+if (failures.length > 0) {
+  for (const f of failures) console.log(f);
+  console.log(`SCHEMA CHECK FAILED, ${failures.length} problems`);
   process.exit(1);
 }
 console.log("ALL ROW MAP KEYS RESOLVE");

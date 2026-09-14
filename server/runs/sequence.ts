@@ -15,7 +15,7 @@
 import type { RunStatus, Run, Ulid } from "./contract";
 import type { RunDb } from "./db";
 import { execute, type ExecuteOptions, type RunOutcome } from "./execute";
-import { ulid } from "./ids";
+import { sequenceRunId } from "./ids";
 import type { RunSequenceRow } from "./tables";
 
 export interface SequenceStep {
@@ -63,7 +63,7 @@ export async function executeSequence(
   steps: readonly SequenceStep[],
   opts: SequenceOptions,
 ): Promise<SequenceOutcome> {
-  const sequenceId = `RUNSEQ-${ulid(opts.now)}`;
+  const sequenceId = sequenceRunId(opts.now);
   const childRunIds: string[] = [];
   const outcomes: RunOutcome<unknown>[] = [];
   let stoppedAtStep: number | null = null;
