@@ -129,6 +129,9 @@ export const PHYSICAL_TABLES: Partial<Record<TableName, string>> = {
   pay_runs: "subledger.pay_runs",
   pay_register_entries: "subledger.pay_register_entries",
   cpa_handoffs: "deliverable.cpa_handoffs",
+  sched_run_policies: "sched.run_policies",
+  sched_schedules: "sched.schedules",
+  sched_windows: "sched.windows",
   offboard_exports: "deliverable.offboard_exports",
 };
 
@@ -1241,6 +1244,32 @@ const OFFBOARD_EXPORT_COLUMNS = `
   manual_override as "manualOverride"
 `;
 
+// The scheduler, migration 0022. Timestamps come back as ISO text because the
+// rest of the port speaks strings and a Date crossing this boundary would be
+// the only one.
+const SCHED_SCHEDULE_COLUMNS = `
+  id, firm_id as "firmId", client_id as "clientId", name,
+  run_type as "runType", tier, execution_mode as "executionMode",
+  cadence, weekday, day_of_month as "dayOfMonth",
+  business_day as "businessDay", local_hour as "localHour",
+  local_minute as "localMinute", timezone, enabled,
+  effective_from::text as "effectiveFrom", effective_to::text as "effectiveTo",
+  scope_json as "scopeJson", consecutive_failures as "consecutiveFailures",
+  last_failure_at::text as "lastFailureAt",
+  last_failure_detail as "lastFailureDetail",
+  version, manual_override as "manualOverride"`;
+
+const SCHED_WINDOW_COLUMNS = `
+  id, firm_id as "firmId", client_id as "clientId",
+  schedule_id as "scheduleId", window_start::text as "windowStart",
+  window_end::text as "windowEnd", local_day::text as "localDay",
+  status, attempt_count as "attemptCount", run_id as "runId",
+  run_status as "runStatus", error_code as "errorCode",
+  error_detail as "errorDetail", skip_reason as "skipReason",
+  trigger_run_id as "triggerRunId", claimed_at::text as "claimedAt",
+  started_at::text as "startedAt", finished_at::text as "finishedAt",
+  version, manual_override as "manualOverride"`;
+
 export const QUERIES: Record<QueryName, SqlSpec> = {
   bank_accounts_for_client: {
     table: "bank_accounts",
@@ -2220,6 +2249,70 @@ export const QUERIES: Record<QueryName, SqlSpec> = {
           where firm_id = $1 and client_id = $2
           order by requested_on asc, id asc`,
     params: (p) => [p.firmId, p.clientId],
+  },
+  sched_run_policies: {
+    table: "sched_run_policies",
+    sql: `select run_type as "runType", tier, reason,
+            writes_ledger as "writesLedger", version
+          from sched.run_policies
+          order by run_type asc`,
+    params: () => [],
+  },
+  sched_due_schedules_for_firm: {
+    table: "sched_schedules",
+    sql: `select ${SCHED_SCHEDULE_COLUMNS}
+          from sched.schedules
+          where firm_id = $1
+            and enabled
+            and effective_from <= $2::date
+            and (effective_to is null or effective_to >= $2::date)
+          order by id asc`,
+    params: (p) => [p.firmId, p.onDay],
+  },
+  sched_schedule_by_id: {
+    table: "sched_schedules",
+    sql: `select ${SCHED_SCHEDULE_COLUMNS}
+          from sched.schedules
+          where firm_id = $1 and client_id = $2 and id = $3
+          order by id asc`,
+    params: (p) => [p.firmId, p.clientId, p.scheduleId],
+  },
+  sched_windows_for_schedule: {
+    table: "sched_windows",
+    sql: `select ${SCHED_WINDOW_COLUMNS}
+          from sched.windows
+          where firm_id = $1 and client_id = $2 and schedule_id = $3
+          order by window_start desc, id asc
+          limit $4::integer`,
+    params: (p) => [p.firmId, p.clientId, p.scheduleId, p.limit],
+  },
+  sched_window_at_start: {
+    table: "sched_windows",
+    sql: `select ${SCHED_WINDOW_COLUMNS}
+          from sched.windows
+          where firm_id = $1 and client_id = $2 and schedule_id = $3
+            and window_start = $4::timestamptz
+          order by id asc`,
+    params: (p) => [p.firmId, p.clientId, p.scheduleId, p.windowStart],
+  },
+  sched_outstanding_windows_for_firm: {
+    table: "sched_windows",
+    sql: `select ${SCHED_WINDOW_COLUMNS}
+          from sched.windows
+          where firm_id = $1
+            and window_start >= $2::timestamptz
+            and status in ('due', 'running')
+          order by window_start asc, id asc`,
+    params: (p) => [p.firmId, p.since],
+  },
+  sched_recent_windows_for_firm: {
+    table: "sched_windows",
+    sql: `select ${SCHED_WINDOW_COLUMNS}
+          from sched.windows
+          where firm_id = $1 and window_start >= $2::timestamptz
+          order by window_start desc, id asc
+          limit $3::integer`,
+    params: (p) => [p.firmId, p.since, p.limit],
   },
 };
 

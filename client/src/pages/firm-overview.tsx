@@ -4,6 +4,7 @@ import { ArrowUpRight, CircleAlert, FileWarning, ListChecks } from "lucide-react
 import { Bar, BarChart, CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { Button } from "@/components/ui/button";
 import { DataGrid, Kpi, Meter, Money, PageHeader, Pill, SectionCard, EmptyState } from "@/components/kit";
+import { SchedulerCard } from "@/components/scheduler-card";
 import { useApp } from "@/store";
 import { clientRollup, monthlyTrend, substantiationViews } from "@/data/derive";
 import { fmtPeriod, fmtPeriodShort, usd } from "@/lib/money";
@@ -269,6 +270,10 @@ export default function FirmOverview() {
             />
           )}
         </SectionCard>
+      </div>
+
+      <div className="mt-4">
+        <SchedulerCard />
       </div>
     </>
   );

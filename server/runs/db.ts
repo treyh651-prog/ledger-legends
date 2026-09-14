@@ -93,6 +93,9 @@ import type {
   ReportPackageRow,
   ReportSectionRow,
   ReportVarianceRow,
+  SchedRunPolicyRow,
+  SchedScheduleRow,
+  SchedWindowRow,
 } from "./tables";
 
 export type Isolation = "repeatable read" | "serializable";
@@ -716,6 +719,56 @@ export interface QueryCatalog {
   offboard_exports_for_client: {
     params: { firmId: Ulid; clientId: Ulid };
     row: OffboardExportRow;
+  };
+
+  // -------------------------------------------------------------------------
+  // The scheduler, migration 0022.
+  //
+  // Two of these are firm wide rather than client scoped, which every other
+  // query in this catalog is not. A tick has to ask "what is due anywhere in
+  // this firm" before it knows which clients it is about to touch, and row
+  // level security still answers that question correctly because
+  // tenancy.has_client_access keys on the actor's membership and not on a
+  // session variable. A firm scope service actor sees its firm's clients and
+  // nothing else. See NOTES 187.
+  // -------------------------------------------------------------------------
+
+  /** Reference data, one row per registered run. No tenancy predicate exists. */
+  sched_run_policies: {
+    params: Record<string, never>;
+    row: SchedRunPolicyRow;
+  };
+  /**
+   * Every schedule a tick might owe a window to. Disabled schedules and
+   * schedules outside their effective dates are filtered here rather than in
+   * TypeScript so a tick cannot forget.
+   */
+  sched_due_schedules_for_firm: {
+    params: { firmId: Ulid; onDay: string };
+    row: SchedScheduleRow;
+  };
+  sched_schedule_by_id: {
+    params: { firmId: Ulid; clientId: Ulid; scheduleId: Ulid };
+    row: SchedScheduleRow;
+  };
+  /** Newest window first, so the head of the list is where a sweep resumes. */
+  sched_windows_for_schedule: {
+    params: { firmId: Ulid; clientId: Ulid; scheduleId: Ulid; limit: number };
+    row: SchedWindowRow;
+  };
+  sched_window_at_start: {
+    params: { firmId: Ulid; clientId: Ulid; scheduleId: Ulid; windowStart: string };
+    row: SchedWindowRow;
+  };
+  /** What the sweep and the operator surface both want: nothing finished. */
+  sched_outstanding_windows_for_firm: {
+    params: { firmId: Ulid; since: string };
+    row: SchedWindowRow;
+  };
+  /** Recent history across the firm, newest first, for npm run sched:status. */
+  sched_recent_windows_for_firm: {
+    params: { firmId: Ulid; since: string; limit: number };
+    row: SchedWindowRow;
   };
 }
 

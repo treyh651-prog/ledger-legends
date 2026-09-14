@@ -2166,3 +2166,191 @@ particular rows in the fixture.
     reason the pooler is wrong for the job. A migration runner in this repository
     would need the credential the whole task is built around not having, and
     every migration so far has been applied through the connector without one.
+
+180. **The in process ticker is withdrawn.** Earlier work planned a scheduler
+    inside this Express process: a `setInterval` waking once a minute, reading a
+    cadence table, and starting runs in the same memory the web requests live
+    in. That plan is cancelled. The operator has installed the Trigger.dev
+    GitHub app and created a project, and building a second scheduler beside it
+    would mean two things that both believe they own the clock. Options: keep
+    the in process ticker and ignore Trigger.dev, keep it as a fallback for when
+    Trigger.dev is unreachable, keep it for local development only, or withdraw
+    it entirely and let one thing own the clock. Chosen: withdraw it entirely.
+    A fallback ticker is the worst of the four, because the failure it covers is
+    exactly the failure where it cannot tell whether the other scheduler also
+    ran. Local development gets `npm run sched:status` and a directly callable
+    `tick()`, which is enough to see what a tick would do without a second
+    daemon existing. The cost of the withdrawal is real and is stated in the
+    report: this process no longer runs anything on its own, so a firm with no
+    Trigger.dev deployment has no automation at all.
+
+181. **Tasks that connect straight to Postgres, over three other shapes.** The
+    question is what a Trigger.dev task actually does when it wakes. Options:
+    (a) the task calls an HTTP endpoint on this server and the server does the
+    work, (b) the task connects to Postgres directly and runs the work in the
+    task process, (c) the task enqueues a message and a worker in this process
+    drains the queue, (d) one Trigger.dev schedule per client per run, created
+    through their API, with the payload carrying everything. Chosen: (b).
+    Option (a) needs an authenticated endpoint that starts privileged work,
+    which is a new attack surface protecting the least protected thing in the
+    system, and it means a slow run holds an HTTP connection open for minutes.
+    Option (c) reinvents the queue that was just adopted. Option (d) puts the
+    firm's client list inside somebody else's dashboard and makes signing a
+    client a two system operation that can half fail. Option (b) keeps every
+    decision in code this repository tests, needs no new endpoint, and the only
+    thing that crosses the boundary is a `DATABASE_URL` set in their dashboard,
+    which the deploying operator sets once and this repository never sees.
+
+182. **Four declared schedules, not one per client.** Following from 181,
+    Trigger.dev holds four cron declarations and nothing about any client.
+    Options: one schedule per client per run type through their imperative API,
+    one schedule per run type, one schedule per cadence, or a single schedule
+    that ticks every minute. Chosen: one per cadence, plus a sweep. A single
+    minute ticker means 1,440 task runs a day to discover that nothing is due,
+    which is somebody's bill. A schedule per client grows their dashboard every
+    time the firm signs one and adds an API call that can fail independently of
+    the database row. Four coarse wake up calls, with the real cadence in
+    `sched.schedules` where a person can read and change it, means the clock is
+    theirs and the meaning is ours.
+
+183. **`sched.run_policies` is global reference data with no tenancy columns.**
+    Every other table added since migration 0001 carries `firm_id` and
+    `client_id` and a `client_isolation` policy. This one does not, and the
+    departure is deliberate. Options: tenant scoped like everything else, global
+    with row level security disabled, global with row level security enabled and
+    a read only policy, or no table at all with the tiers living only in
+    TypeScript. Chosen: global, row level security enabled and forced, a policy
+    that permits `select` and nothing else. A tier is a property of the
+    software, not of a tenant: a per client tier would mean one client's
+    configuration could make `CLOSE-LOCK-PERIOD` unattended, which is precisely
+    the thing the tier exists to prevent. Granting only `select` to `app_web`
+    and `app_worker` means nothing the application runs can reclassify a run.
+    Changing a tier is a migration, which is the point. Keeping the tiers only
+    in TypeScript was rejected because the caller is now outside this process,
+    and a boundary a database does not know about is a boundary a database
+    cannot enforce.
+
+184. **The compliance boundary is three constraints and two guards, not one
+    check.** Options: check the tier in the Trigger.dev task, check it in the
+    executor, check it in the database, or all of them. Chosen: all of them,
+    because each catches something the others cannot. `sched_tier_never_manual`
+    means a manual run cannot be written into `sched.schedules` at all.
+    `sched_mode_matches_tier`, anchored by the composite foreign key
+    `(run_type, tier)` into `sched.run_policies`, means a propose run cannot be
+    scheduled in apply mode even by an insert written by hand. `guardScheduledRun`
+    in `server/runs/policy.ts` runs inside `execute()` when the caller sets
+    `unattended`, before the scope is frozen and before a log row exists, so a
+    caller that reached the executor another way is still refused with
+    `TIER_REFUSED`. And `runWindow` checks the tier before it claims anything,
+    so a window that could never succeed fails immediately with a readable
+    reason rather than deep inside a run. The duplication is the design: the
+    caller now lives outside this process and cannot be assumed to have read
+    anything.
+
+185. **Cadences are four named shapes, not cron strings.** Options: store a cron
+    expression per schedule, store a cron expression plus a timezone, store a
+    small enumerated cadence with its own columns, or store an arbitrary rule
+    expression. Chosen: four named cadences with a `cadence_shape` check
+    constraint that permits exactly the columns each one needs. A close calendar
+    is written in business days, and "the third business day of the month" has
+    no cron expression at all, so a cron column would have needed an escape
+    hatch on the day it shipped. A named cadence is also readable in
+    `npm run sched:status` without a person parsing five asterisks, and the
+    check constraint means a weekly schedule carrying a day of month is a row
+    the database refuses rather than a row two readers disagree about.
+
+186. **Window boundaries are computed in the named zone here, not delegated to
+    the platform's cron timezone.** Trigger.dev's cron does accept a timezone
+    and the declared ticks use it, so they fire at six in the morning in Denver
+    through the year. That is a wake up call, not a record. Options: trust their
+    timezone handling and take the fire time as the window, store windows in UTC
+    and accept the hour of drift twice a year, use a date library, or compute
+    the boundaries here with `Intl.DateTimeFormat`. Chosen: compute here, with a
+    two pass offset resolution in `server/runs/dates.ts`. The interval between
+    two consecutive six am fires in Denver is 23 hours once a year and 25 hours
+    once a year, and both are covered by tests dated 2026-03-08 and 2026-11-01.
+    A date library was rejected because Node already carries the full IANA rule
+    set in its ICU data and a second copy of the daylight saving rules is a
+    second thing to keep current. The two edge cases are answered rather than
+    hidden: the hour that does not exist resolves adjacent, the hour that
+    happens twice resolves to the first, and both are written into the function
+    comment and the tests.
+
+187. **Two firm wide named queries, against the client scoped habit of the
+    catalog.** Every other query in `QueryCatalog` takes a `clientId`. A tick has
+    to ask what is due anywhere in the firm before it knows which clients it is
+    about to touch. Options: iterate clients and run the client scoped query per
+    client, add a firm wide query, have the Trigger.dev payload carry the client
+    list, or keep a separate list of active clients in the scheduler. Chosen: two
+    firm wide queries, `sched_due_schedules_for_firm` and
+    `sched_outstanding_windows_for_firm`. Row level security still answers them
+    correctly, because `tenancy.has_client_access` keys on the actor's
+    memberships rather than on a session variable, so a firm scope service actor
+    sees its firm and nothing else. Iterating clients would mean a query per
+    client per tick to discover that most of them have nothing due, and putting
+    the client list in the payload would put it in somebody else's dashboard,
+    which 182 already refused.
+
+188. **The catch up bound is seven days and seven windows, whichever binds
+    first.** Options: no bound and replay everything, one window and treat a gap
+    as lost, ninety days, or a small bound with the overflow recorded rather
+    than discarded. Chosen: seven and seven, with every window outside the bound
+    written to `sched.windows` as `skipped` with its reason, so a gap is visible
+    in `npm run sched:status` instead of absent from it. Seven days because a
+    nightly derived refresh lands on the same answer when it is replayed, so
+    seven catch ups cost seven runs and produce one correct state, while ninety
+    re derives history whose inputs have since changed and may now be in a
+    locked period. Seven windows because the same bound covers a daily, a
+    weekly, and two monthly cadences, and the count is the one that binds for
+    anything firing more often than daily. And a gap longer than a week is an
+    outage somebody should look at, not something a sweep absorbs at 3am.
+
+189. **A unique constraint, not an advisory lock, is what makes a retry safe.**
+    The run framework already has `tryAdvisoryXactLock`, and the obvious move was
+    to lock a schedule for the duration of a tick. Options: an advisory lock per
+    schedule, a `for update skip locked` claim, a status column transition, or a
+    unique constraint on the window row. Chosen:
+    `unique (schedule_id, window_start)` on `sched.windows`. A lock is held by a
+    connection, and a Trigger.dev retry is a different connection minutes later,
+    so a lock says nothing about whether the work already happened. The
+    constraint says exactly that, permanently, and it says it to any caller from
+    any process in any deployment. The memory port carries the same guard in
+    `guardScheduledWindow`, so the suite refuses what Postgres refuses and a test
+    cannot pass on behaviour the real store would reject.
+
+190. **An unattended schedule previews before it applies.** Doc 03 Part 2 says
+    apply re derives from a preview and never trusts a caller's plan, and the
+    question was whether that survives contact with a clock. Options: let a
+    scheduled apply skip the preview by setting `requirePreviewForApply: false`,
+    add a scheduler specific apply path, run preview then apply, or make every
+    schedule propose tier and never apply anything unattended. Chosen: preview
+    then apply, naming the preview, which is exactly the sequence a person
+    pressing the button produces and leaves the same two log rows. Skipping the
+    preview would have made the scheduled path the only one in the system that
+    posts without a re derivation, and the one place that shortcut would first
+    be noticed is a client's books.
+
+191. **The Trigger.dev deploy variable is `TRIGGER_ACCESS_TOKEN`, and the brief's
+    `TRIGGER_SECRET_KEY` is a different thing.** Their current documentation is
+    clear: `TRIGGER_ACCESS_TOKEN` is a personal access token that authenticates
+    the CLI for `deploy` in CI, and `TRIGGER_SECRET_KEY` is the environment
+    specific key the backend SDK uses to trigger and read runs from outside a
+    task. Nothing in this design triggers a task from this server, so
+    `TRIGGER_SECRET_KEY` is never needed here at all. Options: follow the brief
+    and read `TRIGGER_SECRET_KEY` in the config, read both, read neither and
+    document the divergence, or invent a wrapper variable. Chosen: read neither.
+    `trigger.config.ts` reads `TRIGGER_PROJECT_REF`, which is an identifier out
+    of the dashboard URL and not a credential, and throws a message naming the
+    variable when it is missing. Authentication is left to the CLI, by
+    `npx trigger.dev@latest login` on a laptop or `TRIGGER_ACCESS_TOKEN` in CI,
+    so no credential is read, stored, or referenced by anything committed here.
+
+192. **The registry holds forty nine runs, not the forty seven the brief names.**
+    Counted rather than assumed: `server/runs/registry.ts` exports forty nine
+    entries and the stale header comment above it still says forty one. All
+    forty nine are classified, and a test asserts that every registry entry has
+    a policy entry, that the reverse holds against `sched.run_policies`, and
+    that no run with `writesLedger: true` is classified unattended. A run added
+    later with no policy is refused by `guardScheduledRun` rather than assumed
+    safe, and `script/check-schema.ts` fails when the database and
+    `server/runs/policy.ts` disagree about any tier, reason, or ledger flag.

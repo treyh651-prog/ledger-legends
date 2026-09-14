@@ -9,7 +9,9 @@
     "start": "NODE_ENV=production node dist/index.cjs",
     "check": "tsc",
     "db:push": "drizzle-kit push",
-    "db:verify": "tsx script/db-verify.ts"
+    "db:verify": "tsx script/db-verify.ts",
+    "sched:status": "tsx script/sched-status.ts",
+    "sched:deploy": "trigger.dev deploy"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.4.0",
@@ -43,6 +45,7 @@
     "@radix-ui/react-tooltip": "^1.2.0",
     "@supabase/supabase-js": "^2.49.4",
     "@tanstack/react-query": "^5.60.5",
+    "@trigger.dev/sdk": "^4.5.16",
     "better-sqlite3": "^11.7.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
@@ -97,6 +100,7 @@
     "esbuild": "^0.25.0",
     "postcss": "^8.4.47",
     "tailwindcss": "^3.4.17",
+    "trigger.dev": "^4.5.16",
     "tsx": "^4.20.5",
     "typescript": "5.6.3",
     "vite": "^7.3.0"

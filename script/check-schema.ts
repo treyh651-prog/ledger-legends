@@ -44,6 +44,8 @@
 import { PHYSICAL_TABLES, physical } from "../server/runs/db-postgres";
 import { RUN_EXECUTION_ID_WIDTH, SEQUENCE_ID_WIDTH } from "../server/runs/ids";
 import type { TableName } from "../server/runs/tables";
+import { RUN_POLICIES } from "../server/runs/policy";
+import { registry } from "../server/runs/registry";
 import { PROJECT_ID, query } from "./connector-sql";
 import { rowMapKeys } from "./row-map-keys";
 
@@ -75,6 +77,62 @@ for (const [key, table] of Object.entries(PHYSICAL_TABLES)) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// The compliance tiers, migration 0022.
+//
+// sched.run_policies is seeded from RUN_POLICIES in server/runs/policy.ts and
+// nothing stops the two from drifting except this. A run reclassified in
+// TypeScript without a migration is the failure mode that matters: the
+// executor guard would refuse a run the database still thinks is unattended,
+// or worse, allow one the database thinks is not. Read the table back and
+// compare all three fields.
+// ---------------------------------------------------------------------------
+
+const tierProblems: string[] = [];
+const liveTiers = new Map<string, { tier: string; reason: string; writes: boolean }>();
+for (const row of query(
+  "select run_type, tier, reason, writes_ledger from sched.run_policies",
+)) {
+  liveTiers.set(String(row.run_type), {
+    tier: String(row.tier),
+    reason: String(row.reason),
+    writes: row.writes_ledger === true || row.writes_ledger === "true",
+  });
+}
+for (const entry of registry) {
+  const want = RUN_POLICIES[entry.type];
+  const live = liveTiers.get(entry.type);
+  if (!want) {
+    tierProblems.push(`${entry.type} has no entry in RUN_POLICIES`);
+    continue;
+  }
+  if (!live) {
+    tierProblems.push(`${entry.type} is missing from sched.run_policies`);
+    continue;
+  }
+  if (live.tier !== want.tier) {
+    tierProblems.push(
+      `${entry.type} is ${live.tier} in the database and ${want.tier} in policy.ts`,
+    );
+  }
+  if (live.reason !== want.reason) {
+    tierProblems.push(`${entry.type} carries a different reason in the database`);
+  }
+  if (live.writes !== entry.writesLedger) {
+    tierProblems.push(
+      `${entry.type} writes_ledger is ${String(live.writes)} in the database and ${String(entry.writesLedger)} in the registry`,
+    );
+  }
+  if (entry.writesLedger && want.tier === "unattended") {
+    tierProblems.push(`${entry.type} posts to the ledger and is classified unattended`);
+  }
+}
+for (const type of liveTiers.keys()) {
+  if (!registry.some((e) => e.type === type)) {
+    tierProblems.push(`${type} is in sched.run_policies and not in the registry`);
+  }
+}
+
 console.log(`Checked ${keys.length} row map keys against ${present.size} relations in ${PROJECT_ID}.`);
 
 // ---------------------------------------------------------------------------
@@ -84,7 +142,7 @@ console.log(`Checked ${keys.length} row map keys against ${present.size} relatio
 /** The schemas this project owns. Supabase owns the rest of the database. */
 const OWNED_SCHEMAS = [
   "close", "deliverable", "docvault", "entitlement", "import", "intake",
-  "ledger", "practice", "report", "subledger", "tax", "tenancy",
+  "ledger", "practice", "report", "sched", "subledger", "tax", "tenancy",
 ];
 
 /**
@@ -171,13 +229,15 @@ for (const row of query(
 }
 
 console.log(
-  `Checked ${runIdChecked} run id columns against ${RUN_EXECUTION_ID_WIDTH} and ${SEQUENCE_ID_WIDTH} characters, and ${mapped.size} mapped tables for array columns.`,
+  `Checked ${runIdChecked} run id columns against ${RUN_EXECUTION_ID_WIDTH} and ${SEQUENCE_ID_WIDTH} characters, and ${mapped.size} mapped tables for array columns. ` +
+    `Checked ${registry.length} compliance tiers against sched.run_policies.`,
 );
 
 const failures = [
   ...missing.sort().map((m) => `MISSING ${m}`),
   ...tooNarrow.sort().map((m) => `NARROW ${m}`),
   ...arrays.sort().map((m) => `ARRAY ${m}`),
+  ...tierProblems.sort().map((m) => `TIER ${m}`),
 ];
 if (failures.length > 0) {
   for (const f of failures) console.log(f);

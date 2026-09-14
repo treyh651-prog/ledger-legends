@@ -41,6 +41,7 @@ import {
   writeRunLog,
   type LogEnvironment,
 } from "./run-log";
+import { guardScheduledRun, TierRefusal } from "./policy";
 import type { RunLogRow } from "./tables";
 
 /** Thrown to unwind a preview transaction without committing anything. */
@@ -67,6 +68,14 @@ export interface ExecuteOptions {
   env?: LogEnvironment;
   /** Set false only for the undo runner, which posts its own reversal plan. */
   requirePreviewForApply?: boolean;
+  /**
+   * True when nobody is watching, which today means a Trigger.dev task.
+   *
+   * The scheduler is outside this process now. It cannot be relied on to have
+   * read the compliance tiers, so the tier check happens here, on the way in,
+   * ahead of the scope freeze and ahead of any write. See policy.ts.
+   */
+  unattended?: boolean;
 }
 
 export interface RunOutcome<P> {
@@ -209,6 +218,41 @@ export async function execute<S, P>(
   const executionId = opts.executionId ?? runExecutionId(opts.now);
   const scope = run.scopeSchema.parse(scopeInput) as S;
   const requirePreview = opts.requirePreviewForApply !== false;
+
+  if (opts.unattended) {
+    // A pre flight refusal, before the scope is frozen and before a log row
+    // exists, because a run the tier forbids should leave no trace of having
+    // been attempted beyond what the scheduler writes on its own window row.
+    try {
+      guardScheduledRun(run.type, opts.mode);
+    } catch (err) {
+      if (!(err instanceof TierRefusal)) throw err;
+      const errors: RunError[] = [
+        {
+          rowId: null,
+          code: RUN_ERROR_CODES.tierRefused,
+          message: err.message,
+          retryable: false,
+        },
+      ];
+      return {
+        executionId,
+        runType: run.type,
+        runVersion: run.version,
+        mode: opts.mode,
+        status: "refused",
+        idempotencyKey: "",
+        scopeHash: "",
+        result: makeResult<P>(0, [], [], errors, BigInt(0)),
+        overriddenInScope: 0,
+        entriesCreated: 0,
+        entriesReversed: 0,
+        attempts: 0,
+        startedAt: startedAt.toISOString(),
+        finishedAt: opts.now.toISOString(),
+      };
+    }
+  }
 
   if (opts.mode === "apply" && requirePreview && !opts.previewRunId) {
     // A pre flight refusal. Nothing was frozen, nothing was locked, and no log

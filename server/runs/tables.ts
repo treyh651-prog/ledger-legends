@@ -2263,6 +2263,77 @@ export interface WizardSessionRow {
   manualOverride: boolean;
 }
 
+// ---------------------------------------------------------------------------
+// The scheduler, migration 0022.
+//
+// These three are read by the Trigger.dev tasks in trigger/scheduler.ts and by
+// the operator surface. They are here rather than in a module of their own
+// because the port, the gates, and the memory adapter all key off this file,
+// and a second row map would be a second thing to keep in step.
+// ---------------------------------------------------------------------------
+
+/** The compliance tier of a run type. Reference data, seeded by migration. */
+export interface SchedRunPolicyRow {
+  runType: string;
+  tier: "unattended" | "propose" | "manual";
+  reason: string;
+  writesLedger: boolean;
+  version: number;
+}
+
+export interface SchedScheduleRow {
+  id: Ulid;
+  firmId: Ulid;
+  clientId: Ulid;
+  name: string;
+  runType: string;
+  tier: "unattended" | "propose";
+  /** apply for unattended, preview for propose. The database enforces the pair. */
+  executionMode: RunMode;
+  cadence: "daily" | "weekly" | "monthly_day" | "monthly_business_day";
+  weekday: string | null;
+  dayOfMonth: number | null;
+  businessDay: number | null;
+  /** Wall clock time in timezone, not UTC. */
+  localHour: number;
+  localMinute: number;
+  timezone: string;
+  enabled: boolean;
+  effectiveFrom: string;
+  effectiveTo: string | null;
+  scopeJson: Record<string, unknown>;
+  consecutiveFailures: number;
+  lastFailureAt: string | null;
+  lastFailureDetail: string | null;
+  version: number;
+  manualOverride: boolean;
+}
+
+export interface SchedWindowRow {
+  id: Ulid;
+  firmId: Ulid;
+  clientId: Ulid;
+  scheduleId: Ulid;
+  /** ISO instants. The local day the pair represents is stored beside them. */
+  windowStart: string;
+  windowEnd: string;
+  localDay: string;
+  status: "due" | "running" | "succeeded" | "failed" | "skipped";
+  attemptCount: number;
+  runId: string | null;
+  runStatus: string | null;
+  errorCode: string | null;
+  errorDetail: string | null;
+  skipReason: string | null;
+  /** The identifier in the Trigger.dev dashboard, for tracing in both directions. */
+  triggerRunId: string | null;
+  claimedAt: string | null;
+  startedAt: string | null;
+  finishedAt: string | null;
+  version: number;
+  manualOverride: boolean;
+}
+
 export interface RowMap {
   bank_accounts: BankAccountRow;
   chart_accounts: ChartAccountRow;
@@ -2341,6 +2412,9 @@ export interface RowMap {
   pay_register_entries: PayRegisterEntryRow;
   cpa_handoffs: CpaHandoffRow;
   offboard_exports: OffboardExportRow;
+  sched_run_policies: SchedRunPolicyRow;
+  sched_schedules: SchedScheduleRow;
+  sched_windows: SchedWindowRow;
   run_log: RunLogRow;
   run_log_items: RunLogItemRow;
   run_log_events: RunLogEventRow;

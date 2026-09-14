@@ -77,6 +77,9 @@ import {
   type PayRegisterEntryRow,
   type CpaHandoffRow,
   type OffboardExportRow,
+  type SchedRunPolicyRow,
+  type SchedScheduleRow,
+  type SchedWindowRow,
   type ReportNarrativeRow,
   type ReportPackageRow,
   type ReportSectionRow,
@@ -175,6 +178,9 @@ const TABLES: TableName[] = [
   "run_log_items",
   "run_log_events",
   "run_sequence",
+  "sched_run_policies",
+  "sched_schedules",
+  "sched_windows",
 ];
 
 function key(table: string, rowId: string): string {
@@ -344,6 +350,7 @@ class MemoryTx implements RunTx {
       this.guardChecks(table, r);
       this.guardIdempotency(table, r);
       this.guardBankTransactionId(table, r);
+      this.guardScheduleWindow(table, r);
       const k = key(table, r.id);
       if (!this.readVersions.has(k)) {
         this.readVersions.set(k, this.db.versionOf(table, r.id));
@@ -451,6 +458,29 @@ class MemoryTx implements RunTx {
         r.bankTransactionId === candidate.bankTransactionId
       ) {
         throw new UniqueViolation("txn_bank_id_unique");
+      }
+    }
+  }
+
+  /**
+   * The unique constraint on (schedule_id, window_start) from migration 0022,
+   * kept here so the memory port refuses the same second insert Postgres
+   * refuses. This is the constraint the whole idempotency story rests on. A
+   * Trigger.dev retry reaching the insert twice has to be stopped by the
+   * store, not by the task remembering to check first, and a memory port that
+   * allowed it would let the suite pass on a system Postgres would reject.
+   */
+  private guardScheduleWindow(table: TableName, row: AnyRow): void {
+    if (table !== "sched_windows") return;
+    const candidate = row as unknown as SchedWindowRow;
+    for (const existing of this.view("sched_windows")) {
+      const r = existing as unknown as SchedWindowRow;
+      if (r.id === candidate.id) continue;
+      if (
+        r.scheduleId === candidate.scheduleId &&
+        r.windowStart === candidate.windowStart
+      ) {
+        throw new UniqueViolation("window_one_per_schedule_start");
       }
     }
   }
@@ -1647,6 +1677,119 @@ class MemoryTx implements RunTx {
                 : 1
               : byId(a, b),
           )
+          .map((r) => clone(r as unknown as AnyRow));
+      }
+      case "sched_run_policies": {
+        return this.view("sched_run_policies")
+          .map((r) => r as unknown as SchedRunPolicyRow)
+          .sort((a, b) => (a.runType < b.runType ? -1 : a.runType > b.runType ? 1 : 0))
+          .map((r) => clone(r as unknown as AnyRow));
+      }
+      case "sched_due_schedules_for_firm": {
+        const p = rawParams as { firmId: string; onDay: string };
+        return this.view("sched_schedules")
+          .map((r) => r as unknown as SchedScheduleRow)
+          .filter(
+            (r) =>
+              r.firmId === p.firmId &&
+              r.enabled &&
+              r.effectiveFrom <= p.onDay &&
+              (r.effectiveTo === null || r.effectiveTo >= p.onDay),
+          )
+          .sort((a, b) => byId(a, b))
+          .map((r) => clone(r as unknown as AnyRow));
+      }
+      case "sched_schedule_by_id": {
+        const p = rawParams as {
+          firmId: string;
+          clientId: string;
+          scheduleId: string;
+        };
+        return this.view("sched_schedules")
+          .map((r) => r as unknown as SchedScheduleRow)
+          .filter(
+            (r) =>
+              r.firmId === p.firmId &&
+              r.clientId === p.clientId &&
+              r.id === p.scheduleId,
+          )
+          .map((r) => clone(r as unknown as AnyRow));
+      }
+      case "sched_windows_for_schedule": {
+        const p = rawParams as {
+          firmId: string;
+          clientId: string;
+          scheduleId: string;
+          limit: number;
+        };
+        return this.view("sched_windows")
+          .map((r) => r as unknown as SchedWindowRow)
+          .filter(
+            (r) =>
+              r.firmId === p.firmId &&
+              r.clientId === p.clientId &&
+              r.scheduleId === p.scheduleId,
+          )
+          .sort((a, b) =>
+            a.windowStart !== b.windowStart
+              ? a.windowStart > b.windowStart
+                ? -1
+                : 1
+              : byId(a, b),
+          )
+          .slice(0, p.limit)
+          .map((r) => clone(r as unknown as AnyRow));
+      }
+      case "sched_window_at_start": {
+        const p = rawParams as {
+          firmId: string;
+          clientId: string;
+          scheduleId: string;
+          windowStart: string;
+        };
+        return this.view("sched_windows")
+          .map((r) => r as unknown as SchedWindowRow)
+          .filter(
+            (r) =>
+              r.firmId === p.firmId &&
+              r.clientId === p.clientId &&
+              r.scheduleId === p.scheduleId &&
+              r.windowStart === p.windowStart,
+          )
+          .map((r) => clone(r as unknown as AnyRow));
+      }
+      case "sched_outstanding_windows_for_firm": {
+        const p = rawParams as { firmId: string; since: string };
+        return this.view("sched_windows")
+          .map((r) => r as unknown as SchedWindowRow)
+          .filter(
+            (r) =>
+              r.firmId === p.firmId &&
+              r.windowStart >= p.since &&
+              (r.status === "due" || r.status === "running"),
+          )
+          .sort((a, b) =>
+            a.windowStart !== b.windowStart
+              ? a.windowStart < b.windowStart
+                ? -1
+                : 1
+              : byId(a, b),
+          )
+          .map((r) => clone(r as unknown as AnyRow));
+      }
+      case "sched_recent_windows_for_firm": {
+        const p = rawParams as { firmId: string; since: string; limit: number };
+        return this.view("sched_windows")
+          .map((r) => r as unknown as SchedWindowRow)
+          .filter((r) => r.firmId === p.firmId && r.windowStart >= p.since)
+          .sort((a, b) =>
+            a.windowStart !== b.windowStart
+              ? a.windowStart > b.windowStart
+                ? -1
+                : 1
+              : byId(a, b),
+          )
+          .slice(0, p.limit)
           .map((r) => clone(r as unknown as AnyRow));
       }
       default: {

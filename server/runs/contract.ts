@@ -129,6 +129,12 @@ export const RUN_ERROR_CODES = {
   missingAccount: "MISSING_ACCOUNT",
   unbalancedEntry: "UNBALANCED_ENTRY",
   serialization: "SERIALIZATION_FAILURE",
+  /**
+   * A scheduler asked for a run its compliance tier does not allow it to
+   * start. See server/runs/policy.ts. The caller now lives outside this
+   * process, so this refusal is a returned outcome and not a convention.
+   */
+  tierRefused: "TIER_REFUSED",
 } as const;
 
 /** A single journal line. Debit positive, credit negative, integer cents. */
