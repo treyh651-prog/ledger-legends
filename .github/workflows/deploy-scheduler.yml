@@ -1,0 +1,110 @@
+name: Deploy scheduler
+
+# The deploy that registers the four cron declarations in trigger/scheduler.ts.
+#
+# WHY THIS RUNS IN CI RATHER THAN ON A LAPTOP.
+#
+# Step 6 of docs/SCHEDULING.md is a single command, and a single command run by
+# hand is a single command somebody forgets. Declarative schedules are
+# registered by the deploy, and only the tasks in the current deployment fire,
+# so a change to trigger/scheduler.ts that is committed and never deployed is a
+# change that reads as done and schedules nothing. This job closes that gap by
+# deploying from the same commit CI already verified.
+#
+# The manual trigger stays, because a deploy is also the thing you reach for
+# after rotating a dashboard variable, and that is not a code change.
+#
+# WHAT THIS JOB NEEDS, AND WHAT IT DELIBERATELY DOES NOT.
+#
+# One repository secret, TRIGGER_ACCESS_TOKEN, which is a Trigger.dev personal
+# access token created under Account settings, Personal Access Tokens. It is
+# the variable the deploy command reads. It is not TRIGGER_SECRET_KEY, which
+# authenticates the backend SDK for triggering runs from outside a task and is
+# used nowhere in this repository.
+#
+# The tasks reach the database through DATABASE_URL, RUN_DB, SCHEDULER_FIRM_ID
+# and SCHEDULER_ACTOR_ID set in the Trigger.dev dashboard under Environment
+# Variables, per step 5 of docs/SCHEDULING.md. None of those are set here, read
+# here, or committed anywhere in this repository, and no .env file is uploaded
+# by the deploy.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "trigger/**"
+      - "trigger.config.ts"
+      - "server/sched/**"
+      - "server/runs/policy.ts"
+      - "server/db/run-db.ts"
+      - "package-lock.json"
+      - ".github/workflows/deploy-scheduler.yml"
+  workflow_dispatch:
+
+# Two deploys of the same project at once is a race over which deployment ends
+# up current. Later wins, and the one in flight is cancelled rather than left
+# to finish into a promotion nobody asked for.
+concurrency:
+  group: trigger-deploy-production
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    name: Register the four schedules
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    env:
+      # The segment after /projects/ in the dashboard URL. It is an identifier,
+      # not a credential. A repository variable overrides it, so pointing a
+      # fork or a second firm at another project needs no code change.
+      TRIGGER_PROJECT_REF: ${{ vars.TRIGGER_PROJECT_REF || 'proj_tkwsoedwvelpauzsqjpv' }}
+
+    steps:
+      # Fail on the missing token here, in one readable line, rather than
+      # forty lines into a CLI stack trace about an unauthenticated request.
+      - name: The access token must be present
+        env:
+          TRIGGER_ACCESS_TOKEN: ${{ secrets.TRIGGER_ACCESS_TOKEN }}
+        run: |
+          if [ -z "${TRIGGER_ACCESS_TOKEN}" ]; then
+            echo "TRIGGER_ACCESS_TOKEN is not set on this repository, so there is nothing to authenticate the deploy."
+            echo "Create a personal access token in the Trigger.dev dashboard under Account settings, Personal Access Tokens,"
+            echo "then add it under Settings, Secrets and variables, Actions, as TRIGGER_ACCESS_TOKEN."
+            exit 1
+          fi
+          echo "Access token present."
+
+      - name: Check out the code
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # The same gate CI runs. A deploy of code that does not typecheck is a
+      # deploy of code that fails at 6am instead of failing here.
+      - name: Type check
+        run: npx tsc --noEmit
+
+      # The pinned CLI from devDependencies rather than @latest, so the CLI and
+      # the @trigger.dev/sdk version in package.json move together and a
+      # published CLI change cannot alter a deploy nobody touched.
+      #
+      # A failed deploy leaves the previous deployment running, which is why
+      # this step is last and why nothing after it needs to undo anything.
+      - name: Deploy
+        env:
+          TRIGGER_ACCESS_TOKEN: ${{ secrets.TRIGGER_ACCESS_TOKEN }}
+        run: npx trigger.dev deploy
+
+      - name: What to check next
+        run: |
+          echo "Deployed. The four declarations are registered: sched-nightly, sched-weekly, sched-monthly, sched-sweep."
+          echo "A registered schedule still runs nothing until sched.schedules holds rows, per steps 2 and 3 of docs/SCHEDULING.md."
+          echo "Confirm with npm run sched:status against the database, or the card on the firm overview page."
