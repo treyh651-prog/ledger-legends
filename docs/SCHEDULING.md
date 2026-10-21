@@ -254,6 +254,33 @@ Declarative schedules are registered during the deploy, and only the tasks in
 the current deployment fire. A deploy that fails leaves the previous one
 running.
 
+### Or let CI do it
+
+`.github/workflows/deploy-scheduler.yml` runs the same command on a GitHub
+runner. It fires on a push to `main` that touches `trigger/`, `trigger.config.ts`,
+`server/sched/`, the policy table, the database port, or the lockfile, and it can
+also be started by hand from the Actions tab.
+
+It needs one repository secret, under Settings, Secrets and variables, Actions:
+
+| Name | Value |
+| --- | --- |
+| `TRIGGER_ACCESS_TOKEN` | the personal access token from step 4 |
+
+The project reference is not a secret and is set in the workflow's `env`. A
+repository variable named `TRIGGER_PROJECT_REF` overrides it, which is how a
+second project would be targeted without editing the workflow. The dashboard
+variables from step 5 are still set in the dashboard: this job never reads
+`DATABASE_URL` and no `.env` file is uploaded by the deploy.
+
+The workflow pins the CLI to the `trigger.dev` version in `devDependencies`
+rather than `@latest`, so the CLI and the SDK move together and a published CLI
+change cannot alter a deploy nobody touched. Two deploys cannot overlap: the
+concurrency group cancels the one in flight.
+
+This exists because a schedule change that is committed and never deployed reads
+as done and schedules nothing.
+
 **7. Check it.**
 
 ```bash
