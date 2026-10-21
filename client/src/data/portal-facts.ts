@@ -55,7 +55,7 @@ function hasAnyPosting(ds: Dataset, clientId: string): boolean {
   return ds.txns.some((t) => t.clientId === clientId) || ds.journalEntries.some((j) => j.clientId === clientId);
 }
 
-/* ---------------- Ledger+ facts ---------------- */
+/* ---------------- Ledger+ and Legend facts, in route order. Tier placement lives in shared/tiers.ts. ---------------- */
 
 /** Month over month. True fact is the revenue and net income move against the prior closed month. */
 export function compareFact(ds: Dataset, clientId: string, period: string): TruthfulFact {
@@ -209,7 +209,7 @@ export function openPeriodFact(ds: Dataset, clientId: string): TruthfulFact {
   };
 }
 
-/* ---------------- Legend facts ---------------- */
+/* ---------------- Legend facts, continued ---------------- */
 
 /** Thirteen week forecast. True fact is the ending cash and the tightest week. */
 export function forecastFact(ds: Dataset, clientId: string): TruthfulFact {

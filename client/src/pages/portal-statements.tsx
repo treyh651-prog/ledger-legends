@@ -60,7 +60,7 @@ export default function PortalStatements() {
       {p.periodHeldBack && readPeriod ? (
         <PortalNote testId="note-statements-heldback">
           {fmtPeriod(p.requestedPeriod)} is still open, so this page is showing {fmtPeriod(readPeriod)}, the last month we closed and
-          reviewed. Open period numbers are part of Ledger+.
+          reviewed. Open period numbers are part of Legend, as accrual tracking.
         </PortalNote>
       ) : null}
 

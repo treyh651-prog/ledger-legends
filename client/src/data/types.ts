@@ -442,8 +442,9 @@ export interface Signature {
 
 /* ---------------- Portal entitlement, closes, and entity groups ---------------- */
 
-/** Portal depth is bundled into the service level. There is no plan and no payment anywhere in this product. */
-export type TierId = "ledger" | "ledger_plus" | "legend";
+/** Portal depth is bundled into the service level. The type is defined once in shared/tiers.ts. */
+import type { TierId } from "@shared/tiers";
+export type { TierId };
 
 /**
  * Effective dated entitlement sourced from the engagement, per decision D1.

@@ -969,3 +969,6 @@ test("the sweeper marks an orphaned started row abandoned", async () => {
 
 void runAll("run framework invariants");
 import "./scheduler";
+// Service tiers (migration 0024 and shared/tiers.ts). Memory source only,
+// plus one Postgres test that skips itself without DATABASE_URL.
+import "./entitlement";
