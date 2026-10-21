@@ -2527,3 +2527,142 @@ particular rows in the fixture.
     an absent key is a hope. A throw after `begin` rolls back; a throw from
     `begin` itself does not try to, since nothing started. The connection is
     released in every path, and the scripted pool test counts the release.
+
+## Service tiers, migration 0024 and shared/tiers.ts
+
+Entries 193 to 205 belong to the auth brief and are written there.
+
+210. **The public pricing page is the source, and the three vocabularies
+    collapse to one.** Before this work the client said ledger, ledger_plus,
+    legend; doc 08 said Story, Journey, Legend with quarterly statements at
+    Story; the wizard said story, journey, legend; and
+    `tenancy.engagements.service_level` was free text with no table saying
+    what a level included. The operator ruled that ledgerlegends.pro is the
+    truth. Options: keep the client's ids and relabel, adopt the page's
+    display names with new ids, or keep two vocabularies with a mapping table.
+    Chosen: the client's ids (`ledger`, `ledger_plus`, `legend`) because they
+    already match the page's names and nothing stored in the database used any
+    other value, with every word of copy taken from the page. Story and
+    Journey are removed from `docs/` and `client/` except where the auth brief
+    owns the file, see entry 217.
+
+211. **The feature map, decided before coding.** The page's promises were
+    mapped to the portal's feature keys like this, and `shared/tiers.ts`,
+    `0024_tiers.sql`, and `docs/10-tiers.md` all carry the result.
+    Ledger: statements, transactions, documents, requests, messages, which are
+    a client's own records and are never held back, plus two new deliverable
+    keys, `reconciliation_status` and `bank_rules`, because the page names
+    monthly reconciliation and categorization with bank rules and the portal
+    should be able to say they are part of the level.
+    Ledger+: `aging` is the page's light AR and AP tracking. `compare` stays
+    as the key for the existing month over month screen, and
+    `quarterly_summary` is added as a separate key for the written quarterly
+    performance summary the page promises. Two keys rather than one because
+    the screen compares two months and the promise is a quarterly document;
+    renaming the screen's key would have made the key describe a thing the
+    screen does not do, and dropping the screen would have removed something a
+    Ledger+ client has today. `priority_support` is a flag, nothing more.
+    Legend: `custom_reports` is the page's custom reports and KPI dashboards,
+    and the `budget`, `forecast`, `narrative`, `scenarios`, and
+    `consolidation` screens sit under it, each keeping its own key because
+    each is a separate gate in the shell. `open_period` is relabelled accrual
+    tracking and moves to Legend, with a new `loans` key beside it for loan
+    tracking. `monthly_review` and `cpa_packet` are new deliverable keys.
+    `cpa_packet` is the compile for the CPA and never a tax form; the firm is
+    not a CPA firm.
+
+212. **Budget moves to Legend, and open period moves with it.** The brief said
+    the page wins wherever the code gave something lower than the page
+    promises, and to argue budget's placement from the page's text either
+    way. The Ledger+ text is "light AR and AP tracking, quarterly performance
+    summary, priority support". Nothing there is a budget, a plan, or a
+    variance. The Legend text is "custom reports and KPI dashboards", and a
+    budget against actuals by account is a custom report with a KPI on every
+    line. So budget is Legend. Open period moves for the brief's stated
+    reason: the page's "accrual and loan tracking" is at Legend, and the open
+    period screen is where accruals appear before a close. The seeded
+    fixtures place every Ledger+ client below both screens now, which is the
+    correct consequence and is visible on the tiers screen as a lock with a
+    real fact behind it.
+
+213. **Tiers are rows, features are rows once each, and inclusion is derived
+    by rank.** Options for the shape: a feature table with one row per (tier,
+    feature) pair including inherited ones, a boolean column per feature on
+    the tier row, or one row per feature at its lowest tier with inclusion
+    derived by `rank <= rank`. Chosen: the last. A unique index on
+    `feature_key` across `tenancy.tier_features` makes a second row for the
+    same feature an error, so a feature cannot drift to two tiers. The view
+    `tenancy.client_entitlements` joins `service_tiers` to itself on rank to
+    expand inclusion, and `hasFeature` in `shared/tiers.ts` does the same
+    comparison in TypeScript. `script/check-schema.ts` reads both tables back
+    and compares id, name, rank, tagline, revenue band, lowest tier, label,
+    and summary against the shared file, so a feature moved in one place and
+    not the other is a red gate.
+
+214. **A foreign key, not a check constraint, on `service_level`.** Options:
+    `check (service_level in (...))`, a foreign key to `service_tiers`, or
+    both. Chosen: the foreign key alone. Adding a tier is then an insert and
+    the view picks it up with no alter. The pre check through the connector
+    found zero rows in `tenancy.engagements`, zero clients, zero firms, and
+    zero `entitlement.grants`, so no test rows existed, nothing was deleted,
+    and the constraint was added without a backfill. The same migration adds
+    `unique (id, firm_id, client_id)` on engagements so a child table can
+    prove both discriminators match in one composite foreign key, and a
+    partial unique index making "the active engagement" one row per client,
+    which the view's wording and the memory source both depend on.
+
+215. **Add ons are rows on the engagement and grant nothing.** Payroll and
+    cleanup are add ons on the page. Options: model them as extra tiers, as
+    boolean columns on the engagement, as feature keys, or as a dated child
+    table. Chosen: `tenancy.engagement_addons` with `addon in ('payroll',
+    'cleanup')`, `started_at`, `ended_at`, and `terms jsonb`, carrying
+    `firm_id` and `client_id` like every tenant table so the usual
+    `client_isolation` policy and freeze trigger apply. A partial unique index
+    allows one live row per add on per engagement, so an add on that ends and
+    resumes is two rows with dates rather than an overwrite. The
+    entitlements view does not join this table, `hasFeature` does not read
+    it, and a test proves that a Ledger client with both add ons has exactly
+    the features of a Ledger client with none.
+
+216. **The view runs as the caller.** Options for row level security on a
+    view: a `security definer` function that filters by the actor, a
+    materialised table with its own policy, or `security_invoker = true` on
+    the view. Chosen: `security_invoker`, which makes the existing
+    `client_isolation` policy on `tenancy.engagements` the thing that decides,
+    so a client scoped actor sees its own client's rows and nothing else with
+    no second predicate to keep in step. No earlier migration had granted
+    `select` on `tenancy.engagements` to `app_web` or `app_worker`, which the
+    view needs, so 0024 grants it; row level security on that table is
+    enabled and forced, so the grant exposes only what membership reaches.
+    The two tier tables get the `reference_readable` policy that
+    `sched.run_policies` uses: readable by anybody the application lets in,
+    writable by nobody, because moving a feature is a migration.
+
+217. **Story and Journey residue the brief would not let this work touch.**
+    `client/src/lib/wizard-controller.ts` lists `story` and `journey` in
+    `SERVICE_TIERS` for the intake wizard, and `intake.wizard_sessions.
+    service_tier` (migration 0018) and `server/runs/tables.ts` carry the same
+    three values with a check constraint. The brief forbids changes under
+    `client/src/lib/` while the auth brief owns it, and the wizard does not
+    write to the database from the client today, so nothing stored carries
+    the old names. Both are listed in the report for a follow up migration
+    that maps `story` to `ledger` and `journey` to `ledger_plus` and points
+    the wizard's list at `TIER_ORDER`. Until then the wizard's draft and the
+    engagement disagree in vocabulary at the one place the brief did not
+    allow fixing.
+
+218. **The live apply was blocked, and what that means for the gates.** The
+    brief says apply 0024 through the connector and commit the same file. The
+    project was paused (`INACTIVE`) when this work began and was restored
+    through the connector, which brought the schema back. The `apply_migration`
+    call was then refused by the action safety layer because the task
+    granted the connector for schema reads and read only queries. It was not
+    retried. Consequence: `script/check-schema.ts` now reports
+    `SERVICE_TIER tenancy.service_tiers or tenancy.tier_features is missing,
+    migration 0024 is not applied` until an authorised person applies
+    `db/migrations/0024_tiers.sql` with `apply_migration` named `0024_tiers`.
+    The file is complete and was not altered after the refusal. One more
+    thing the pre check found: `0022_scheduler.sql` is live (the `sched`
+    tables exist) but has no row in `supabase_migrations.schema_migrations`,
+    so it was applied with `execute_sql` rather than `apply_migration`, and
+    0024 should be applied with `apply_migration` so the history is kept.

@@ -476,7 +476,7 @@ async function seeded(): Promise<Seed> {
       [firmB, clientB, "bee"],
     ] as const) {
       await db.query(
-        "insert into tenancy.engagements (firm_id, client_id, name, status, service_level, start_date, created_by) values ($1, $2, $3, 'draft', 'core', '2026-01-01', $4)",
+        "insert into tenancy.engagements (firm_id, client_id, name, status, service_level, start_date, created_by) values ($1, $2, $3, 'draft', 'ledger', '2026-01-01', $4)",
         [firm, client, `Engagement ${label}`, ownerId],
       );
     }
@@ -579,7 +579,7 @@ test("rls: a client scoped actor cannot write into another client", async () => 
         s.clientUser,
         (tx) =>
           tx.query(
-            "insert into tenancy.engagements (firm_id, client_id, name, status, service_level, start_date, created_by) values ($1, $2, 'Sneaky', 'draft', 'core', '2026-02-01', $3)",
+            "insert into tenancy.engagements (firm_id, client_id, name, status, service_level, start_date, created_by) values ($1, $2, 'Sneaky', 'draft', 'ledger', '2026-02-01', $3)",
             [s.firmA, s.client2, s.clientUser.userId],
           ),
         AS_APP_WEB,

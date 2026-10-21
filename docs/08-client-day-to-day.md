@@ -2,9 +2,9 @@
 
 The client portal is a plain window into your own books. It shows the numbers Jose and Rosario see, filtered to the things you can act on. Nothing you do on this side posts a journal entry. Everything you do is either a question answered, a document uploaded, or a decision recorded.
 
-There are three tiers. You can see which one you are on in the sidebar. Higher tiers unlock more screens, and locked screens on a lower tier show a real fact from your books rather than a blurred fake preview, so upgrade decisions get made on real information.
+There are three service levels: Ledger, Ledger+, and Legend. You can see which one you are on in the sidebar. Higher levels include more screens, and a locked screen on a lower level shows a real fact from your books rather than a blurred fake preview. The level is part of your engagement letter, so changing it is a conversation with the firm, not a button. docs/10-tiers.md has the full map.
 
-Story is where you start. Journey adds monthly review, budgets, and aging. Legend adds cash forecast, scenarios, entities, and narrative.
+Ledger is monthly reconciliation, categorization with bank rules, and monthly financial statements, with your transactions, documents, requests, and messages always open. Ledger+ adds AR and AP tracking, month over month comparison, a quarterly performance summary, and priority support. Legend adds custom reports and KPI dashboards (budget, forecast, scenarios, narrative, entities), accrual and loan tracking, a monthly review, and CPA ready books at tax time.
 
 ## Portal home
 
@@ -50,23 +50,23 @@ You can propose a coding change on any row: click Propose, pick the account, add
 
 Balance sheet, income statement, cash flow, statement of equity. Snapshots at close date. Downloadable. AR aging and AP aging are their own tabs. Everything ties to the reports Jose sees, byte for byte.
 
-If you are on Story, statements is quarterly. Journey and Legend are monthly.
+Statements are monthly at every level. Ledger, Ledger+, and Legend all close every month.
 
-## Compare (Journey and Legend)
+## Compare (Ledger+ and Legend)
 
 Two periods side by side, by account. Variance and variance percent. Click any row to drill to the transactions behind the movement.
 
-## Budget versus actual (Journey and Legend)
+## Budget versus actual (Legend)
 
 Budget rows Jose entered per account per month, actuals from the ledger, variance and variance percent. Rows that crossed the threshold (default 10 percent, but Jose can override per account) are highlighted.
 
-## Aging (Journey and Legend)
+## Aging (Ledger+ and Legend)
 
 AR aging. Every open invoice per customer, by bucket (current, 1 to 30, 31 to 60, 61 to 90, 91 plus). Statements you can send to your customers are here, one click. Sending is not wired tonight, so you download and email.
 
 AP aging. Every open bill per vendor by the same buckets. Not editable from the portal, this is a view.
 
-## Open period (Journey and Legend)
+## Open period (Legend)
 
 Where you are in the current close. Which gates have passed, which are still red, and which rows are blocking each red gate. If a row you own is blocking (typical case: a suspense item waiting on your reply, or an uploaded document), the button on the row takes you straight to it.
 
@@ -92,7 +92,7 @@ If your business is set up as a group of related entities (holding company plus 
 
 ## Tiers
 
-The Tiers page lays out all three tiers in plain English, what each includes, what upgrading gets you, and if you are on Story or Journey, a locked feature preview. The locked preview always uses a real fact from your books, so you know exactly what the upgrade would show, not a fake.
+The Tiers page lays out all three service levels in plain English, what each includes, and which one is yours. If you are on Ledger or Ledger+, a locked screen shows a preview built from a real fact in your books, so you know exactly what the next level would show, not a fake. There is no price on the page and nothing to buy. Pricing lives in your engagement letter.
 
 ## Compliance, on your side
 
@@ -114,4 +114,4 @@ I need last quarter's financials. Go to Statements. If they are not there yet, t
 
 I want to add a bank account. Message Jose or Rosario. New accounts get set up by the firm so the coding rules and bank mapping are configured before the first import.
 
-I want a report the portal does not have. Message the firm. Custom reports are Legend tier as a standard, and are available as one offs on other tiers at the hourly rate in your engagement.
+I want a report the portal does not have. Message the firm. Custom reports are part of Legend as a standard, and are available as one offs on other levels on the terms in your engagement letter.

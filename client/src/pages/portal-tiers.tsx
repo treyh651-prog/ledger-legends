@@ -2,7 +2,7 @@ import { Check, Lock } from "lucide-react";
 import { Pill, SectionCard } from "@/components/kit";
 import { IncludedRow, PortalHero, PortalNote, TierBadge } from "@/components/portal/portal-kit";
 import { usePortal } from "@/lib/use-portal";
-import { FEATURES, TIER_ORDER, TIERS, featuresAtTier, hasFeature, tierRank } from "@/data/entitlement";
+import { ADDON_ORDER, ADDONS, FEATURES, TIER_ORDER, TIERS, featuresAtTier, hasFeature, tierRank } from "@/data/entitlement";
 import { cn } from "@/lib/utils";
 import { fmtDate } from "@/lib/money";
 
@@ -10,6 +10,9 @@ import { fmtDate } from "@/lib/money";
  * Tier comparison. Reachable in every data mode because it describes the service, not
  * the client's numbers. There is no price, no picker, and nothing to buy. The service
  * level lives on the engagement, so changing it is a conversation.
+ *
+ * Every word about a tier comes from shared/tiers.ts, which carries the public
+ * page's promises and is the same map the server and migration 0024 use.
  */
 export default function PortalTiers() {
   const p = usePortal();
@@ -70,8 +73,8 @@ export default function PortalTiers() {
       </div>
 
       <SectionCard
-        title="Every screen, side by side"
-        description="A check means the screen is open at that level. A lock means the true headline number is still shown, only the detail waits."
+        title="Everything included, side by side"
+        description="A check means it is part of that level. For a portal screen, a lock means the true headline number is still shown and only the detail waits. For a deliverable, a lock means it is not part of that level."
         testId="card-tier-matrix"
       >
         <ul className="divide-y divide-border sm:hidden">
@@ -99,7 +102,7 @@ export default function PortalTiers() {
           <table className="w-full min-w-[520px] border-collapse text-sm">
             <thead>
               <tr className="border-b border-border text-left">
-                <th className="px-3 py-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">Screen</th>
+                <th className="px-3 py-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">Included</th>
                 {TIER_ORDER.map((id) => (
                   <th key={id} className="px-3 py-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
                     {TIERS[id].name}
@@ -116,7 +119,10 @@ export default function PortalTiers() {
                   </td>
                   {TIER_ORDER.map((id) => (
                     <td key={id} className="px-3 py-2">
-                      <IncludedRow label={hasFeature(id, f.id) ? "Open" : "Headline only"} included={hasFeature(id, f.id)} />
+                      <IncludedRow
+                        label={hasFeature(id, f.id) ? (f.route ? "Open" : "Included") : f.route ? "Headline only" : "Not at this level"}
+                        included={hasFeature(id, f.id)}
+                      />
                     </td>
                   ))}
                 </tr>
@@ -124,6 +130,21 @@ export default function PortalTiers() {
             </tbody>
           </table>
         </div>
+      </SectionCard>
+
+      <SectionCard
+        title="Add ons"
+        description="These attach to an engagement at any level. They are arranged in the engagement letter and they do not change which screens are open."
+        testId="card-tier-addons"
+      >
+        <ul className="divide-y divide-border">
+          {ADDON_ORDER.map((id) => (
+            <li key={id} className="space-y-0.5 p-4" data-testid={`row-addon-${id}`}>
+              <p className="text-sm font-medium">{ADDONS[id].name}</p>
+              <p className="text-xs leading-relaxed text-muted-foreground">{ADDONS[id].summary}</p>
+            </li>
+          ))}
+        </ul>
       </SectionCard>
 
       {p.hasClients ? (

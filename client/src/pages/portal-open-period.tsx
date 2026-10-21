@@ -8,7 +8,7 @@ import { acctLabel } from "@/data/coa";
 import { fmtPeriod, fmtShortDate, usd } from "@/lib/money";
 import type { Txn } from "@/data/types";
 
-/** Ledger+ feature. The month in progress, clearly marked as draft. */
+/** Legend feature, accrual tracking. The month in progress, clearly marked as draft. */
 export default function PortalOpenPeriod() {
   const p = usePortal();
   const open = p.openPeriod;

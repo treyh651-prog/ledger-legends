@@ -6,7 +6,7 @@ import { budgetVsActual, type BvaRow } from "@/data/derive";
 import { budgetFact } from "@/data/portal-facts";
 import { fmtPeriod, pct, usd } from "@/lib/money";
 
-/** Ledger+ feature. Plan against actual for the period being read. */
+/** Legend feature, part of custom reports. Plan against actual for the period being read. */
 export default function PortalBudget() {
   const p = usePortal();
   const readPeriod = p.period;

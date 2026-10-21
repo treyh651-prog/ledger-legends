@@ -38,6 +38,12 @@
  *   driver, so a text[] or char(26)[] column refuses the literal with 22P02. No
  *   column of a table the row map addresses may be an array type.
  *
+ * A fourth check came with migration 0024. tenancy.service_tiers and
+ * tenancy.tier_features are seeded from shared/tiers.ts, and a feature moved
+ * between tiers in TypeScript without a migration would let the portal show
+ * a screen the database says the client is not entitled to. Both tables are
+ * read back and compared field by field.
+ *
  * Run it with: npx tsx script/check-schema.ts
  */
 
@@ -46,6 +52,7 @@ import { RUN_EXECUTION_ID_WIDTH, SEQUENCE_ID_WIDTH } from "../server/runs/ids";
 import type { TableName } from "../server/runs/tables";
 import { RUN_POLICIES } from "../server/runs/policy";
 import { registry } from "../server/runs/registry";
+import { FEATURES, TIER_ORDER, TIERS } from "../shared/tiers";
 import { PROJECT_ID, query } from "./connector-sql";
 import { rowMapKeys } from "./row-map-keys";
 
@@ -212,6 +219,86 @@ for (const row of runIdRows) {
 // ---------------------------------------------------------------------------
 
 const mapped = new Set(Array.from(wanted.values()));
+// ---------------------------------------------------------------------------
+// tenancy.service_tiers and tenancy.tier_features are seeded from
+// shared/tiers.ts. Each feature is stored once, at its lowest tier, so the
+// comparison is one row per feature key in both directions.
+// ---------------------------------------------------------------------------
+
+const serviceTierProblems: string[] = [];
+const tierTablesPresent =
+  present.has("tenancy.service_tiers") && present.has("tenancy.tier_features");
+if (!tierTablesPresent) {
+  serviceTierProblems.push(
+    "tenancy.service_tiers or tenancy.tier_features is missing, migration 0024 is not applied",
+  );
+} else {
+  const liveServiceTiers = new Map<
+    string,
+    { name: string; rank: number; tagline: string; floor: number; ceiling: number | null }
+  >();
+  for (const row of query(
+    "select id, name, rank, tagline, revenue_floor_cents, revenue_ceiling_cents from tenancy.service_tiers",
+  )) {
+    liveServiceTiers.set(String(row.id), {
+      name: String(row.name),
+      rank: Number(row.rank),
+      tagline: String(row.tagline),
+      floor: Number(row.revenue_floor_cents),
+      ceiling: row.revenue_ceiling_cents === null ? null : Number(row.revenue_ceiling_cents),
+    });
+  }
+  for (const id of TIER_ORDER) {
+    const want = TIERS[id];
+    const live = liveServiceTiers.get(id);
+    if (!live) {
+      serviceTierProblems.push(`${id} is missing from tenancy.service_tiers`);
+      continue;
+    }
+    if (live.name !== want.name) serviceTierProblems.push(`${id} is named ${live.name} in the database`);
+    if (live.rank !== want.rank) {
+      serviceTierProblems.push(`${id} is rank ${String(live.rank)} in the database and ${String(want.rank)} in tiers.ts`);
+    }
+    if (live.tagline !== want.tagline) serviceTierProblems.push(`${id} carries a different tagline in the database`);
+    if (live.floor !== want.revenueFloorCents || live.ceiling !== want.revenueCeilingCents) {
+      serviceTierProblems.push(`${id} carries a different revenue band in the database`);
+    }
+  }
+  for (const id of liveServiceTiers.keys()) {
+    if (!(TIER_ORDER as readonly string[]).includes(id)) {
+      serviceTierProblems.push(`${id} is in tenancy.service_tiers and not in tiers.ts`);
+    }
+  }
+
+  const liveFeatures = new Map<string, { tier: string; label: string; summary: string }>();
+  for (const row of query(
+    "select tier_id, feature_key, label, summary from tenancy.tier_features",
+  )) {
+    liveFeatures.set(String(row.feature_key), {
+      tier: String(row.tier_id),
+      label: String(row.label),
+      summary: String(row.summary),
+    });
+  }
+  for (const f of FEATURES) {
+    const live = liveFeatures.get(f.id);
+    if (!live) {
+      serviceTierProblems.push(`${f.id} is missing from tenancy.tier_features`);
+      continue;
+    }
+    if (live.tier !== f.minTier) {
+      serviceTierProblems.push(`${f.id} is at ${live.tier} in the database and ${f.minTier} in tiers.ts`);
+    }
+    if (live.label !== f.label) serviceTierProblems.push(`${f.id} carries a different label in the database`);
+    if (live.summary !== f.summary) serviceTierProblems.push(`${f.id} carries a different summary in the database`);
+  }
+  for (const key of liveFeatures.keys()) {
+    if (!FEATURES.some((f) => f.id === key)) {
+      serviceTierProblems.push(`${key} is in tenancy.tier_features and not in tiers.ts`);
+    }
+  }
+}
+
 const arrays: string[] = [];
 for (const row of query(
   `select c.table_schema || '.' || c.table_name as tbl, c.column_name as col,
@@ -230,7 +317,8 @@ for (const row of query(
 
 console.log(
   `Checked ${runIdChecked} run id columns against ${RUN_EXECUTION_ID_WIDTH} and ${SEQUENCE_ID_WIDTH} characters, and ${mapped.size} mapped tables for array columns. ` +
-    `Checked ${registry.length} compliance tiers against sched.run_policies.`,
+    `Checked ${registry.length} compliance tiers against sched.run_policies. ` +
+    `Checked ${TIER_ORDER.length} service tiers and ${FEATURES.length} features against tenancy.service_tiers and tenancy.tier_features.`,
 );
 
 const failures = [
@@ -238,6 +326,7 @@ const failures = [
   ...tooNarrow.sort().map((m) => `NARROW ${m}`),
   ...arrays.sort().map((m) => `ARRAY ${m}`),
   ...tierProblems.sort().map((m) => `TIER ${m}`),
+  ...serviceTierProblems.sort().map((m) => `SERVICE_TIER ${m}`),
 ];
 if (failures.length > 0) {
   for (const f of failures) console.log(f);

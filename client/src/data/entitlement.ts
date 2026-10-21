@@ -1,110 +1,36 @@
 import type { Dataset } from "./seed";
 import { CURRENT_PERIOD, PERIODS, TODAY } from "./seed";
-import type { EntityGroup, PeriodClose, TierId } from "./types";
+import type { EntityGroup, PeriodClose } from "./types";
+import { hasFeature, type TierId } from "@shared/tiers";
 
 /**
  * Portal depth is a bundled property of the engagement (decision D1). There is no
  * subscription, no plan picker, and no payment surface anywhere in this product.
- * Everything here is read only and is checked in the UI layer.
+ *
+ * The tiers, the feature keys and hasFeature live in shared/tiers.ts, which
+ * the server imports too. This file re exports them and keeps the helpers
+ * that read the in memory dataset. Nothing about a tier is defined here.
  */
 
-export const TIER_ORDER: TierId[] = ["ledger", "ledger_plus", "legend"];
-
-export interface TierMeta {
-  id: TierId;
-  name: string;
-  tagline: string;
-  rank: number;
-}
-
-export const TIERS: Record<TierId, TierMeta> = {
-  ledger: {
-    id: "ledger",
-    name: "Ledger",
-    tagline: "Clean books, closed monthly, with your records in your hands.",
-    rank: 0,
-  },
-  ledger_plus: {
-    id: "ledger_plus",
-    name: "Ledger+",
-    tagline: "Adds comparison, budget tracking, collections detail, and early numbers.",
-    rank: 1,
-  },
-  legend: {
-    id: "legend",
-    name: "Legend",
-    tagline: "Adds forward looking cash, a written read on the month, and group reporting.",
-    rank: 2,
-  },
-};
-
-export function tierMeta(id: TierId): TierMeta {
-  return TIERS[id];
-}
-
-export function tierRank(id: TierId): number {
-  return TIERS[id].rank;
-}
-
-/* ---------------- Feature catalog ---------------- */
-
-export type FeatureId =
-  | "statements"
-  | "transactions"
-  | "documents"
-  | "requests"
-  | "messages"
-  | "compare"
-  | "budget"
-  | "aging"
-  | "open_period"
-  | "forecast"
-  | "narrative"
-  | "scenarios"
-  | "consolidation";
-
-export interface FeatureMeta {
-  id: FeatureId;
-  label: string;
-  /** One plain sentence a client would recognize. */
-  summary: string;
-  minTier: TierId;
-  route?: string;
-  /** True when the feature is a client's own record set and can never be gated. */
-  ownRecords?: boolean;
-}
-
-export const FEATURES: FeatureMeta[] = [
-  { id: "statements", label: "Financial statements", summary: "Profit and loss, balance sheet, and cash flow for every closed month.", minTier: "ledger", route: "/portal/statements", ownRecords: true },
-  { id: "transactions", label: "Your transactions", summary: "Every posted transaction on your accounts with the category we used.", minTier: "ledger", route: "/portal/transactions", ownRecords: true },
-  { id: "documents", label: "Documents and upload", summary: "Send us receipts and statements, and keep the file history.", minTier: "ledger", route: "/portal/upload", ownRecords: true },
-  { id: "requests", label: "Open requests", summary: "The short list of what we still need from you this month.", minTier: "ledger", route: "/portal/requests", ownRecords: true },
-  { id: "messages", label: "Messages", summary: "Talk to the people doing your books, in one thread.", minTier: "ledger", route: "/portal/messages", ownRecords: true },
-  { id: "compare", label: "Month over month", summary: "This month against last month, line by line, with the drivers called out.", minTier: "ledger_plus", route: "/portal/compare" },
-  { id: "budget", label: "Budget versus actual", summary: "Where spending landed against the plan, by account.", minTier: "ledger_plus", route: "/portal/budget" },
-  { id: "aging", label: "AR and AP aging", summary: "Who owes you, who you owe, and how late each one is.", minTier: "ledger_plus", route: "/portal/aging" },
-  { id: "open_period", label: "Open period numbers", summary: "The month in progress before it closes, marked as draft.", minTier: "ledger_plus", route: "/portal/open-period" },
-  { id: "forecast", label: "Thirteen week cash forecast", summary: "Cash in and cash out by week for the next thirteen weeks.", minTier: "legend", route: "/portal/forecast" },
-  { id: "narrative", label: "Period narrative", summary: "A written read on the month from the person who closed it.", minTier: "legend", route: "/portal/narrative" },
-  { id: "scenarios", label: "Scenario comparison", summary: "The same forecast under slower collections or a change in spend.", minTier: "legend", route: "/portal/scenarios" },
-  { id: "consolidation", label: "Group consolidation", summary: "Two or more entities combined into one set of statements.", minTier: "legend", route: "/portal/entities" },
-];
-
-export const FEATURE_BY_ID: Record<FeatureId, FeatureMeta> = Object.fromEntries(
-  FEATURES.map((f) => [f.id, f]),
-) as Record<FeatureId, FeatureMeta>;
-
-export function featuresForTier(tier: TierId): FeatureMeta[] {
-  return FEATURES.filter((f) => tierRank(f.minTier) <= tierRank(tier));
-}
-
-export function featuresAtTier(tier: TierId): FeatureMeta[] {
-  return FEATURES.filter((f) => f.minTier === tier);
-}
-
-export function hasFeature(tier: TierId, id: FeatureId): boolean {
-  return tierRank(FEATURE_BY_ID[id].minTier) <= tierRank(tier);
-}
+export {
+  ADDON_ORDER,
+  ADDONS,
+  FEATURE_BY_ID,
+  FEATURE_KEYS,
+  FEATURES,
+  TIER_ORDER,
+  TIERS,
+  featuresAtTier,
+  featuresForTier,
+  hasFeature,
+  isAddonId,
+  isFeatureKey,
+  isTierId,
+  nextTier,
+  tierMeta,
+  tierRank,
+} from "@shared/tiers";
+export type { AddonId, AddonMeta, FeatureId, FeatureKey, FeatureMeta, TierId, TierMeta } from "@shared/tiers";
 
 /* ---------------- Entitlement lookup ---------------- */
 
@@ -152,12 +78,6 @@ export function entitlementHistory(ds: Dataset, clientId: string) {
     .filter((g) => g.clientId === clientId)
     .slice()
     .sort((a, b) => (a.effectiveFrom < b.effectiveFrom ? -1 : 1));
-}
-
-/** The next level up, or null at the top. */
-export function nextTier(tier: TierId): TierId | null {
-  const i = tierRank(tier);
-  return i >= TIER_ORDER.length - 1 ? null : TIER_ORDER[i + 1];
 }
 
 /* ---------------- Close state ---------------- */
