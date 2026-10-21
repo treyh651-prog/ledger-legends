@@ -2530,9 +2530,9 @@ particular rows in the fixture.
 
 ## Service tiers, migration 0024 and shared/tiers.ts
 
-Entries 193 to 205 belong to the auth brief and are written there.
+Entries 193 to 210 belong to the login work above.
 
-210. **The public pricing page is the source, and the three vocabularies
+211. **The public pricing page is the source, and the three vocabularies
     collapse to one.** Before this work the client said ledger, ledger_plus,
     legend; doc 08 said Story, Journey, Legend with quarterly statements at
     Story; the wizard said story, journey, legend; and
@@ -2544,9 +2544,9 @@ Entries 193 to 205 belong to the auth brief and are written there.
     already match the page's names and nothing stored in the database used any
     other value, with every word of copy taken from the page. Story and
     Journey are removed from `docs/` and `client/` except where the auth brief
-    owns the file, see entry 217.
+    owns the file, see entry 218.
 
-211. **The feature map, decided before coding.** The page's promises were
+212. **The feature map, decided before coding.** The page's promises were
     mapped to the portal's feature keys like this, and `shared/tiers.ts`,
     `0024_tiers.sql`, and `docs/10-tiers.md` all carry the result.
     Ledger: statements, transactions, documents, requests, messages, which are
@@ -2571,7 +2571,7 @@ Entries 193 to 205 belong to the auth brief and are written there.
     `cpa_packet` is the compile for the CPA and never a tax form; the firm is
     not a CPA firm.
 
-212. **Budget moves to Legend, and open period moves with it.** The brief said
+213. **Budget moves to Legend, and open period moves with it.** The brief said
     the page wins wherever the code gave something lower than the page
     promises, and to argue budget's placement from the page's text either
     way. The Ledger+ text is "light AR and AP tracking, quarterly performance
@@ -2585,7 +2585,7 @@ Entries 193 to 205 belong to the auth brief and are written there.
     correct consequence and is visible on the tiers screen as a lock with a
     real fact behind it.
 
-213. **Tiers are rows, features are rows once each, and inclusion is derived
+214. **Tiers are rows, features are rows once each, and inclusion is derived
     by rank.** Options for the shape: a feature table with one row per (tier,
     feature) pair including inherited ones, a boolean column per feature on
     the tier row, or one row per feature at its lowest tier with inclusion
@@ -2599,7 +2599,7 @@ Entries 193 to 205 belong to the auth brief and are written there.
     and summary against the shared file, so a feature moved in one place and
     not the other is a red gate.
 
-214. **A foreign key, not a check constraint, on `service_level`.** Options:
+215. **A foreign key, not a check constraint, on `service_level`.** Options:
     `check (service_level in (...))`, a foreign key to `service_tiers`, or
     both. Chosen: the foreign key alone. Adding a tier is then an insert and
     the view picks it up with no alter. The pre check through the connector
@@ -2611,7 +2611,7 @@ Entries 193 to 205 belong to the auth brief and are written there.
     partial unique index making "the active engagement" one row per client,
     which the view's wording and the memory source both depend on.
 
-215. **Add ons are rows on the engagement and grant nothing.** Payroll and
+216. **Add ons are rows on the engagement and grant nothing.** Payroll and
     cleanup are add ons on the page. Options: model them as extra tiers, as
     boolean columns on the engagement, as feature keys, or as a dated child
     table. Chosen: `tenancy.engagement_addons` with `addon in ('payroll',
@@ -2624,7 +2624,7 @@ Entries 193 to 205 belong to the auth brief and are written there.
     it, and a test proves that a Ledger client with both add ons has exactly
     the features of a Ledger client with none.
 
-216. **The view runs as the caller.** Options for row level security on a
+217. **The view runs as the caller.** Options for row level security on a
     view: a `security definer` function that filters by the actor, a
     materialised table with its own policy, or `security_invoker = true` on
     the view. Chosen: `security_invoker`, which makes the existing
@@ -2638,7 +2638,7 @@ Entries 193 to 205 belong to the auth brief and are written there.
     `sched.run_policies` uses: readable by anybody the application lets in,
     writable by nobody, because moving a feature is a migration.
 
-217. **Story and Journey residue the brief would not let this work touch.**
+218. **Story and Journey residue the brief would not let this work touch.**
     `client/src/lib/wizard-controller.ts` lists `story` and `journey` in
     `SERVICE_TIERS` for the intake wizard, and `intake.wizard_sessions.
     service_tier` (migration 0018) and `server/runs/tables.ts` carry the same
@@ -2651,7 +2651,7 @@ Entries 193 to 205 belong to the auth brief and are written there.
     engagement disagree in vocabulary at the one place the brief did not
     allow fixing.
 
-218. **The live apply was blocked, and what that means for the gates.** The
+219. **The live apply was blocked, and what that means for the gates.** The
     brief says apply 0024 through the connector and commit the same file. The
     project was paused (`INACTIVE`) when this work began and was restored
     through the connector, which brought the schema back. The `apply_migration`

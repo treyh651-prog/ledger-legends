@@ -64,7 +64,7 @@ of the level.
 Statements, transactions, documents, requests, and messages are a client's own
 records. They are at Ledger and are never held back at any level.
 
-Two placements were decided rather than copied, and NOTES entry 211 carries the
+Two placements were decided rather than copied, and NOTES entry 213 carries the
 full reasoning. Budget versus actual is at Legend because the page's Ledger+
 text names AR and AP tracking, a quarterly summary, and support, and says
 nothing about budgets; the page puts custom reports and KPI dashboards at

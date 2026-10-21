@@ -1,6 +1,6 @@
 -- 0024_tiers.sql
--- Service tiers as data. Implements the tiers brief (NOTES entries 210 to
--- 218). The public pricing page at ledgerlegends.pro is the source for every
+-- Service tiers as data. Implements the tiers brief (NOTES entries 211 to
+-- 219). The public pricing page at ledgerlegends.pro is the source for every
 -- word in the seed below. shared/tiers.ts carries the same rows in
 -- TypeScript, and script/check-schema.ts fails when the two disagree.
 --
