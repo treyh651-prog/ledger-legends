@@ -2354,3 +2354,176 @@ particular rows in the fixture.
     later with no policy is refused by `guardScheduledRun` rather than assumed
     safe, and `script/check-schema.ts` fails when the database and
     `server/runs/policy.ts` disagree about any tier, reason, or ledger flag.
+
+## Login, actors, and the row level security that was not live
+
+193. **Supabase Auth over WorkOS, Clerk, or a home grown table.** Migration
+    0001 wrote `auth_subject` as "sub from WorkOS or Clerk". Options: WorkOS,
+    Clerk, Supabase Auth, or passwords in a table of our own. Chosen: Supabase
+    Auth. The project is already there, the admin API sends the invitation and
+    recovery emails without a mail provider of our own, and the tokens verify
+    locally against a published key set so the auth server is not on the
+    request path. A table of our own was refused because hashing passwords
+    and running a recovery flow is not this product's job. WorkOS and Clerk
+    add a vendor for a problem the existing vendor already solves. The column
+    comment in 0001 is now out of date by two names; the column itself fits.
+
+194. **Two verification paths, chosen from the token header.** Supabase
+    projects on JWT signing keys issue ES256 or RS256 tokens with a `kid`
+    that resolves against `/auth/v1/.well-known/jwks.json`; older projects
+    issue HS256 with a shared secret this server does not hold. Options:
+    require signing keys and refuse HS256, hold the shared secret in an env
+    variable, or ask the auth server to validate HS256 tokens. Chosen: JWKS
+    first, and for an HS256 header call `/auth/v1/user` with the anon key.
+    Holding the secret was refused because a leaked secret mints tokens for
+    anyone; the anon key cannot. The path is decided per token so a project
+    that migrates to signing keys needs no code change.
+
+195. **The postgres role bypasses row level security, so the policies were
+    decorative.** Found while writing the test for `withActor`: on Supabase
+    `postgres` carries `BYPASSRLS`, confirmed on this project
+    (`rolbypassrls = true`). Every connection string the dashboard offers is
+    that role, so a server connecting with it is exempt from every policy
+    written since 0001. Options: a dedicated login role in the connection
+    string, `set local role app_web` inside each actor transaction, or accept
+    it and rely on the API's own membership checks. Chosen: `set local role`
+    inside `withActor`, governed by `APP_DB_ROLE`, with the grants `app_web`
+    needs in migration 0023. A login role in the connection string was
+    refused because credentials are managed outside migrations and the
+    operator would have had to mint and rotate a second password. Relying on
+    the API alone was refused because it is exactly the quiet failure the
+    policies exist to prevent. The suite proves both sides on real Postgres:
+    with the switch a client scoped actor reads one client's engagements,
+    without it the same actor reads all three.
+
+196. **`APP_DB_ROLE` is an env variable, not a hard default.** Options: always
+    switch to `app_web`, switch only when configured, or switch and fall back
+    silently on error. Chosen: switch only when configured, log once at
+    startup when not. Always switching was refused because a grant the
+    migration missed would turn every route into a 500 on deploy day with no
+    way back short of a code change; the variable is the way back. Silent
+    fallback was refused outright. `.env.example` sets `app_web`.
+
+197. **PGlite for the database tests.** Entry 177 chose a scripted pool over
+    a throwaway local Postgres because the sandbox cannot run a listener.
+    PGlite is Postgres compiled to WebAssembly and runs in process with no
+    listener, no password, and no port. Options: scripted pool only, PGlite,
+    or a live connection gated on `DATABASE_URL`. Chosen: PGlite as a dev
+    dependency, and every file in `db/migrations` is applied to a fresh
+    instance at the start of the auth tests. Twenty three migrations apply in
+    about five seconds. A gated live test was refused because a test that
+    only runs on one machine is a test nobody runs. The scripted pool stays
+    for the statement sequence assertions, where it is the right tool.
+
+198. **A client user could read the firm's other clients.** 0001 protected
+    `tenancy.clients` with `firm_isolation`, which is `has_firm_access`, which
+    any membership in the firm satisfies, including a client scoped one. So a
+    client user could list every other client's name and entity type.
+    Options: leave it, tighten `has_firm_access` to firm scope only, or give
+    the clients table its own policies. Chosen: own policies in 0023, select
+    through `has_client_access(id)`, insert and update through a new
+    `is_firm_staff(firm_id)`. Tightening `has_firm_access` was refused because
+    other tables lean on its current meaning and a change there is a change
+    everywhere. The PGlite test asserts the client user sees one row.
+
+199. **Invitations are a users row and a memberships row, not a table.**
+    Options: an `invitations` table with a token and state machine, or the
+    rows 0001 already has. Chosen: the existing rows. Supabase holds the
+    token and the acceptance state (the person has set a password or
+    followed the link), and the first authenticated request stamps
+    `users.last_seen_at`, which is what the Access page shows as accepted.
+    `invited_by` on users records who sent it, `granted_by` on memberships
+    already recorded who granted the access. A table of our own would have
+    duplicated the state Supabase keeps and drifted from it.
+
+200. **Revocation disables the login only when nothing active remains.**
+    A person can hold a firm membership and a client membership at once.
+    Options: disable the auth user on any revocation, on the last one, or
+    never. Chosen: on the last one, with a ban through the admin API so the
+    refresh token dies. The actor middleware reads `revoked_at` and
+    `disabled_at` on every request, so an access token still in a browser
+    stops working at its next request regardless. A firm keeps at least one
+    owner, and nobody revokes themselves; both are 409s with their own codes.
+
+201. **An existing login gets no email.** Inviting an address that already
+    has a Supabase user cannot send an invitation (the API refuses with
+    `email_exists`). Options: send a magic link from the server, send a
+    password reset, or send nothing and say so. Chosen: nothing, with
+    `emailSent: false` in the response and a sentence on the Access page
+    pointing them at the sign in page's "Email me a link". The lookup uses
+    `generateLink` because it is the only admin call that returns a user by
+    email without paging through every user; the link it makes is discarded.
+
+202. **Sign in follows the database.** Options: require the Supabase variables
+    always, require them only with Postgres, or make sign in optional
+    everywhere. Chosen: required with Postgres, off in memory mode with a
+    startup line saying so. There is no tenancy schema to resolve a login
+    against in memory, and the developer loop (no database, demo data in the
+    browser) is worth keeping. The browser asks `/api/auth/config`, which
+    says `configured: false`, and renders without a login screen. A
+    production process missing any of the four variables refuses to start
+    and names them, the same way `DATABASE_URL` does.
+
+203. **The anon key is served by the API, not baked in at build.** Options:
+    `VITE_` variables at build time or a public config route. Chosen: the
+    route. The key is public by design, the build then has no environment of
+    its own, and the pipeline that builds the bundle does not need to know
+    which project it will talk to. The route is rate limited with the public
+    limiter.
+
+204. **The hash router and the Supabase redirect share the hash.** Invitation
+    and recovery links put the token in the URL fragment, and this client
+    routes on the fragment. Options: switch to path routing, or capture the
+    link type before the Supabase client consumes the fragment and then hand
+    the hash back to the router. Chosen: capture and hand back. Path routing
+    would have changed every link in the app for one page.
+
+205. **Firm selection lives in memory.** The CI guard forbids web storage in
+    the client, and the Access page needs a firm for a user in several firms.
+    Options: break the rule for one key, put the firm in the URL, or keep it
+    in memory and default to the first firm after a reload. Chosen: memory.
+    The multi firm user is rare, picking again after a reload costs one
+    click, and the rule stays whole. The Supabase client persists its own
+    session in storage when storage exists and falls back to memory when it
+    does not; that is inside the library and not this code.
+
+206. **The CI credential guard gets one carve out.** The guard fails on
+    `type="password"` anywhere in the client, written when the only password
+    anyone could imagine was a bank password. A sign in screen needs one.
+    Options: drop the guard, dodge it with `type={"password"}`, go magic link
+    only, or exclude the sign in directory. Chosen: exclude
+    `client/src/pages/auth` and say why in the workflow. Dodging a guard is
+    lying to it. Magic link only was tempting and would have kept the guard
+    whole, but the brief asks for the Supabase reset flow, which implies a
+    password, and a bookkeeper at 7am wants one.
+
+207. **Request bodies are not logged any more.** The old request logger
+    captured every JSON response under `/api` into the log line. With auth
+    routes that is memberships and email addresses on every line, forever.
+    Options: keep it with redaction, keep it for non auth routes, or drop
+    bodies entirely. Chosen: drop them; method, path, status and time remain.
+    Redaction lists are a promise nobody keeps.
+
+208. **The scheduler status route takes the firm from the actor.** It used
+    to read `SCHEDULER_FIRM_ID` because the server had no idea who was
+    asking. It now sits behind `requireFirm` and uses `req.firm.firmId` and
+    `req.actor.userId`. The env pair stays for the Trigger.dev tasks, which
+    run with no human on the request.
+
+209. **Removed the scaffold the brief named, and nothing else.** passport,
+    passport-local, express-session, memorystore, drizzle-orm, drizzle-zod,
+    drizzle-kit, better-sqlite3 and their types are gone, with
+    `server/storage.ts`, `shared/schema.ts`, `drizzle.config.ts` and the
+    `db:push` script. The `@shared` path alias stays in tsconfig and vite
+    because other work uses it. The audit before and after is in the brief
+    report; the eight remaining advisories are all transitive through
+    `@trigger.dev/sdk` and `vite`, and none is reachable from a request.
+
+210. **Statement sequence in `withActor`.** `begin`, then `set local role`
+    when configured, then one `select set_config(...)` for both keys, then the
+    work, then `commit`. `app.run_id` is set to the empty string rather than
+    left alone because a pooled connection may have carried a run id from the
+    runs path; transaction local or not, a blank is a statement of fact and
+    an absent key is a hope. A throw after `begin` rolls back; a throw from
+    `begin` itself does not try to, since nothing started. The connection is
+    released in every path, and the scripted pool test counts the release.

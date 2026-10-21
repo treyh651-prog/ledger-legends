@@ -66,10 +66,13 @@ jobs:
         run: npx tsx script/check-style.ts
 
       # Nothing in this product stores a credential. Bank connections are
-      # represented as records, never as secrets.
+      # represented as records, never as secrets. The one place a password
+      # field is allowed is the sign in screens under client/src/pages/auth,
+      # where the password goes to Supabase Auth and nowhere near this
+      # product's storage.
       - name: No credential fields
         run: |
-          if grep -rniE 'type="password"|bankPassword|routingSecret|apiSecret[[:space:]]*[:=]' --include=*.ts --include=*.tsx --include=*.sql client/src shared server db; then
+          if grep -rniE 'type="password"|bankPassword|routingSecret|apiSecret[[:space:]]*[:=]' --include=*.ts --include=*.tsx --include=*.sql --exclude-dir=auth client/src shared server db; then
             echo "Found something that looks like a credential field. This product does not store credentials."
             exit 1
           fi

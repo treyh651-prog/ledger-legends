@@ -51,6 +51,11 @@ import PortalMappingProfiles from "@/pages/portal-mapping-profiles";
 import PortalClientDetail from "@/pages/portal-client-detail";
 import { ALWAYS_RENDER, EmptyWorkspace } from "@/components/empty-workspace";
 import { useApp } from "@/store";
+import { AuthProvider, useAuth } from "@/lib/auth";
+import { AuthLoading, NotAMember, SetPassword, SignIn } from "@/pages/auth/sign-in";
+import Access from "@/pages/access";
+import { useEffect } from "react";
+import { useLocation } from "wouter";
 
 /**
  * One guard for every route. When the workspace has no clients, the screen renders its
@@ -83,6 +88,7 @@ function AppRouter() {
       <Route path="/close">{guarded("/close", CloseChecklist)}</Route>
       <Route path="/board">{guarded("/board", Board)}</Route>
       <Route path="/team">{guarded("/team", Team)}</Route>
+      <Route path="/access" component={Access} />
       <Route path="/comms">{guarded("/comms", Comms)}</Route>
       <Route path="/requests">{guarded("/requests", OpenItems)}</Route>
       <Route path="/package">{guarded("/package", ReportPackage)}</Route>
@@ -117,18 +123,68 @@ function AppRouter() {
   );
 }
 
+/**
+ * A client scoped user has no firm plane. If the hash points at a firm route
+ * (which is every route outside /portal), send them to the portal instead of
+ * drawing firm chrome around an empty page.
+ */
+function PlaneFence({ children }: { children: React.ReactNode }) {
+  const auth = useAuth();
+  const [path, navigate] = useLocation();
+  const firmSideOnly = ["/portal/intake", "/portal/mapping-profiles", "/portal/clients"];
+  const onFirmRoute = !path.startsWith("/portal") || firmSideOnly.some((p) => path.startsWith(p));
+  useEffect(() => {
+    if (!auth.canUseFirmPlane && onFirmRoute) navigate("/portal", { replace: true });
+  }, [auth.canUseFirmPlane, onFirmRoute, navigate]);
+  if (!auth.canUseFirmPlane && onFirmRoute) return null;
+  return <>{children}</>;
+}
+
+/**
+ * The gate. Nothing inside renders until the server has said who this is,
+ * or has said that sign in is off. The invitation and recovery links land
+ * on the set password screen first.
+ */
+function Gate() {
+  const auth = useAuth();
+  switch (auth.status) {
+    case "loading":
+      return <AuthLoading label="Loading" />;
+    case "resolving":
+      return <AuthLoading label="Signing you in" />;
+    case "signed-out":
+      return <SignIn />;
+    case "no-membership":
+    case "refused":
+      return <NotAMember />;
+    case "signed-in":
+    case "off":
+      break;
+  }
+  if (auth.status === "signed-in" && (auth.linkType === "invite" || auth.linkType === "recovery" || auth.linkType === "signup")) {
+    return <SetPassword />;
+  }
+  return (
+    <Router hook={useHashLocation}>
+      <PlaneFence>
+        <AppShell>
+          <AppRouter />
+        </AppShell>
+      </PlaneFence>
+    </Router>
+  );
+}
+
 function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
-        <AppProvider>
-          <Toaster />
-          <Router hook={useHashLocation}>
-            <AppShell>
-              <AppRouter />
-            </AppShell>
-          </Router>
-        </AppProvider>
+        <AuthProvider>
+          <AppProvider>
+            <Toaster />
+            <Gate />
+          </AppProvider>
+        </AuthProvider>
       </TooltipProvider>
     </QueryClientProvider>
   );

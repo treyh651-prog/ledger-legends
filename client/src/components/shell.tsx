@@ -35,6 +35,9 @@ import {
   Users,
   Wand2,
   Columns3,
+  KeyRound,
+  LogOut,
+  UserCircle2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
@@ -46,6 +49,8 @@ import { PERIODS } from "@/data/seed";
 import type { DataMode } from "@/data/seed";
 import { entitlementFor, hasFeature, tierMeta, type FeatureId } from "@/data/entitlement";
 import { fmtPeriod } from "@/lib/money";
+import { useAuth } from "@/lib/auth";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 
 interface NavItem {
   href: string;
@@ -90,6 +95,7 @@ const FIRM_NAV: NavGroup[] = [
       { href: "/close", label: "Close checklist", icon: CalendarCheck },
       { href: "/board", label: "Workload board", icon: LayoutGrid, badge: (c) => c.overdue || undefined },
       { href: "/team", label: "Team capacity", icon: Users },
+      { href: "/access", label: "Access", icon: KeyRound },
       { href: "/comms", label: "Communication log", icon: MessageSquare },
       { href: "/requests", label: "Open items", icon: ClipboardList, badge: (c) => c.openItems || undefined },
     ],
@@ -198,12 +204,21 @@ function NavList({ onNavigate }: { onNavigate?: () => void }) {
   );
 }
 
+/**
+ * Firm or client portal. Which planes show depends on who is signed in: a
+ * client scoped user has no firm plane to switch to, so the control is not
+ * drawn for them, and firm staff keep both. With sign in off (a developer
+ * machine on the memory port) both planes show, as before.
+ */
 function PlaneSwitcher() {
   const { plane, setPlane } = useApp();
+  const auth = useAuth();
   const [, navigate] = useLocation();
+  const planes = (["firm", "portal"] as const).filter((p) => (p === "firm" ? auth.canUseFirmPlane : auth.canUsePortalPlane));
+  if (planes.length < 2) return null;
   return (
     <div className="flex items-center rounded-sm border border-border bg-muted p-0.5" data-testid="switch-plane">
-      {(["firm", "portal"] as const).map((p) => (
+      {planes.map((p) => (
         <button
           key={p}
           type="button"
@@ -224,6 +239,46 @@ function PlaneSwitcher() {
   );
 }
 
+
+/** Who is signed in, which firm, and the way out. Hidden when sign in is off. */
+function UserMenu() {
+  const auth = useAuth();
+  if (auth.status !== "signed-in" || !auth.me) return null;
+  const firms = auth.me.memberships.filter((m) => m.scope === "firm");
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button variant="ghost" size="icon" aria-label="Account" data-testid="button-account">
+          <UserCircle2 className="h-4 w-4" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-64">
+        <DropdownMenuLabel className="font-normal">
+          <div className="text-sm font-medium">{auth.me.displayName ?? auth.me.email}</div>
+          <div className="text-xs text-muted-foreground">{auth.me.email}</div>
+          {auth.firm ? <div className="mt-1 text-xs text-muted-foreground">{auth.firm.firmName}, {auth.firm.role.replace("_", " ")}</div> : null}
+        </DropdownMenuLabel>
+        {firms.length > 1 ? (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuLabel className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground">Switch firm</DropdownMenuLabel>
+            {firms.map((f) => (
+              <DropdownMenuItem key={f.firmId} onClick={() => auth.setFirm(f.firmId)} data-testid={`menu-firm-${f.firmSlug}`}>
+                {f.firmName}
+                {auth.firm?.firmId === f.firmId ? <span className="ml-auto text-xs text-muted-foreground">current</span> : null}
+              </DropdownMenuItem>
+            ))}
+          </>
+        ) : null}
+        <DropdownMenuSeparator />
+        <DropdownMenuItem onClick={() => void auth.signOut()} data-testid="menu-sign-out">
+          <LogOut className="mr-2 h-4 w-4" />
+          Sign out
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
 
 const DATA_MODES: { id: DataMode; short: string; full: string }[] = [
   { id: "demo", short: "Demo", full: "Demo data, every client" },
@@ -421,6 +476,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             >
               {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
             </Button>
+            <UserMenu />
           </div>
         </header>
 

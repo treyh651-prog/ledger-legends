@@ -92,9 +92,23 @@ Real accounting defects the tests caught: dayGap returned absolute value so a bi
 
 None of these would have shipped with obvious defects. Every one was caught by the pipeline test that runs the module as a whole rather than by review of a single run.
 
+## Sign in and actors
+
+Supabase Auth holds the logins. The browser exchanges credentials with Supabase directly (password, magic link, invitation link, recovery link) and sends the access token to this server as a bearer header. The server verifies the token against the project's JWKS (local, cached) or, for a legacy HS256 token, by asking the auth server, then resolves the subject to a tenancy.users row and its active memberships. That is the actor. Three guards sit on routes: requireUser, requireFirm (with X-Firm to choose among several firms), requireClient (firm staff of the client's firm, or a client scoped member of that client; everything else is a 404 so existence does not leak).
+
+Every request's database work runs in withActor, a transaction that sets app.user_id (and clears app.run_id) with transaction local set_config, so the pooler sees a clean connection afterwards, and tenancy.current_actor() answers for row level security. Because the postgres role on Supabase bypasses row level security, withActor also runs set local role app_web when APP_DB_ROLE says so; migration 0023 granted app_web what it needs. The test suite runs every migration in an in process Postgres (PGlite) and proves a client scoped actor sees one client's rows with the switch and every row without it.
+
+Invitations are not a table. They are a users row plus a memberships row, created by an owner or manager through the admin API (which sends the email). Revocation sets revoked_at, and when nothing active remains for the person, disables the user row and bans the auth user. The first owner comes from npm run auth:bootstrap.
+
+HTTP hardening lives in server/http-hardening.ts: helmet with a content security policy that is strict in production and only loosened for Vite in development, CORS pinned to APP_ORIGIN, JSON bodies capped at 64 KB, rate limits per route group, and one final error handler that never forwards a driver message to the browser.
+
 ## What is still not built
 
 Backend wiring. The runs execute against an in memory port today. Migrations exist but are not run. Next block wires a real Postgres, runs the twelve migrations, seeds the templates, and swaps the in memory port for the real one.
+
+Interface routes behind the actor. The guards and withActor exist and the scheduler status and invitation routes use them. The pages still read demo data in the browser; the API that serves each page's rows through requireClient is the next block.
+
+Role switch on the runs path. Runs started from the interface still execute as the connection role. The runs transaction should take the same set local role step withActor takes.
 
 Trigger.dev scheduling. Nothing runs on a clock yet. Nightly aging, weekly forecast, monthly close sweeps all need it.
 
@@ -124,7 +138,9 @@ No AI in the software. No ML in the software. Every automation is deterministic 
 
 No external sends tonight. Every notify is an audit row.
 
-No localStorage or sessionStorage anywhere in the client. The preview iframe blocks it and it would silently break in production too. State is in memory and URL only.
+No localStorage or sessionStorage anywhere in the client. The preview iframe blocks it and it would silently break in production too. State is in memory and URL only. The one exception is inside the Supabase client library, which persists its own session and falls back to memory when storage is blocked; this code never touches storage itself.
+
+No credential fields, with one carve out: the sign in screens under client/src/pages/auth carry a password input whose value goes to Supabase Auth. This product still stores no credential.
 
 No PDF statement parsing ever. This is a database constraint, not a policy line item. Attempts refuse.
 

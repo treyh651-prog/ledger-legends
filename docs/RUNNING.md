@@ -14,13 +14,24 @@ ever held it.
 
 ## 1. What the application needs
 
-One environment variable.
+One environment variable for the database, four for sign in.
 
 | Variable | Required | What it does |
 |---|---|---|
 | `DATABASE_URL` | Yes in production | The connection string. Contains the password. |
 | `RUN_DB` | No | `postgres` or `memory`. Overrides the default choice. |
 | `PGSSLROOTCERT_PEM` | No | The project certificate, as text, for strict certificate checking. |
+| `SUPABASE_URL` | Yes with Postgres | The project URL, `https://<ref>.supabase.co`. Tokens are verified against its `/auth/v1` issuer. |
+| `SUPABASE_ANON_KEY` | Yes with Postgres | The public key. Handed to the browser through `/api/auth/config`, and used as the `apikey` header when the server has to ask Supabase Auth about a legacy HS256 token. |
+| `SUPABASE_SERVICE_ROLE_KEY` | Yes with Postgres | The admin key. Used for invitations (create the auth user, send the email) and revocations (ban the auth user). Server only. Never reaches the browser or a log. |
+| `APP_ORIGIN` | Yes with Postgres | Where the browser loads the app from, for example `https://app.example.com`. Pins CORS and is the redirect target in invitation and reset emails. Must also be in the Supabase project's redirect allow list. |
+| `APP_DB_ROLE` | Recommended | Role for `set local role` inside every actor transaction. Set it to `app_web` once migration 0023 is applied. Section 7 says why. |
+
+Sign in follows the database. With Postgres, all four Supabase variables are
+required and the server refuses to start naming the missing ones. In memory
+mode there is no tenancy schema to resolve a login against, so the server runs
+with sign in off and says so on startup; the browser then shows the app without
+a login screen, which is the developer loop.
 
 The rule the application follows, in one place, `server/db/run-db.ts`:
 
@@ -198,7 +209,63 @@ have failed too.
 
 ---
 
-## 6. Notes for whoever maintains this
+## 6. Sign in: first owner, then invitations
+
+Nobody can invite until somebody is an owner, so the first owner is made from
+the command line, in the environment that holds the variables above:
+
+```
+npm run auth:bootstrap -- --firm "Your Firm" --slug your-firm --email owner@example.com --name "Owner Name"
+```
+
+It creates the auth user through the admin API (which sends the invitation
+email), the `tenancy.firms` row, the `tenancy.users` row, and an owner
+membership. Run it twice and the second run reports that everything exists.
+The owner follows the link in the email, lands on the set password screen,
+and from then on invites everyone else from the Access page in the firm plane.
+
+Supabase side, once per project, in Authentication, URL Configuration: set the
+Site URL to `APP_ORIGIN` and add `APP_ORIGIN/auth/callback` to the redirect
+allow list. Without that the links in the emails bounce back to the Supabase
+default and the browser never sees the session.
+
+How a request is checked, in `server/auth/`:
+
+1. `jwt.ts` verifies the bearer token. Asymmetric tokens (ES256, RS256) are
+   checked locally against the project's JWKS, cached, no network call per
+   request. Legacy HS256 tokens are checked by asking `/auth/v1/user`, because
+   the server does not hold the shared secret. The path is chosen from the
+   token header, so moving a project to signing keys needs no change here.
+2. `actor-store.ts` looks the subject up in `tenancy.users` and reads the
+   active memberships. A disabled user or a subject with no row is refused.
+3. `middleware.ts` provides `requireUser`, `requireFirm` and `requireClient`.
+   A user in more than one firm sends `X-Firm` with the firm id or slug.
+4. Every database read or write for the request runs inside
+   `withActor(pool, actor, fn)` from `server/db/with-actor.ts`, which opens a
+   transaction, optionally switches role, sets `app.user_id`, and clears
+   `app.run_id`, all transaction local so the pooler sees a clean connection.
+
+## 7. Why `APP_DB_ROLE` matters
+
+On Supabase the `postgres` role, which is the role in every connection string
+the dashboard offers, carries `BYPASSRLS`. A server that connects as `postgres`
+is exempt from every row level security policy, so the policies written since
+migration 0001 are decorative for its traffic. `withActor` therefore runs
+`set local role app_web` when `APP_DB_ROLE=app_web`, and `app_web` does not
+bypass anything. Migration 0023 granted `app_web` what it needs on every table
+and made `postgres` a member of it so the switch is allowed.
+
+With `APP_DB_ROLE` unset the server logs, once at startup, that actor
+transactions run as the connection role and that the API's own membership
+checks are the only enforcement. That is not a configuration to ship. The test
+suite proves both behaviours against a real Postgres: with the switch a client
+scoped actor sees one client's rows, without it the same actor sees every row.
+
+The runs path (`server/runs/db-postgres.ts`) does not switch roles yet; runs
+started from the interface still execute as the connection role. That is the
+next thing to close.
+
+## 8. Notes for whoever maintains this
 
 - The transaction pooler does not support server side prepared statements. The
   Postgres port does not use them, and it should stay that way, or the
@@ -209,6 +276,8 @@ have failed too.
 - Pool size, statement timeout, and both connection timeouts are constants at the
   top of `server/db/pool.ts`, each with the reasoning for its value written
   beside it.
-- `npm run db:verify` is the only thing in this repository that opens a
-  connection with a password in it, and it takes that password from the
-  environment. If you find a second place, that is a defect.
+- `npm run db:verify` and `npm run auth:bootstrap` are the only things in this
+  repository that open a connection with a password in it, and both take that
+  password from the environment. If you find a third place, that is a defect.
+- The service role key is read in exactly one place, `server/auth/auth-admin.ts`.
+  Keep it that way.
