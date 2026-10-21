@@ -159,7 +159,7 @@ export default function FirmOverview() {
                   {r.roll.needsReview ? <Pill tone="watch">{r.roll.needsReview} in suspense</Pill> : null}
                   {r.roll.unreconciled ? <Pill tone="risk">{r.roll.unreconciled} rec open</Pill> : null}
                   {r.roll.tieOutIssues ? <Pill tone="risk">{r.roll.tieOutIssues} tie out</Pill> : null}
-                  {r.roll.openItems ? <Pill tone="info">{r.roll.openItems} requests</Pill> : null}
+                  {r.roll.openItems ? <Pill tone="info">{r.roll.openItems} {r.roll.openItems === 1 ? "request" : "requests"}</Pill> : null}
                   {!r.roll.needsReview && !r.roll.unreconciled && !r.roll.tieOutIssues && !r.roll.openItems ? (
                     <Pill tone="good">Clean</Pill>
                   ) : null}

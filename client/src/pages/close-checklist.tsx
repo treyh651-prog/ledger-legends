@@ -64,7 +64,7 @@ export default function CloseChecklist() {
       detail: subs.every((s) => s.status === "tied") ? "Every account has support attached" : `${subs.filter((s) => s.status !== "tied").length} accounts need attention`,
       href: "/substantiation",
     },
-    { label: "Client requests are closed out", ok: openRequests === 0, detail: openRequests ? `${openRequests} requests still open` : "Nothing pending with the client", href: "/requests" },
+    { label: "Client requests are closed out", ok: openRequests === 0, detail: openRequests ? `${openRequests} ${openRequests === 1 ? "request" : "requests"} still open` : "Nothing pending with the client", href: "/requests" },
   ];
 
   const gatesPassed = gates.filter((g) => g.ok).length;
