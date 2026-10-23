@@ -281,3 +281,24 @@ next thing to close.
   password from the environment. If you find a third place, that is a defect.
 - The service role key is read in exactly one place, `server/auth/auth-admin.ts`.
   Keep it that way.
+
+## 9. The gates
+
+Run every one before a commit. Each is quick except the harness and the
+build.
+
+```
+npx tsc --noEmit
+npx tsx server/runs/__tests__/index.ts      # includes the API route tests
+npx tsx script/check-style.ts
+npx tsx script/check-books.ts
+npx tsx script/check-schema.ts              # needs the Supabase connector or DATABASE_URL
+npx tsx script/check-queries.ts             # same
+npm run build
+```
+
+The API route tests (`server/api/__tests__/routes.ts`) start a real express
+app on a loopback port over the memory run db. They need no database and no
+secret. `RUN_DB=memory PORT=5000 npm run dev` starts the same server with
+the development actor (docs/11-api.md section 5) for exercising screens by
+hand.

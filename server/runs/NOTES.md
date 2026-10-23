@@ -2666,3 +2666,49 @@ Entries 193 to 210 belong to the login work above.
     tables exist) but has no row in `supabase_migrations.schema_migrations`,
     so it was applied with `execute_sql` rather than `apply_migration`, and
     0024 should be applied with `apply_migration` so the history is kept.
+
+220. **The API reads through the query catalog, not a second SQL layer.**
+    Options: (a) extend `QueryCatalog` with API shaped queries, (b) a
+    separate read layer for the API, (c) database views. Chose (a). The
+    catalog already has a memory and a Postgres implementation per query and
+    `check-queries` proves each against the live schema, so an API query is
+    tested the same way a run's query is, and the whole suite stays on the
+    memory port. Six queries were added (`clients_for_firm`, `client_by_id`,
+    `engagements_for_client`, `run_log_for_client`,
+    `run_log_recent_for_firm`, `transactions_page`). Overview counts are
+    composed from existing queries in `server/api/reads.ts`. Reads run in
+    read only repeatable read sessions; `PostgresRunDb` gained a `dbRole`
+    option that does `set local role` so row level security applies to the
+    API exactly as to a run. Cost: the overview does several queries per
+    client. Acceptable at tens of clients; an aggregate query is the fix if
+    it stops being acceptable. docs/11-api.md section 3.
+
+221. **The development actor exists, and where it may not.** The memory port
+    has no tenancy schema, so nothing could resolve a bearer token into a
+    person. `server/api/dev-actor.ts` supplies one fixed actor, the owner of
+    a fixed development firm, through the same `createActorMiddleware` the
+    Postgres server uses, so every guard is exercised in development. It is
+    on by default when `RUN_DB=memory` and `NODE_ENV` is not production,
+    `DEV_ACTOR=off` disables it, and setting `DEV_ACTOR` in production or
+    with the Postgres port makes startup throw `DevActorRefused`. The
+    browser learns of it from `/api/auth/config` (`developmentActor: true`)
+    and fetches `/api/auth/me`. Never add a second token to it.
+
+222. **Writes from the interface are runs, and today no run is client side.**
+    `POST /api/firm/clients` is `INTAKE-CREATE-CLIENT` (new, manual tier,
+    migration 0025) followed by the three intake runs that need a client,
+    in `CLIENT_INTAKE_ORDER`. `INTAKE_ORDER` keeps its published meaning,
+    the four setup runs for an existing client ending in opening balances.
+    Every other write is `POST .../runs/:runCode`, preview by default, then
+    `apply` by log id. `CLIENT_SIDE_RUNS` is empty: doc 08 shows nothing a
+    client does that posts, and uploads and messages are not registered
+    runs. A client scoped actor gets 403 on every run route. Two things
+    found on the way: the engagement intake writes is a draft, so the portal
+    grants nothing until a person activates it (correct per docs/10, but the
+    report says so plainly), and `ledger.categories` keeps its primary key
+    on `id` alone while category ids are slugs (entry 126), so a second
+    client in one database cannot build its chart. The route reports that
+    as 207 with the failing run named. The fix is a migration to
+    `(client_id, id)`, which every referencing foreign key already uses,
+    plus the memory port keying categories by client. Not done under this
+    brief.

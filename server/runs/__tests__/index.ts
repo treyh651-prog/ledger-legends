@@ -974,3 +974,7 @@ import "./auth";
 // Service tiers (migration 0024 and shared/tiers.ts). Memory source only,
 // plus one Postgres test that skips itself without DATABASE_URL.
 import "./entitlement";
+
+// The API layer (docs/11-api.md). A real express app on a loopback port over
+// the memory run db, with the production guards fed by test tokens.
+import "../../api/__tests__/routes";

@@ -77,6 +77,8 @@ export const clientParamsSchema = z.object({ clientId: idSchema });
 export type ClientParams = z.infer<typeof clientParamsSchema>;
 
 /** A period is named by its first day, as the close tables do. */
+/** A period is named by its first day. */
+export const periodStartSchema = daySchema.refine((d) => d.endsWith("-01"), "a period is named by its first day, YYYY-MM-01");
 export const periodQuerySchema = z.object({
-  period: daySchema.optional(),
+  period: periodStartSchema.optional(),
 });
