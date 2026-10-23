@@ -73,6 +73,7 @@ export type RunTypeId =
   | "PRAC-GENERATE-TASKS"
   | "PRAC-ESCALATE-OVERDUE"
   | "PRAC-NUDGE-REQUESTS"
+  | "PRAC-UPDATE-TASK"
   // Added by doc 05
   | "IMPORT-PARSE-FEED"
   | "IMPORT-COMMIT-BATCH"

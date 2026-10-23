@@ -482,3 +482,106 @@ export const narrativesSchema = z.object({
 });
 export type Narratives = z.infer<typeof narrativesSchema>;
 export type Narrative = z.infer<typeof narrativeSchema>;
+
+/* ------------------------------------------------------------------------ */
+/* Firm team and workload board                                              */
+/* ------------------------------------------------------------------------ */
+
+/** One firm scoped membership, read from tenancy.memberships and users. */
+export const firmMemberSchema = z.object({
+  userId: z.string(),
+  displayName: z.string(),
+  email: z.string(),
+  role: z.string(),
+});
+export type FirmMember = z.infer<typeof firmMemberSchema>;
+
+export const firmTeamSchema = z.object({
+  items: z.array(firmMemberSchema),
+});
+export type FirmTeam = z.infer<typeof firmTeamSchema>;
+
+/** One practice task across every client, for the board. */
+export const firmTaskSchema = z.object({
+  id: idSchema,
+  clientId: idSchema,
+  clientName: z.string(),
+  periodStart: daySchema,
+  catalogCode: z.string(),
+  title: z.string(),
+  kind: z.enum(["checklist", "deadline", "gate_target"]),
+  role: z.enum(["preparer", "reviewer"]),
+  dueDate: daySchema,
+  state: z.enum(["open", "blocked", "complete"]),
+  blockedByCode: z.string().nullable(),
+  assigneeId: z.string().nullable(),
+  escalationRung: z.string(),
+  completedOn: daySchema.nullable(),
+  manualOverride: z.boolean(),
+});
+export type FirmTask = z.infer<typeof firmTaskSchema>;
+
+export const firmTasksSchema = z.object({
+  period: daySchema,
+  items: z.array(firmTaskSchema),
+});
+export type FirmTasks = z.infer<typeof firmTasksSchema>;
+
+export const updateTaskBodySchema = z
+  .object({
+    state: z.enum(["open", "complete"]).optional(),
+    assigneeId: z.string().min(1).nullable().optional(),
+  })
+  .refine((b) => b.state !== undefined || b.assigneeId !== undefined, { message: "state or assigneeId is required" });
+export type UpdateTaskBody = z.infer<typeof updateTaskBodySchema>;
+
+/* ------------------------------------------------------------------------ */
+/* Client setup: bank accounts and mapping profiles                          */
+/* ------------------------------------------------------------------------ */
+
+export const setupBankAccountSchema = z.object({
+  id: idSchema,
+  accountNumber: z.string(),
+  nickname: z.string(),
+  kind: z.enum(["bank", "card"]),
+  isProcessorDestination: z.boolean(),
+});
+export type SetupBankAccount = z.infer<typeof setupBankAccountSchema>;
+
+export const setupProfileColumnSchema = z.object({
+  sourceIndex: z.number().int(),
+  sourceName: z.string(),
+  canonicalField: z.string(),
+  sampleValue: z.string(),
+});
+export type SetupProfileColumn = z.infer<typeof setupProfileColumnSchema>;
+
+export const setupMappingProfileSchema = z.object({
+  id: idSchema,
+  version: z.number().int(),
+  institutionName: z.string(),
+  accountNumber: z.string(),
+  fileFormat: z.enum(["csv", "xlsx"]),
+  headerRowNumber: z.number().int(),
+  skipRows: z.number().int(),
+  dateColumn: z.string(),
+  dateFormat: z.string(),
+  descriptionColumn: z.string(),
+  amountColumn: z.string().nullable(),
+  debitColumn: z.string().nullable(),
+  creditColumn: z.string().nullable(),
+  signConvention: z.string(),
+  currency: z.string(),
+  columns: z.array(setupProfileColumnSchema),
+});
+export type SetupMappingProfile = z.infer<typeof setupMappingProfileSchema>;
+
+export const clientSetupSchema = z.object({
+  clientId: idSchema,
+  bankAccounts: z.array(setupBankAccountSchema),
+  mappingProfiles: z.array(setupMappingProfileSchema),
+  tasks: z.array(firmTaskSchema),
+  /** False until object storage exists. The upload screen reads it. */
+  uploadsConfigured: z.boolean(),
+});
+export type ClientSetup = z.infer<typeof clientSetupSchema>;

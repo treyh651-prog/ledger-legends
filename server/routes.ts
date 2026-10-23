@@ -18,7 +18,8 @@ import type { Pool } from "pg";
 import { PostgresEntitlementSource } from "./entitlement";
 import { createApiRouter, RunDbEntitlementSource } from "./api/router";
 import { apiErrorHandler } from "./api/errors";
-import { buildDevActor, devActorEnabled, DEV_FIRM_ID, DEV_USER_ID, type DevActorRuntime } from "./api/dev-actor";
+import { buildDevActor, devActorEnabled, DEV_ACTOR, DEV_FIRM_ID, DEV_USER_ID, type DevActorRuntime } from "./api/dev-actor";
+import { firmMembers } from "./auth/actor-store";
 
 /**
  * Routes.
@@ -121,6 +122,7 @@ export async function registerRoutes(httpServer: Server, app: Express, deps?: Ro
         db: runDb.db,
         guards: devActor.middleware,
         entitlements: new RunDbEntitlementSource(runDb.db, DEV_USER_ID, DEV_FIRM_ID),
+        members: async () => [{ userId: DEV_USER_ID, displayName: DEV_ACTOR.displayName ?? DEV_ACTOR.email, email: DEV_ACTOR.email, role: "owner" }],
       }),
     );
     app.use("/api", (_req, res) => {
@@ -151,6 +153,7 @@ export async function registerRoutes(httpServer: Server, app: Express, deps?: Ro
       db: runDb.db,
       guards: auth.middleware,
       entitlements: new PostgresEntitlementSource(auth.pool as Pool),
+      members: (firmId) => firmMembers(auth.pool, firmId),
     }),
   );
 

@@ -98,6 +98,7 @@ import "./w9-track";
 import "./prc-generate-work";
 import "./prc-escalate-overdue";
 import "./prc-nudge-requests";
+import "./prc-update-task";
 
 // Doc 05 deliverables. Payroll approval, register posting, and the two archives.
 import "./pay-approve-run";

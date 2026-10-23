@@ -51,6 +51,7 @@ import type {
   JournalEntryRow,
   JournalLineRow,
   MappingProfileRow,
+  MappingProfileColumnRow,
   PeriodLockRow,
   PortalRequestRow,
   PortalMessageRow,
@@ -218,6 +219,16 @@ export interface QueryCatalog {
       fileFormat: string;
     };
     row: MappingProfileRow;
+  };
+  /** Every active mapping profile the client has, for the setup screens. */
+  mapping_profiles_for_client: {
+    params: { firmId: Ulid; clientId: Ulid };
+    row: MappingProfileRow;
+  };
+  /** The active column rows of every profile the client has. */
+  mapping_profile_columns_for_client: {
+    params: { firmId: Ulid; clientId: Ulid };
+    row: MappingProfileColumnRow;
   };
   import_batch_by_id: {
     params: { firmId: Ulid; clientId: Ulid; batchId: Ulid };

@@ -108,3 +108,28 @@ export function createPgActorStore(pool: PgPoolLike): ActorStore {
     },
   };
 }
+
+/**
+ * The firm's active, firm scoped members, for the team and board screens.
+ * Reads the same two tables the actor lookup does, with the connecting role,
+ * and never returns anything from the users row but name and email.
+ */
+export async function firmMembers(
+  pool: PgPoolLike,
+  firmId: string,
+): Promise<Array<{ userId: string; displayName: string; email: string; role: string }>> {
+  const client = await pool.connect();
+  try {
+    const r = await client.query<{ userId: string; displayName: string | null; email: string; role: string }>(
+      `select u.id as "userId", u.display_name as "displayName", u.email, m.role
+         from tenancy.memberships m
+         join tenancy.users u on u.id = m.user_id
+        where m.firm_id = $1 and m.scope = 'firm' and m.revoked_at is null and u.disabled_at is null
+        order by u.display_name asc`,
+      [firmId],
+    );
+    return r.rows.map((row) => ({ ...row, displayName: row.displayName ?? row.email }));
+  } finally {
+    client.release();
+  }
+}

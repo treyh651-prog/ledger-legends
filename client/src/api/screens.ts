@@ -1,5 +1,5 @@
-import { useQuery } from "@tanstack/react-query";
-import type { Aging, Budget, CloseChecklist, FirmRequests, Forecast, Journal, Narratives, PortalStatements, Reconcile, ReportPackages, Rules, Substantiation, TaxForms, TrialBalance } from "@shared/api";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import type { Aging, Budget, ClientSetup, CloseChecklist, FirmRequests, FirmTasks, FirmTeam, RunOutcomeDto, UpdateTaskBody, Forecast, Journal, Narratives, PortalStatements, Reconcile, ReportPackages, Rules, Substantiation, TaxForms, TrialBalance } from "@shared/api";
 import { api, toQuery } from "./http";
 
 /** Reads for the firm screens. Keys live under the client so run mutations invalidate them. */
@@ -143,3 +143,50 @@ export function useNarratives(clientId: string | null, period: string) {
   });
 }
 
+
+/* ---------------- Team, board, client setup ---------------- */
+
+export const firmKeys = {
+  team: () => ["api", "firm", "team"] as const,
+  tasks: (period: string) => ["api", "firm", "tasks", period] as const,
+  setup: (clientId: string) => ["api", "firm", "clients", clientId, "setup"] as const,
+};
+
+export function useFirmTeam() {
+  return useQuery({ queryKey: firmKeys.team(), queryFn: () => api<FirmTeam>("GET", "/api/firm/team") });
+}
+
+export function useFirmTasks(period: string) {
+  const p = periodStartOf(period);
+  return useQuery({
+    queryKey: firmKeys.tasks(p),
+    queryFn: () => api<FirmTasks>("GET", `/api/firm/tasks${toQuery({ period: p })}`),
+  });
+}
+
+export function useClientSetup(clientId: string | null) {
+  return useQuery({
+    queryKey: firmKeys.setup(clientId ?? "none"),
+    queryFn: () => api<ClientSetup>("GET", `/api/firm/clients/${clientId}/setup`),
+    enabled: !!clientId,
+  });
+}
+
+export interface UpdateTaskResult {
+  preview: RunOutcomeDto;
+  applied: RunOutcomeDto | null;
+  done: boolean;
+}
+
+/** PRAC-UPDATE-TASK through the firm route. Preview and apply in one request. */
+export function useUpdateTask() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ clientId, taskId, body }: { clientId: string; taskId: string; body: UpdateTaskBody }) =>
+      api<UpdateTaskResult>("POST", `/api/firm/clients/${clientId}/tasks/${taskId}`, body),
+    onSuccess: (_r, { clientId }) => {
+      void qc.invalidateQueries({ queryKey: ["api", "firm", "tasks"] });
+      void qc.invalidateQueries({ queryKey: ["api", "firm", "clients", clientId] });
+    },
+  });
+}

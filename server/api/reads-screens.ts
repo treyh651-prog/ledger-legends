@@ -6,6 +6,9 @@
 
 import type {
   Aging,
+  ClientSetup,
+  FirmTask,
+  FirmTasks,
   AgingParty,
   Budget,
   CloseChecklist,
@@ -26,6 +29,7 @@ import type {
 } from "../../shared/api/screens";
 import type { Cents } from "../runs/contract";
 import type { RunTx } from "../runs/db";
+import type { PracticeTaskRow } from "../runs/tables";
 import { blockOf } from "../runs/runs/close-shared";
 import { periodWindow } from "../runs/runs/per-shared";
 
@@ -719,5 +723,90 @@ export async function narratives(tx: RunTx, firmId: string, clientId: string, pe
         manualEdit: n.manualEdit,
         composedAt: n.composedAt,
       })),
+  };
+}
+
+/* ---------------- Team, board, client setup ---------------- */
+
+function taskDto(t: PracticeTaskRow, clientName: string): FirmTask {
+  return {
+    id: t.id,
+    clientId: t.clientId,
+    clientName,
+    periodStart: t.periodStart,
+    catalogCode: t.catalogCode,
+    title: t.title,
+    kind: t.kind,
+    role: t.role,
+    dueDate: t.dueDate,
+    state: t.state,
+    blockedByCode: t.blockedByCode,
+    assigneeId: t.assigneeId,
+    escalationRung: String(t.escalationRung),
+    completedOn: t.completedOn,
+    manualOverride: t.manualOverride,
+  };
+}
+
+const byDueThenId = (a: FirmTask, b: FirmTask) => (a.dueDate !== b.dueDate ? (a.dueDate < b.dueDate ? -1 : 1) : a.id < b.id ? -1 : 1);
+
+/**
+ * Every practice task in the period, across every client the actor can read.
+ * The period is the first day of the month. One query per client, which is
+ * the shape the catalog has; the board is a firm screen and reads few rows.
+ */
+export async function firmTasks(tx: RunTx, firmId: string, period: string): Promise<FirmTasks> {
+  const periodStart = periodWindow(period).periodStart;
+  const clients = await tx.query("clients_for_firm", { firmId });
+  const items: FirmTask[] = [];
+  for (const c of clients) {
+    const rows = await tx.query("practice_tasks_for_client", { firmId, clientId: c.id });
+    for (const t of rows) if (t.periodStart === periodStart) items.push(taskDto(t, c.name));
+  }
+  items.sort(byDueThenId);
+  return { period: periodStart, items };
+}
+
+/** Bank accounts, active mapping profiles with their columns, and tasks for one client. */
+export async function clientSetup(tx: RunTx, firmId: string, clientId: string): Promise<ClientSetup> {
+  const [client, banks, profiles, columns, tasks] = await Promise.all([
+    tx.query("client_by_id", { firmId, clientId }),
+    tx.query("bank_accounts_for_client", { firmId, clientId }),
+    tx.query("mapping_profiles_for_client", { firmId, clientId }),
+    tx.query("mapping_profile_columns_for_client", { firmId, clientId }),
+    tx.query("practice_tasks_for_client", { firmId, clientId }),
+  ]);
+  const name = client[0]?.name ?? clientId;
+  return {
+    clientId,
+    bankAccounts: banks.map((b) => ({
+      id: b.id,
+      accountNumber: b.accountNumber,
+      nickname: b.nickname,
+      kind: b.kind,
+      isProcessorDestination: b.isProcessorDestination,
+    })),
+    mappingProfiles: profiles.map((p) => ({
+      id: p.id,
+      version: p.version,
+      institutionName: p.institutionName,
+      accountNumber: p.accountNumber,
+      fileFormat: p.fileFormat,
+      headerRowNumber: p.headerRowNumber,
+      skipRows: p.skipRows,
+      dateColumn: p.dateColumn,
+      dateFormat: p.dateFormat,
+      descriptionColumn: p.descriptionColumn,
+      amountColumn: p.amountColumn,
+      debitColumn: p.debitColumn,
+      creditColumn: p.creditColumn,
+      signConvention: p.signConvention,
+      currency: p.currency,
+      columns: columns
+        .filter((c) => c.profileId === p.id)
+        .map((c) => ({ sourceIndex: c.sourceIndex, sourceName: c.sourceName, canonicalField: c.canonicalField, sampleValue: c.sampleValue })),
+    })),
+    tasks: tasks.map((t) => taskDto(t, name)).sort(byDueThenId),
+    uploadsConfigured: false,
   };
 }

@@ -1,171 +1,197 @@
-import { useState } from "react";
-import { AlertTriangle } from "lucide-react";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { EmptyState, Kpi, PageHeader, Pill, SectionCard } from "@/components/kit";
-import { LoadingRows, ErrorState } from "@/components/kit";
+import { useMemo, useState } from "react";
+import { AlertTriangle, CheckCircle2, CircleDashed, Lock } from "lucide-react";
+import { DataGrid, EmptyState, ErrorState, Kpi, PageHeader, Pill, SectionCard } from "@/components/kit";
+import { Button } from "@/components/ui/button";
 import { useApp } from "@/store";
-import { SCOPE_LABELS, TASK_STATUSES } from "@/data/labels";
-import { fmtPeriod } from "@/lib/money";
-import { TODAY } from "@/data/seed";
-import type { Task, TaskStatus } from "@/data/types";
+import { useFirmTasks, useFirmTeam, useUpdateTask, errorMessage } from "@/api";
+import { fmtPeriod, fmtShortDate } from "@/lib/money";
+import type { FirmTask } from "@shared/api";
 
-const COLUMN_TONE: Record<string, string> = {
-  "Not started": "border-border",
-  "In progress": "border-primary/50",
-  Blocked: "border-destructive/50",
-  Review: "border-warning/50",
-  Done: "border-positive/50",
-};
-
+/**
+ * The firm's workload board for the period in the header, read from
+ * GET /api/firm/tasks. Every row is a practice.tasks row across every client
+ * the person can read. Complete, reopen, and reassign go through
+ * PRAC-UPDATE-TASK on POST /api/firm/clients/:id/tasks/:taskId, so a move
+ * on this screen is a run with an intent row and an undo plan like any other
+ * write. Blocked rows are the generator's and have no button.
+ */
 export default function Board() {
-  const { ds, period, loading, loadError, reload, setTaskStatus, reassignTask, setActiveClient } = useApp();
-  const [view, setView] = useState<"all" | "overdue">("all");
-  const [who, setWho] = useState("all");
+  const { period } = useApp();
+  const tasks = useFirmTasks(period);
+  const team = useFirmTeam();
+  const update = useUpdateTask();
+  const [filter, setFilter] = useState<"all" | "open" | "blocked" | "complete" | "overdue">("all");
+  const [reassigning, setReassigning] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
 
-  const tasks = ds.tasks
-    .filter((t) => t.period === period)
-    .filter((t) => (who === "all" ? true : t.assignee === who))
-    .filter((t) => (view === "overdue" ? t.dueDate < TODAY && t.status !== "Done" : true));
+  const today = new Date().toISOString().slice(0, 10);
+  const items = tasks.data?.items ?? [];
+  const members = team.data?.items ?? [];
+  const nameOf = (id: string | null) => (id ? members.find((m) => m.userId === id)?.displayName ?? "Unknown member" : "Unassigned");
 
-  const overdue = ds.tasks.filter((t) => t.period === period && t.dueDate < TODAY && t.status !== "Done");
-  const clientName = (id: string) => ds.clients.find((c) => c.id === id)?.shortName || id;
+  const counts = useMemo(() => {
+    const open = items.filter((t) => t.state === "open").length;
+    const blocked = items.filter((t) => t.state === "blocked").length;
+    const complete = items.filter((t) => t.state === "complete").length;
+    const overdue = items.filter((t) => t.state !== "complete" && t.dueDate < today).length;
+    return { open, blocked, complete, overdue };
+  }, [items, today]);
 
-  const card = (t: Task) => (
-    <li key={t.id} className="rounded-md border border-card-border bg-card p-3" data-testid={`task-${t.id}`}>
-      <p className="text-sm leading-snug">{t.title}</p>
-      <div className="mt-2 flex flex-wrap items-center gap-1.5">
-        <button
-          type="button"
-          onClick={() => setActiveClient(t.clientId)}
-          className="rounded-sm bg-accent px-1.5 py-0.5 text-[11px] font-medium hover:underline"
-          data-testid={`button-task-client-${t.id}`}
-        >
-          {clientName(t.clientId)}
-        </button>
-        <Pill>{SCOPE_LABELS[t.scopeSource] || t.scopeSource}</Pill>
-        {t.dueDate < TODAY && t.status !== "Done" ? <Pill tone="risk">Past due</Pill> : null}
-      </div>
-      <div className="mt-2 grid gap-2 sm:grid-cols-2">
-        <Select value={t.assignee} onValueChange={(v) => reassignTask(t.id, v)}>
-          <SelectTrigger className="h-7 text-xs" data-testid={`select-assignee-${t.id}`}>
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {ds.team.map((m) => (
-              <SelectItem key={m.id} value={m.name}>
-                {m.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <Select value={t.status} onValueChange={(v) => setTaskStatus(t.id, v as TaskStatus)}>
-          <SelectTrigger className="h-7 text-xs" data-testid={`select-status-${t.id}`}>
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {TASK_STATUSES.map((s) => (
-              <SelectItem key={s} value={s}>
-                {s}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
-      <p className="tnum mt-2 text-[11px] text-muted-foreground">
-        Due {t.dueDate}, {t.estHours} hours estimated
-      </p>
-    </li>
-  );
+  const rows = items.filter((t) => {
+    if (filter === "all") return true;
+    if (filter === "overdue") return t.state !== "complete" && t.dueDate < today;
+    return t.state === filter;
+  });
+
+  const move = (t: FirmTask, body: { state?: "open" | "complete"; assigneeId?: string | null }) => {
+    setNotice(null);
+    update.mutate(
+      { clientId: t.clientId, taskId: t.id, body },
+      {
+        onSuccess: (r) => {
+          const outcome = r.applied ?? r.preview;
+          if (!r.done) setNotice(outcome.errors[0]?.message ?? `The run ended ${outcome.status}.`);
+          setReassigning(null);
+        },
+        onError: (e) => setNotice(errorMessage(e)),
+      },
+    );
+  };
+
+  if (tasks.isError) return <ErrorState message={errorMessage(tasks.error)} onRetry={() => void tasks.refetch()} />;
+
+  const filters: Array<{ key: typeof filter; label: string; n: number }> = [
+    { key: "all", label: "All", n: items.length },
+    { key: "open", label: "Open", n: counts.open },
+    { key: "blocked", label: "Blocked", n: counts.blocked },
+    { key: "overdue", label: "Overdue", n: counts.overdue },
+    { key: "complete", label: "Complete", n: counts.complete },
+  ];
 
   return (
-    <>
+    <div className="space-y-4" data-testid="page-board">
       <PageHeader
         title="Workload board"
-        subtitle={`Every client's work for ${fmtPeriod(period)} in one place. Drop a card into a new status with the selector, or reassign it to another person.`}
-        actions={
-          <>
-            <div className="flex rounded-sm border border-border bg-muted p-0.5">
-              {(["all", "overdue"] as const).map((v) => (
-                <button
-                  key={v}
-                  type="button"
-                  onClick={() => setView(v)}
-                  className={`rounded-sm px-2.5 py-1 text-xs transition-colors ${view === v ? "bg-card font-medium" : "text-muted-foreground"}`}
-                  data-testid={`button-view-${v}`}
-                >
-                  {v === "all" ? "Everything" : "Past due only"}
-                </button>
-              ))}
-            </div>
-            <Select value={who} onValueChange={setWho}>
-              <SelectTrigger className="h-8 w-[170px] text-xs" data-testid="select-who">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Everyone</SelectItem>
-                {ds.team.map((m) => (
-                  <SelectItem key={m.id} value={m.name}>
-                    {m.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </>
-        }
+        subtitle={`Every practice task for ${fmtPeriod(period)}, across every client. Moves on this board are PRAC-UPDATE-TASK runs.`}
       />
 
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <Kpi label="Cards in view" value={tasks.length} testId="kpi-cards" />
-        <Kpi label="Past due" value={overdue.length} tone={overdue.length ? "risk" : "good"} hint="Across every client" testId="kpi-overdue" />
-        <Kpi label="Blocked" value={tasks.filter((t) => t.status === "Blocked").length} tone={tasks.some((t) => t.status === "Blocked") ? "watch" : "good"} testId="kpi-blocked" />
-        <Kpi label="Hours outstanding" value={tasks.filter((t) => t.status !== "Done").reduce((s, t) => s + t.estHours, 0).toFixed(1)} testId="kpi-hours" />
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <Kpi label="Open" value={tasks.data ? counts.open : "…"} testId="kpi-open" />
+        <Kpi label="Blocked" value={tasks.data ? counts.blocked : "…"} tone={counts.blocked > 0 ? "watch" : "neutral"} />
+        <Kpi label="Overdue" value={tasks.data ? counts.overdue : "…"} tone={counts.overdue > 0 ? "risk" : "neutral"} />
+        <Kpi label="Complete" value={tasks.data ? counts.complete : "…"} tone={counts.complete > 0 ? "good" : "neutral"} />
       </div>
 
-      {overdue.length ? (
-        <div className="flex items-start gap-2 rounded-md border border-destructive/40 bg-danger-soft p-3 text-sm" data-testid="banner-overdue">
-          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
-          <p className="text-muted-foreground">
-            <span className="font-medium text-destructive">{overdue.length} tasks are past their due date.</span> The oldest belongs to{" "}
-            {clientName(overdue[0].clientId)} and was due {overdue[0].dueDate}.
-          </p>
-        </div>
-      ) : null}
-
-      {loading ? (
-        <SectionCard bodyClassName="p-0">
-          <LoadingRows rows={6} cols={4} />
-        </SectionCard>
-      ) : loadError ? (
-        <SectionCard bodyClassName="p-0">
-          <ErrorState message={loadError} onRetry={reload} />
-        </SectionCard>
-      ) : tasks.length === 0 ? (
-        <SectionCard bodyClassName="p-0">
-          <EmptyState
-            title={view === "overdue" ? "Nothing is past due" : "No cards for this period"}
-            body={view === "overdue" ? "Every task on the board is inside its due date." : "Pick another period from the header."}
-          />
-        </SectionCard>
-      ) : (
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
-          {TASK_STATUSES.map((status) => {
-            const col = tasks.filter((t) => t.status === status);
-            return (
-              <section key={status} className={`rounded-md border-t-2 bg-muted/30 p-2 ${COLUMN_TONE[status]}`} data-testid={`column-${status.replace(" ", "-")}`}>
-                <header className="flex items-center justify-between px-1 pb-2">
-                  <h2 className="text-xs font-semibold uppercase tracking-wide">{status}</h2>
-                  <span className="tnum text-xs text-muted-foreground">{col.length}</span>
-                </header>
-                {col.length ? (
-                  <ul className="space-y-2">{col.map(card)}</ul>
-                ) : (
-                  <p className="px-1 py-6 text-center text-xs text-muted-foreground">Nothing here</p>
-                )}
-              </section>
-            );
-          })}
+      {notice && (
+        <div className="rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-sm" data-testid="board-notice">
+          <AlertTriangle className="mr-1 inline h-4 w-4" /> {notice}
         </div>
       )}
-    </>
+
+      <SectionCard
+        title="Tasks"
+        description="From practice.tasks, due date ascending."
+        actions={
+          <div className="flex flex-wrap gap-1">
+            {filters.map((f) => (
+              <Button key={f.key} size="sm" variant={filter === f.key ? "default" : "outline"} onClick={() => setFilter(f.key)} data-testid={`board-filter-${f.key}`}>
+                {f.label} {f.n}
+              </Button>
+            ))}
+          </div>
+        }
+      >
+        <DataGrid<FirmTask>
+          rows={rows}
+          loading={tasks.isPending}
+          rowKey={(t) => t.id}
+          testId="grid-board"
+          empty={
+            <EmptyState
+              title={items.length ? "Nothing matches that filter" : "No tasks this period"}
+              body={items.length ? "Pick another filter." : "Tasks appear when a client is created and PRC-GENERATE-WORK runs for the period."}
+            />
+          }
+          cols={[
+            {
+              key: "state",
+              label: "",
+              mobile: "row",
+              render: (t) =>
+                t.state === "complete" ? (
+                  <CheckCircle2 className="h-4 w-4 text-success" />
+                ) : t.state === "blocked" ? (
+                  <Lock className="h-4 w-4 text-warning" />
+                ) : (
+                  <CircleDashed className="h-4 w-4 text-muted-foreground" />
+                ),
+            },
+            { key: "title", label: "Task", mobile: "title", render: (t) => <span className="font-medium">{t.title}</span> },
+            { key: "client", label: "Client", mobile: "row", render: (t) => <span className="text-xs">{t.clientName}</span> },
+            { key: "role", label: "Role", mobile: "row", render: (t) => <span className="text-xs capitalize">{t.role}</span> },
+            {
+              key: "due",
+              label: "Due",
+              mobile: "row",
+              render: (t) => (
+                <span className={`tnum text-xs ${t.state !== "complete" && t.dueDate < today ? "text-destructive" : ""}`}>{fmtShortDate(t.dueDate)}</span>
+              ),
+            },
+            {
+              key: "assignee",
+              label: "Assignee",
+              mobile: "row",
+              render: (t) =>
+                reassigning === t.id ? (
+                  <select
+                    className="h-8 rounded-md border bg-background px-2 text-xs"
+                    defaultValue={t.assigneeId ?? ""}
+                    data-testid={`board-assignee-${t.id}`}
+                    onChange={(e) => move(t, { assigneeId: e.target.value || null })}
+                  >
+                    <option value="">Unassigned</option>
+                    {members.map((m) => (
+                      <option key={m.userId} value={m.userId}>
+                        {m.displayName}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <button className="text-xs underline-offset-2 hover:underline" onClick={() => setReassigning(t.id)} disabled={members.length === 0}>
+                    {nameOf(t.assigneeId)}
+                  </button>
+                ),
+            },
+            {
+              key: "pill",
+              label: "State",
+              mobile: "row",
+              render: (t) => (
+                <Pill tone={t.state === "complete" ? "good" : t.state === "blocked" ? "watch" : "neutral"}>
+                  {t.state === "blocked" && t.blockedByCode ? `blocked by ${t.blockedByCode}` : t.state}
+                </Pill>
+              ),
+            },
+            {
+              key: "action",
+              label: "",
+              mobile: "row",
+              render: (t) =>
+                t.state === "blocked" ? null : (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={update.isPending}
+                    data-testid={`board-move-${t.id}`}
+                    onClick={() => move(t, { state: t.state === "complete" ? "open" : "complete" })}
+                  >
+                    {t.state === "complete" ? "Reopen" : "Complete"}
+                  </Button>
+                ),
+            },
+          ]}
+        />
+      </SectionCard>
+    </div>
   );
 }

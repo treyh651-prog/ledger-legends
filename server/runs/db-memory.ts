@@ -39,6 +39,7 @@ import {
   type JournalEntryRow,
   type JournalLineRow,
   type MappingProfileRow,
+  type MappingProfileColumnRow,
   type PeriodLockRow,
   type RowMap,
   type AgingSnapshotRow,
@@ -724,6 +725,22 @@ class MemoryTx implements RunTx {
               r.isActive,
           )
           .sort((a, b) => (a.id < b.id ? -1 : 1))
+          .map((r) => clone(r as unknown as AnyRow));
+      }
+      case "mapping_profiles_for_client": {
+        const p = rawParams as QueryCatalog["mapping_profiles_for_client"]["params"];
+        return this.view("mapping_profiles")
+          .map((r) => r as unknown as MappingProfileRow)
+          .filter((r) => r.firmId === p.firmId && r.clientId === p.clientId && r.isActive)
+          .sort((a, b) => (a.id < b.id ? -1 : 1))
+          .map((r) => clone(r as unknown as AnyRow));
+      }
+      case "mapping_profile_columns_for_client": {
+        const p = rawParams as QueryCatalog["mapping_profile_columns_for_client"]["params"];
+        return this.view("mapping_profile_columns")
+          .map((r) => r as unknown as MappingProfileColumnRow)
+          .filter((r) => r.firmId === p.firmId && r.clientId === p.clientId && r.isActive)
+          .sort((a, b) => (a.profileId !== b.profileId ? (a.profileId < b.profileId ? -1 : 1) : a.sourceIndex - b.sourceIndex))
           .map((r) => clone(r as unknown as AnyRow));
       }
       case "import_batch_by_id": {

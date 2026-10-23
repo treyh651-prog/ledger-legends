@@ -22,7 +22,11 @@ import {
 } from "../../shared/api/runs";
 import { transactionQuerySchema } from "../../shared/api/transactions";
 import { z } from "zod";
-import { aging, budget, closeChecklist, firmRequests, forecast, journal, narratives, reconcile, reportPackages, rules, substantiation, taxForms, trialBalance } from "./reads-screens";
+
+const runSucceeded = (status: string) => status === "completed" || status === "completed_with_skips" || status === "deduplicated";
+const taskParamsSchema = clientParamsSchema.extend({ taskId: z.string().min(1) });
+import { aging, budget, clientSetup, closeChecklist, firmRequests, firmTasks, forecast, journal, narratives, reconcile, reportPackages, rules, substantiation, taxForms, trialBalance } from "./reads-screens";
+import { updateTaskBodySchema, type FirmMember, type FirmTeam } from "../../shared/api/screens";
 import type { ActorMiddleware } from "../auth/middleware";
 import {
   featuresForTier,
@@ -52,7 +56,12 @@ import { applyPreview, createClient, runCatalog, triggerRun, undoApplied } from 
 import { readSession } from "./session";
 import { createFirmMessagesRouter, createPortalScreensRouter } from "./portal-router";
 
+/** Where the firm's member list comes from. Memory mode has one development owner. */
+export type MembersSource = (firmId: string) => Promise<FirmMember[]>;
+
 export interface ApiDeps {
+  /** Firm scoped memberships for the team and board screens. */
+  members?: MembersSource;
   db: RunDb;
   guards: Pick<ActorMiddleware, "requireFirm" | "requireClient">;
   entitlements: EntitlementSource;
@@ -162,6 +171,25 @@ export function createApiRouter(deps: ApiDeps): Router {
   );
 
   firm.get(
+    "/team",
+    route(async (req) => {
+      const items = deps.members ? await deps.members(req.firm!.firmId) : [];
+      return { body: { items } satisfies FirmTeam };
+    }),
+  );
+
+  firm.get(
+    "/tasks",
+    route(async (req) => {
+      const actor = req.actor!;
+      const firmId = req.firm!.firmId;
+      const period = screenPeriod(req);
+      const body = await withOneRetry(() => deps.db.tx(readSession(actor, firmId, ""), (tx) => firmTasks(tx, firmId, period)));
+      return { body };
+    }),
+  );
+
+  firm.get(
     "/runs/catalog",
     route(async () => ({ body: { items: runCatalog() } })),
   );
@@ -217,6 +245,44 @@ export function createApiRouter(deps: ApiDeps): Router {
   // Screen read models. Each answers for the client in the path and the
   // period in the query, or the current month when the query names none.
   const screenPeriod = (req: Request) => parse(periodQuerySchema, req.query).period ?? `${todayOf(deps).slice(0, 7)}-01`;
+
+  firmClient.get(
+    "/setup",
+    route(async (req) => {
+      const { clientId } = parse(clientParamsSchema, req.params);
+      const firmId = req.firm!.firmId;
+      const body = await deps.db.tx(readSession(req.actor!, firmId, clientId), (tx) => clientSetup(tx, firmId, clientId));
+      return { body };
+    }),
+  );
+
+  /**
+   * One task moved by hand. PRAC-UPDATE-TASK is a manual run, so the route
+   * previews and applies in one request the way the portal's answer route
+   * does, and the outcome is the payload either way.
+   */
+  firmClient.post(
+    "/tasks/:taskId",
+    route(async (req) => {
+      const { clientId, taskId } = parse(taskParamsSchema, req.params);
+      const body = parse(updateTaskBodySchema, req.body ?? {});
+      const common = {
+        db: deps.db,
+        actor: req.actor!,
+        firmId: req.firm!.firmId,
+        clientId,
+        runCode: "PRAC-UPDATE-TASK",
+        via: "firm" as const,
+        scope: { clientId, taskId, ...body },
+        now: now(),
+      };
+      const preview = await triggerRun({ ...common, mode: "preview" });
+      if (preview.status === "no_op") return { body: { preview, applied: null, done: true } };
+      if (!runSucceeded(preview.status)) return { body: { preview, applied: null, done: false } };
+      const applied = await triggerRun({ ...common, mode: "apply", previewRunId: preview.executionId });
+      return { body: { preview, applied, done: runSucceeded(applied.status) } };
+    }),
+  );
 
   firmClient.get(
     "/close",

@@ -1,124 +1,89 @@
 import { useMemo } from "react";
-import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { DataGrid, Kpi, Meter, PageHeader, Pill, SectionCard } from "@/components/kit";
+import { Users } from "lucide-react";
+import { DataGrid, EmptyState, ErrorState, Kpi, Meter, PageHeader, Pill, SectionCard } from "@/components/kit";
 import { useApp } from "@/store";
-import { teamWorkload } from "@/data/derive";
+import { useFirmTasks, useFirmTeam, errorMessage } from "@/api";
 import { fmtPeriod } from "@/lib/money";
+import type { FirmMember } from "@shared/api";
 
+interface MemberLoad {
+  member: FirmMember;
+  open: number;
+  overdue: number;
+  complete: number;
+}
+
+/**
+ * The firm's members and what each one is carrying this period. Members come
+ * from GET /api/firm/team (tenancy.memberships, firm scope, not revoked) and
+ * the load from GET /api/firm/tasks. Capacity is not a column anywhere, so
+ * the meter is each member's share of the open work, not a percentage of a
+ * number nobody recorded. Invitations and roles are edited on the Access
+ * screen.
+ */
 export default function Team() {
-  const { ds, period, loading, loadError, reload } = useApp();
-  const rows = useMemo(() => teamWorkload(ds), [ds]);
-  const chart = rows.map((r) => ({ name: r.member.initials, Assigned: r.hours, Capacity: r.member.capacityHours }));
-  const totalCapacity = rows.reduce((s, r) => s + r.member.capacityHours, 0);
-  const totalHours = rows.reduce((s, r) => s + r.hours, 0);
+  const { period } = useApp();
+  const team = useFirmTeam();
+  const tasks = useFirmTasks(period);
+  const today = new Date().toISOString().slice(0, 10);
+
+  const loads = useMemo<MemberLoad[]>(() => {
+    const items = tasks.data?.items ?? [];
+    return (team.data?.items ?? []).map((member) => {
+      const mine = items.filter((t) => t.assigneeId === member.userId);
+      return {
+        member,
+        open: mine.filter((t) => t.state !== "complete").length,
+        overdue: mine.filter((t) => t.state !== "complete" && t.dueDate < today).length,
+        complete: mine.filter((t) => t.state === "complete").length,
+      };
+    });
+  }, [team.data, tasks.data, today]);
+
+  const items = tasks.data?.items ?? [];
+  const unassigned = items.filter((t) => t.state !== "complete" && !t.assigneeId).length;
+  const totalOpen = items.filter((t) => t.state !== "complete").length;
+
+  if (team.isError) return <ErrorState message={errorMessage(team.error)} onRetry={() => void team.refetch()} />;
 
   return (
-    <>
-      <PageHeader
-        title="Team capacity"
-        subtitle={`Open work measured against the hours each person actually has. Figures include every client, with the ${fmtPeriod(period)} close counted in full.`}
-      />
+    <div className="space-y-4" data-testid="page-team">
+      <PageHeader title="Team" subtitle={`Firm members and their open work for ${fmtPeriod(period)}. Roles and invitations live on the Access screen.`} />
 
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <Kpi label="People on the team" value={rows.length} testId="kpi-people" />
-        <Kpi label="Hours assigned" value={totalHours.toFixed(1)} hint={`Against ${totalCapacity} hours of capacity`} testId="kpi-assigned" />
-        <Kpi
-          label="Firm utilization"
-          value={`${Math.round((totalHours / Math.max(1, totalCapacity)) * 100)}%`}
-          tone={totalHours / totalCapacity > 0.95 ? "risk" : totalHours / totalCapacity > 0.8 ? "watch" : "good"}
-          testId="kpi-utilization"
-        />
-        <Kpi label="Past due items" value={rows.reduce((s, r) => s + r.overdue, 0)} tone={rows.some((r) => r.overdue) ? "risk" : "good"} testId="kpi-team-overdue" />
+      <div className="grid gap-3 sm:grid-cols-3">
+        <Kpi label="Members" value={team.data ? team.data.items.length : "…"} testId="kpi-members" />
+        <Kpi label="Open tasks" value={tasks.data ? totalOpen : "…"} />
+        <Kpi label="Unassigned" value={tasks.data ? unassigned : "…"} tone={unassigned > 0 ? "watch" : "neutral"} />
       </div>
 
-      <SectionCard title="Assigned hours against capacity" testId="card-capacity-chart">
-        <div className="h-[240px] w-full">
-          <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={chart} margin={{ top: 4, right: 8, left: -16, bottom: 0 }}>
-              <CartesianGrid stroke="hsl(var(--border))" vertical={false} />
-              <XAxis dataKey="name" tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} tickLine={false} axisLine={false} />
-              <YAxis tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} tickLine={false} axisLine={false} width={40} />
-              <Tooltip
-                contentStyle={{
-                  background: "hsl(var(--popover))",
-                  border: "1px solid hsl(var(--border))",
-                  borderRadius: 4,
-                  fontSize: 12,
-                  color: "hsl(var(--popover-foreground))",
-                }}
-                formatter={(v: number, n) => [`${v} hours`, n as string]}
-              />
-              <Bar dataKey="Capacity" fill="hsl(var(--chart-2))" radius={[2, 2, 0, 0]} />
-              <Bar dataKey="Assigned" fill="hsl(var(--chart-1))" radius={[2, 2, 0, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
-      </SectionCard>
-
-      <SectionCard title="Who is carrying what" bodyClassName="p-0" testId="card-team">
-        <DataGrid
-          rows={rows}
-          rowKey={(r) => r.member.id}
-          loading={loading}
-          error={loadError}
-          onRetry={reload}
+      <SectionCard title="Members" description="Share of open work is each member's open tasks over the firm's open tasks.">
+        <DataGrid<MemberLoad>
+          rows={loads}
+          loading={team.isPending || tasks.isPending}
+          rowKey={(r) => r.member.userId}
+          testId="grid-team"
+          empty={<EmptyState icon={<Users className="h-5 w-5" />} title="No members yet" body="Invite someone from the Access screen." />}
           cols={[
-            {
-              key: "name",
-              label: "Person",
-              mobile: "title",
-              render: (r) => (
-                <div className="flex items-center gap-2.5">
-                  <span className="tnum flex h-7 w-7 shrink-0 items-center justify-center rounded-sm bg-accent text-[11px] font-semibold">
-                    {r.member.initials}
-                  </span>
-                  <div className="min-w-0">
-                    <p className="truncate font-medium">{r.member.name}</p>
-                    <p className="truncate text-xs text-muted-foreground">{r.member.role}</p>
-                  </div>
-                </div>
-              ),
-            },
-            {
-              key: "clients",
-              label: "Clients",
-              mobile: "row",
-              render: (r) => (
-                <div className="flex flex-wrap gap-1">
-                  {r.member.clients.map((c) => (
-                    <Pill key={c}>{ds.clients.find((x) => x.id === c)?.shortName || c}</Pill>
-                  ))}
-                </div>
-              ),
-            },
-            { key: "tasks", label: "Open tasks", align: "right", mobile: "row", render: (r) => <span className="tnum">{r.openTasks}</span> },
-            { key: "hours", label: "Hours", align: "right", mobile: "value", render: (r) => <span className="tnum">{r.hours.toFixed(1)}</span> },
-            { key: "capacity", label: "Capacity", align: "right", mobile: "row", render: (r) => <span className="tnum">{r.member.capacityHours}</span> },
-            {
-              key: "util",
-              label: "Utilization",
-              align: "right",
-              width: "150px",
-              mobile: "row",
-              render: (r) => (
-                <div className="flex items-center justify-end gap-2">
-                  <span className="tnum text-xs">{r.utilization}%</span>
-                  <div className="w-16">
-                    <Meter pct={r.utilization} tone={r.utilization > 95 ? "danger" : r.utilization > 80 ? "warning" : "primary"} />
-                  </div>
-                </div>
-              ),
-            },
+            { key: "name", label: "Member", mobile: "title", render: (r) => <span className="font-medium">{r.member.displayName}</span> },
+            { key: "email", label: "Email", mobile: "row", render: (r) => <span className="text-xs text-muted-foreground">{r.member.email}</span> },
+            { key: "role", label: "Role", mobile: "row", render: (r) => <Pill tone="neutral">{r.member.role}</Pill> },
+            { key: "open", label: "Open", mobile: "row", render: (r) => <span className="tnum">{r.open}</span> },
             {
               key: "overdue",
-              label: "Past due",
-              align: "right",
+              label: "Overdue",
               mobile: "row",
-              render: (r) => (r.overdue ? <Pill tone="risk">{r.overdue}</Pill> : <Pill tone="good">None</Pill>),
+              render: (r) => <span className={`tnum ${r.overdue > 0 ? "text-destructive" : ""}`}>{r.overdue}</span>,
+            },
+            { key: "complete", label: "Complete", mobile: "row", render: (r) => <span className="tnum">{r.complete}</span> },
+            {
+              key: "share",
+              label: "Share of open work",
+              mobile: "row",
+              render: (r) => <Meter pct={totalOpen ? Math.round((r.open / totalOpen) * 100) : 0} tone={r.overdue > 0 ? "danger" : "primary"} />,
             },
           ]}
         />
       </SectionCard>
-    </>
+    </div>
   );
 }

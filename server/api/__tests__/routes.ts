@@ -96,6 +96,7 @@ export async function startWorld(): Promise<World> {
       db,
       guards: middleware,
       entitlements: new RunDbEntitlementSource(db, DEV_USER_ID, DEV_FIRM_ID),
+      members: async () => [{ userId: DEV_USER_ID, displayName: "Development Owner", email: "owner@firm.local", role: "owner" }],
     }),
   );
   app.use("/api", (_req, res) => {
@@ -268,6 +269,32 @@ test("api: client detail, transactions, and run log read for the owner", async (
   assertEqual(runs.body.items.length, 2, "one preview and one apply of the chart run");
 });
 
+test("api: team, board, and setup read for the owner, and a task moves through PRAC-UPDATE-TASK", async () => {
+  const team = await call(world, "GET", "/api/firm/team");
+  assertEqual(team.status, 200, "team status");
+  assertEqual(team.body.items.length, 1, "one member");
+  const board = await call(world, "GET", "/api/firm/tasks?period=2026-10-01");
+  assertEqual(board.status, 200, "board status");
+  assert(board.body.items.length > 0, "INTAKE-SEED-TASKS left tasks on the board");
+  assert(board.body.items.some((t: { clientName: string }) => t.clientName === NEW_CLIENT.name), "the rows name their client");
+  const setup = await call(world, "GET", `/api/firm/clients/${createdClientId}/setup`);
+  assertEqual(setup.status, 200, "setup status");
+  assertEqual(setup.body.bankAccounts.length, 0, "no bank accounts yet");
+  assertEqual(setup.body.mappingProfiles.length, 0, "no mapping profiles yet");
+  assertEqual(setup.body.uploadsConfigured, false, "uploads are not configured");
+  const open = setup.body.tasks.find((t: { state: string }) => t.state === "open");
+  assert(open, "the client has an open task");
+  const moved = await call(world, "POST", `/api/firm/clients/${createdClientId}/tasks/${open.id}`, { body: { state: "complete" } });
+  assertEqual(moved.status, 200, "move status");
+  assertEqual(moved.body.done, true, "preview and apply both succeeded");
+  const after = await call(world, "GET", "/api/firm/tasks?period=2026-10-01");
+  const row = after.body.items.find((t: { id: string }) => t.id === open.id);
+  assertEqual(row.state, "complete", "the board reads the move back");
+  assertEqual(row.manualOverride, true, "and the row is marked hand touched");
+  const bad = await call(world, "POST", `/api/firm/clients/${createdClientId}/tasks/${open.id}`, { body: {} });
+  assertEqual(bad.status, 400, "an empty body is a validation failure");
+});
+
 test("api: an unknown client is 404 and a non uuid id is 400", async () => {
   const r = await call(world, "GET", "/api/firm/clients/00000000-0000-4000-8000-00000000dead");
   assertEqual(r.status, 404, "unknown uuid");
@@ -411,7 +438,7 @@ test("api: the upload route answers 501 not_configured", async () => {
 test("api: the run catalog lists every registered run with its tier", async () => {
   const r = await call(world, "GET", "/api/firm/runs/catalog");
   assertEqual(r.status, 200, "status");
-  assertEqual(r.body.items.length, 54, "fifty four runs");
+  assertEqual(r.body.items.length, 55, "fifty five runs");
   const create = r.body.items.find((x: any) => x.runType === "INTAKE-CREATE-CLIENT");
   assertEqual(create?.tier, "manual", "the intake run is manual");
 });

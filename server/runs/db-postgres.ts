@@ -488,6 +488,14 @@ const MAPPING_PROFILE_COLUMNS = `
   check_number_column as "checkNumberColumn",
   bank_code_column as "bankCodeColumn", is_active as "isActive"`;
 
+const MAPPING_PROFILE_COLUMN_COLUMNS = `
+  id, firm_id as "firmId", client_id as "clientId", version,
+  profile_id as "profileId", profile_version as "profileVersion",
+  source_index as "sourceIndex", source_name as "sourceName",
+  canonical_field as "canonicalField", sample_value as "sampleValue",
+  is_active as "isActive", created_by_run_id as "createdByRunId",
+  created_at::text as "createdAt", manual_override as "manualOverride"`;
+
 const IMPORT_BATCH_COLUMNS = `
   id, firm_id as "firmId", client_id as "clientId", name,
   source_format as "sourceFormat", bank_account_id as "bankAccountId",
@@ -1504,6 +1512,22 @@ export const QUERIES: Record<QueryName, SqlSpec> = {
             and is_active = true
           order by version desc, id asc`,
     params: (p) => [p.firmId, p.clientId, p.institutionName, p.fileFormat],
+  },
+  mapping_profiles_for_client: {
+    table: "mapping_profiles",
+    sql: `select ${MAPPING_PROFILE_COLUMNS}
+          from import.mapping_profiles
+          where firm_id = $1 and client_id = $2 and is_active = true
+          order by id asc`,
+    params: (p) => [p.firmId, p.clientId],
+  },
+  mapping_profile_columns_for_client: {
+    table: "mapping_profile_columns",
+    sql: `select ${MAPPING_PROFILE_COLUMN_COLUMNS}
+          from import.mapping_profile_columns
+          where firm_id = $1 and client_id = $2 and is_active = true
+          order by profile_id asc, source_index asc`,
+    params: (p) => [p.firmId, p.clientId],
   },
   import_batch_by_id: {
     table: "import_batches",

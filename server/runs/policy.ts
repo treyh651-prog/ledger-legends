@@ -327,6 +327,10 @@ export const RUN_POLICIES: Readonly<Record<string, RunPolicy>> = {
     reason:
       "a nudge is a message to the client, and how often a client is chased is a relationship decision rather than a cadence",
   },
+  "PRAC-UPDATE-TASK": {
+    tier: "manual",
+    reason: "a person at the firm completes, reopens, or reassigns one task from the board, and a clock has no opinion on that",
+  },
 
   // ---------------------------------------------------------------------
   // D5 payroll and the two deliverables.

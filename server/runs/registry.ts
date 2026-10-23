@@ -20,6 +20,7 @@ import { payPostRegister } from "./runs/pay-post-register";
 import { prcEscalateOverdue } from "./runs/prc-escalate-overdue";
 import { prcGenerateWork } from "./runs/prc-generate-work";
 import { prcNudgeRequests } from "./runs/prc-nudge-requests";
+import { prcUpdateTask } from "./runs/prc-update-task";
 import { taxBuild1099 } from "./runs/tax-build-1099";
 import { w9Track } from "./runs/w9-track";
 import { arApplyPayments } from "./runs/ar-apply-payments";
@@ -152,6 +153,7 @@ export const registry: readonly RegistryEntry[] = [
   entry(prcGenerateWork),
   entry(prcEscalateOverdue),
   entry(prcNudgeRequests),
+  entry(prcUpdateTask),
   // D5 payroll. Approval is review and posting is bookkeeping. Neither one
   // disburses, and the constraint on the row says so in the database.
   entry(payApproveRun),
