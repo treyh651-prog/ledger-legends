@@ -981,3 +981,4 @@ import "./entitlement";
 // the memory run db, with the production guards fed by test tokens.
 import "../../api/__tests__/routes";
 import "../../api/__tests__/portal-routes";
+import "../../api/__tests__/uploads";

@@ -50,6 +50,7 @@ import { intakeActivateEngagement } from "./runs/intake-activate-engagement";
 import { engSignLetter } from "./runs/eng-sign-letter";
 import { portalAnswerRequest } from "./runs/portal-answer-request";
 import { portalPostMessage } from "./runs/portal-post-message";
+import { docRecordUpload } from "./runs/doc-record-upload";
 import { intakeSeedTasks } from "./runs/intake-seed-tasks";
 import { intakeOpenRequests } from "./runs/intake-open-requests";
 import { setupImportBalances } from "./runs/setup-import-balances";
@@ -98,6 +99,7 @@ export const registry: readonly RegistryEntry[] = [
   // starts from the client plane, or from the firm plane for a reply.
   entry(portalAnswerRequest),
   entry(portalPostMessage),
+  entry(docRecordUpload),
   entry(engSignLetter),
   entry(setupImportBalances),
   entry(importParseFeed),

@@ -827,6 +827,19 @@ export interface QueryCatalog {
     params: { firmId: Ulid; clientId: Ulid; documentId: Ulid };
     row: DocumentRow;
   };
+  /**
+   * One document with its storage coordinates, for the download route only.
+   * Rows with status uploaded or verified; a pending or failed row has no
+   * object worth serving. Zero or one row.
+   */
+  document_storage_by_id: {
+    params: { firmId: Ulid; clientId: Ulid; documentId: Ulid };
+    row: Pick<DocumentRow, "id" | "title" | "contentType" | "status"> & {
+      bucket: string;
+      objectKey: string;
+      storageProvider: "s3" | "supabase";
+    };
+  };
   /** Signature records for one engagement, newest first. */
   signature_evidence_for_engagement: {
     params: { firmId: Ulid; clientId: Ulid; engagementId: Ulid };

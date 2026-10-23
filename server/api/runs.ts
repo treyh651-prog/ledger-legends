@@ -34,6 +34,7 @@ import { readSession, runActor } from "./session";
 export const CLIENT_SIDE_RUNS: readonly string[] = [
   "PORTAL-ANSWER-REQUEST",
   "PORTAL-POST-MESSAGE",
+  "DOC-RECORD-UPLOAD",
   "ENG-SIGN-LETTER",
 ];
 

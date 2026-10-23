@@ -43,6 +43,7 @@ import {
 } from "../entitlement";
 import type { RunDb } from "../runs/db";
 import { ApiFailure, notConfigured, notFound, withOneRetry } from "./errors";
+import type { DocumentStorage } from "../storage/document-storage";
 import {
   firmOverview,
   getClient,
@@ -68,6 +69,8 @@ export interface ApiDeps {
   /** Today, for tests. */
   today?: () => string;
   now?: () => Date;
+  /** Where document bytes live. Null means uploads answer 501 and the screens say so. */
+  storage?: DocumentStorage | null;
 }
 
 /**
@@ -537,12 +540,6 @@ export function createApiRouter(deps: ApiDeps): Router {
       return { body };
     }),
   );
-
-  // Uploads wait on object storage. 501 with a message a screen can show.
-  const needsStorage: RequestHandler = (_req, _res, next) => {
-    next(notConfigured("Document storage is not set up yet. Uploads will open once it is."));
-  };
-  portal.post("/upload", requireFeature("documents", entitlementFor), needsStorage);
 
   // Requests, messages, documents, signing and the Legend screens live in
   // portal-router.ts, docs/11-api.md and NOTES 240 onward.

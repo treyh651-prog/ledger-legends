@@ -25,6 +25,8 @@ One environment variable for the database, four for sign in.
 | `SUPABASE_ANON_KEY` | Yes with Postgres | The public key. Handed to the browser through `/api/auth/config`, and used as the `apikey` header when the server has to ask Supabase Auth about a legacy HS256 token. |
 | `SUPABASE_SERVICE_ROLE_KEY` | Yes with Postgres | The admin key. Used for invitations (create the auth user, send the email) and revocations (ban the auth user). Server only. Never reaches the browser or a log. |
 | `APP_ORIGIN` | Yes with Postgres | Where the browser loads the app from, for example `https://app.example.com`. Pins CORS and is the redirect target in invitation and reset emails. Must also be in the Supabase project's redirect allow list. |
+| `UPLOAD_MAX_BYTES` | Optional | Ceiling for one uploaded document, bytes. Default 26214400 (25 MiB). The bucket's own limit is 100 MiB. |
+| `DOCUMENT_BUCKET` | Optional | Supabase Storage bucket for documents. Default `documents`, created private by migration 0031. Document storage itself needs only `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY`. |
 | `APP_DB_ROLE` | Recommended | Role for `set local role` inside every actor transaction. Set it to `app_web` once migration 0023 is applied. Section 7 says why. |
 
 Sign in follows the database. With Postgres, all four Supabase variables are

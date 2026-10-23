@@ -20,6 +20,7 @@ import { createApiRouter, RunDbEntitlementSource } from "./api/router";
 import { apiErrorHandler } from "./api/errors";
 import { buildDevActor, devActorEnabled, DEV_ACTOR, DEV_FIRM_ID, DEV_USER_ID, type DevActorRuntime } from "./api/dev-actor";
 import { firmMembers } from "./auth/actor-store";
+import { createMemoryStorage, createSupabaseStorage, readStorageEnv } from "./storage/document-storage";
 
 /**
  * Routes.
@@ -121,6 +122,8 @@ export async function registerRoutes(httpServer: Server, app: Express, deps?: Ro
       createApiRouter({
         db: runDb.db,
         guards: devActor.middleware,
+        // Memory storage, development only. Bytes vanish with the process and the screens say so.
+        storage: createMemoryStorage(),
         entitlements: new RunDbEntitlementSource(runDb.db, DEV_USER_ID, DEV_FIRM_ID),
         members: async () => [{ userId: DEV_USER_ID, displayName: DEV_ACTOR.displayName ?? DEV_ACTOR.email, email: DEV_ACTOR.email, role: "owner" }],
       }),
@@ -135,6 +138,11 @@ export async function registerRoutes(httpServer: Server, app: Express, deps?: Ro
   if (!auth) return httpServer;
 
   const { requireUser, requireFirm } = auth.middleware;
+  // Supabase Storage when the two values are present; otherwise uploads answer
+  // 501 naming the missing settings. Never a memory store against Postgres.
+  const storageEnv = readStorageEnv();
+  const documentStorage = storageEnv ? createSupabaseStorage(storageEnv) : null;
+  console.log(documentStorage ? `document storage: supabase bucket ${documentStorage.bucket}` : "document storage: not configured (SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)");
   const inv: InvitationDeps = { pool: auth.pool, authAdmin: auth.authAdmin, appOrigin: auth.appOrigin, actorOpts: auth.actorOpts };
 
   app.get("/api/auth/me", requireUser, (req, res) => {
@@ -152,6 +160,7 @@ export async function registerRoutes(httpServer: Server, app: Express, deps?: Ro
     createApiRouter({
       db: runDb.db,
       guards: auth.middleware,
+      storage: documentStorage,
       entitlements: new PostgresEntitlementSource(auth.pool as Pool),
       members: (firmId) => firmMembers(auth.pool, firmId),
     }),

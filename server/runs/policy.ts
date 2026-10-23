@@ -71,6 +71,10 @@ export const RUN_POLICIES: Readonly<Record<string, RunPolicy>> = {
     tier: "manual",
     reason: "a person at the client or the firm writes a message, and a clock has nothing to say",
   },
+  "DOC-RECORD-UPLOAD": {
+    tier: "manual",
+    reason: "a person sends one file from the portal or the firm plane, and the record is written only after the bytes are stored",
+  },
   "ENG-SIGN-LETTER": {
     tier: "manual",
     reason: "the client signs the engagement letter from the portal, the signature record is theirs alone",

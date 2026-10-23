@@ -8,8 +8,9 @@
  * and writes only by starting one of the three client side runs from migration
  * 0028, preview then apply, the same pair the firm's create client flow uses.
  *
- * What is and is not configured is stated in the payload: uploadsConfigured,
- * storageConfigured and emailConfigured are false and the screens say so.
+ * What is and is not configured is stated in the payload: storageConfigured
+ * follows deps.storage (NOTES 256), uploadsConfigured and emailConfigured are
+ * false and the screens say so.
  */
 import { Router, type Request, type RequestHandler } from "express";
 import type { ZodType } from "zod";
@@ -42,6 +43,8 @@ import { triggerRun } from "./runs";
 import { SIGN_CONSENT_TEXT } from "../runs/runs/eng-sign-letter";
 import type { ApiDeps } from "./router";
 import type { DocumentRow } from "../runs/tables";
+import { createDocumentRoutes } from "./uploads";
+import { type DocumentStorage, uploadMaxBytes } from "../storage/document-storage";
 
 /* ---------------- Small helpers, kept local so router.ts stays as it is ---------------- */
 
@@ -192,7 +195,7 @@ async function messagesFor(tx: RunTx, firmId: string, clientId: string, userId: 
   };
 }
 
-async function documentsFor(tx: RunTx, firmId: string, clientId: string): Promise<PortalDocuments> {
+async function documentsFor(tx: RunTx, firmId: string, clientId: string, storage: DocumentStorage | null): Promise<PortalDocuments> {
   const [docs, requests] = await Promise.all([
     tx.query("documents_for_client", { firmId, clientId }),
     requestsFor(tx, firmId, clientId),
@@ -200,7 +203,9 @@ async function documentsFor(tx: RunTx, firmId: string, clientId: string): Promis
   return {
     items: docs.map(documentDto),
     openRequests: requests.items.filter((r) => r.kind === "document" && r.status === "open"),
-    storageConfigured: false,
+    storageConfigured: storage !== null,
+    storageProvider: storage ? storage.provider : null,
+    uploadMaxBytes: uploadMaxBytes(),
   };
 }
 
@@ -459,7 +464,10 @@ export function createPortalScreensRouter({ deps, entitlementFor }: PortalRouter
     }),
   );
 
-  portal.get("/documents", gate("documents"), read((tx, f, c) => documentsFor(tx, f, c)));
+  portal.get("/documents", gate("documents"), read((tx, f, c) => documentsFor(tx, f, c, deps.storage ?? null)));
+  // Upload and download, server/api/uploads.ts. The same routes serve a client
+  // user and firm staff; requireClient above decided who may be here.
+  portal.use(createDocumentRoutes({ deps, gate: gate("documents") }));
 
   // Signing needs no feature beyond being this client's person. An engagement
   // that is not yet active has no tier to gate on.

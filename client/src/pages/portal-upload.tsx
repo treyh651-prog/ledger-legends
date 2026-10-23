@@ -1,19 +1,19 @@
 import { useLocation } from "wouter";
-import { FolderOpen, Upload } from "lucide-react";
+import { FolderOpen } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { EmptyState, Kpi, Pill, SectionCard } from "@/components/kit";
 import { PortalNote } from "@/components/portal/portal-kit";
 import { PortalScreen, QueryBody } from "@/components/portal/portal-screen";
+import { UploadDocumentControl } from "@/components/portal/upload-document";
 import { usePortalDocuments } from "@/api";
 import { fmtDate } from "@/lib/money";
 
 /**
  * Send documents, at /portal/upload. Reads GET /api/portal/:clientId/documents
- * for what the firm is waiting on and whether storage exists. The upload
- * route answers 501 not_configured until object storage is set up, and this
- * screen says so instead of staging files that would go nowhere. There is no
- * drop zone, no progress bar, and no sample file, because none of those would
- * be true.
+ * for what the firm is waiting on and whether storage exists. When it does,
+ * UploadDocumentControl posts the bytes and the list refreshes; when it does
+ * not, the control is disabled and this screen says so instead of staging
+ * files that would go nowhere.
  */
 export default function PortalUpload() {
   return (
@@ -42,8 +42,8 @@ function Body({ clientId }: { clientId: string }) {
 
           {!data.storageConfigured ? (
             <PortalNote tone="watch" testId="note-upload-storage">
-              Uploading through this page is not set up in this product yet. Send documents to your accountant the way you do today. When
-              storage is configured this page will accept files and each one will appear on the Documents screen with a history.
+              Uploading through this page is not set up on this server yet. Send documents to your accountant the way you do today. When
+              storage is configured this page accepts files and each one appears on the Documents screen with a history.
             </PortalNote>
           ) : null}
 
@@ -52,9 +52,7 @@ function Body({ clientId }: { clientId: string }) {
             description="From the firm's open document requests. Each one has a date."
             testId="card-upload-expected"
             actions={
-              <Button size="sm" disabled={!data.storageConfigured} data-testid="button-upload" title={data.storageConfigured ? undefined : "Storage is not configured"}>
-                <Upload className="mr-1.5 h-4 w-4" /> Upload a file
-              </Button>
+              <UploadDocumentControl clientId={clientId} data={data} testId="upload-send" />
             }
           >
             {data.openRequests.length === 0 ? (

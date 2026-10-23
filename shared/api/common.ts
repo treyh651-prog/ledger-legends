@@ -54,6 +54,8 @@ export const API_ERROR_CODES = [
   "run_refused",
   "run_locked",
   "not_configured",
+  "payload_too_large",
+  "upload_rejected",
   "internal",
 ] as const;
 export type ApiErrorCode = (typeof API_ERROR_CODES)[number];

@@ -20,6 +20,9 @@ import { FeatureNotInTierError } from "../../entitlement";
 import { LockedPeriodError } from "../../runs/db";
 import { ZodError, z } from "zod";
 import { assert, assertEqual, test } from "../../runs/__tests__/harness";
+import type { createMemoryStorage } from "../../storage/document-storage";
+
+export type MemoryStorage = ReturnType<typeof createMemoryStorage>;
 
 const CLIENT_USER_ID = "00000000-0000-4000-8000-0000000000c1";
 const OTHER_FIRM_ID = "00000000-0000-4000-8000-00000000f1b0";
@@ -30,6 +33,8 @@ export interface World {
   close: () => Promise<void>;
   /** The client the client scoped token belongs to. Set after the first create. */
   setClientFor: (clientId: string) => void;
+  /** The memory document store, when the world was started with one. */
+  storage: MemoryStorage | null;
 }
 
 function buildActors(): { actors: Map<string, Actor>; setClientFor: (id: string) => void } {
@@ -61,8 +66,9 @@ function buildActors(): { actors: Map<string, Actor>; setClientFor: (id: string)
   return { actors, setClientFor };
 }
 
-export async function startWorld(): Promise<World> {
+export async function startWorld(opts: { storage?: MemoryStorage } = {}): Promise<World> {
   const db = new MemoryRunDb();
+  const storage = opts.storage ?? null;
   const { actors, setClientFor } = buildActors();
   const verifier: TokenVerifier = {
     async verify(token: string): Promise<VerifiedToken> {
@@ -95,6 +101,7 @@ export async function startWorld(): Promise<World> {
     createApiRouter({
       db,
       guards: middleware,
+      storage,
       entitlements: new RunDbEntitlementSource(db, DEV_USER_ID, DEV_FIRM_ID),
       members: async () => [{ userId: DEV_USER_ID, displayName: "Development Owner", email: "owner@firm.local", role: "owner" }],
     }),
@@ -113,6 +120,7 @@ export async function startWorld(): Promise<World> {
     base: `http://127.0.0.1:${port}`,
     close: () => new Promise((resolve) => server.close(() => resolve())),
     setClientFor,
+    storage,
   };
 }
 
@@ -427,18 +435,17 @@ test("api: a period that is not a first of month is 400", async () => {
   assertEqual(r.body.error.code, "validation_failed", "code");
 });
 
-test("api: the upload route answers 501 not_configured", async () => {
-  for (const [m, p] of [["POST", "upload"]] as const) {
-    const r = await call(world, m, `/api/portal/${createdClientId}/${p}`, { token: "client", body: {} });
-    assert(r.status === 501 || r.status === 403, `${m} ${p} is 501 or feature gated, got ${r.status}`);
-    if (r.status === 501) assertEqual(r.body.error.code, "not_configured", `${p} code`);
-  }
+test("api: without a document store the upload route answers 501 not_configured", async () => {
+  // The world in this file has no store. The full upload path is in uploads.ts.
+  const r = await call(world, "POST", `/api/portal/${createdClientId}/documents`, { token: "client", body: {} });
+  assert(r.status === 501 || r.status === 403, `POST documents is 501 or feature gated, got ${r.status}`);
+  if (r.status === 501) assertEqual(r.body.error.code, "not_configured", "code");
 });
 
 test("api: the run catalog lists every registered run with its tier", async () => {
   const r = await call(world, "GET", "/api/firm/runs/catalog");
   assertEqual(r.status, 200, "status");
-  assertEqual(r.body.items.length, 55, "fifty five runs");
+  assertEqual(r.body.items.length, 56, "fifty six runs");
   const create = r.body.items.find((x: any) => x.runType === "INTAKE-CREATE-CLIENT");
   assertEqual(create?.tier, "manual", "the intake run is manual");
 });

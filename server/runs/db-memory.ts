@@ -1905,6 +1905,30 @@ class MemoryTx implements RunTx {
           .filter((r) => r.firmId === p.firmId && r.clientId === p.clientId && r.id === p.documentId)
           .map((r) => clone(r as unknown as AnyRow));
       }
+      case "document_storage_by_id": {
+        const p = rawParams as QueryCatalog["document_storage_by_id"]["params"];
+        return this.view("documents")
+          .map((r) => r as unknown as DocumentRow)
+          .filter(
+            (r) =>
+              r.firmId === p.firmId &&
+              r.clientId === p.clientId &&
+              r.id === p.documentId &&
+              !(r as unknown as { archivedAt?: string | null }).archivedAt &&
+              (r.status === "uploaded" || r.status === "verified") &&
+              r.bucket !== undefined &&
+              r.objectKey !== undefined,
+          )
+          .map((r) => ({
+            id: r.id,
+            title: r.title,
+            contentType: r.contentType,
+            status: r.status,
+            bucket: r.bucket,
+            objectKey: r.objectKey,
+            storageProvider: r.storageProvider ?? "s3",
+          }));
+      }
       case "signature_evidence_for_engagement": {
         const p = rawParams as QueryCatalog["signature_evidence_for_engagement"]["params"];
         return this.view("signature_evidence")

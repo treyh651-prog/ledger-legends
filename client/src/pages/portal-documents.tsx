@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button";
 import { DataGrid, EmptyState, Kpi, Pill, SectionCard } from "@/components/kit";
 import { PortalNote } from "@/components/portal/portal-kit";
 import { PortalScreen, QueryBody } from "@/components/portal/portal-screen";
+import { DownloadDocumentLink, UploadDocumentControl } from "@/components/portal/upload-document";
 import { usePortalDocuments } from "@/api";
 import { fmtBytes, fmtDate, fmtTimestamp } from "@/lib/money";
 import type { PortalDocument } from "@shared/api";
@@ -17,8 +18,9 @@ const STATUS: Record<PortalDocument["status"], { label: string; tone: "good" | "
 
 /**
  * The client's file, GET /api/portal/:clientId/documents. Rows come from the
- * document vault. Upload and download wait on object storage, and the payload
- * says so with storageConfigured false, so no button here pretends otherwise.
+ * document vault. Upload and download use the server's document store; when
+ * the payload says storageConfigured false the controls are disabled and the
+ * note says so, so no button here pretends otherwise.
  */
 export default function PortalDocuments() {
   return (
@@ -48,7 +50,7 @@ function Body({ clientId }: { clientId: string }) {
 
           {!data.storageConfigured ? (
             <PortalNote tone="watch" testId="note-documents-storage">
-              File upload and download are not set up in this product yet. The list below is the record of what is on file. Send new
+              File upload and download are not set up on this server yet. The list below is the record of what is on file. Send new
               documents to your accountant the way you do today.
             </PortalNote>
           ) : null}
@@ -74,7 +76,12 @@ function Body({ clientId }: { clientId: string }) {
             </SectionCard>
           ) : null}
 
-          <SectionCard title="On file" bodyClassName="p-0" testId="card-portal-documents-list">
+          <SectionCard
+            title="On file"
+            bodyClassName="p-0"
+            testId="card-portal-documents-list"
+            actions={<UploadDocumentControl clientId={clientId} data={data} testId="upload-documents" />}
+          >
             <DataGrid<PortalDocument>
               rows={data.items}
               rowKey={(d) => d.id}
@@ -91,6 +98,19 @@ function Body({ clientId }: { clientId: string }) {
                 { key: "size", label: "Size", align: "right", render: (d) => (d.byteSize !== null ? fmtBytes(d.byteSize) : "Not received") },
                 { key: "when", label: "Received", render: (d) => (d.uploadedAt ? fmtTimestamp(d.uploadedAt) : "Not yet") },
                 { key: "status", label: "Status", render: (d) => <Pill tone={STATUS[d.status].tone}>{STATUS[d.status].label}</Pill> },
+                {
+                  key: "download",
+                  label: "",
+                  align: "right",
+                  render: (d) => (
+                    <DownloadDocumentLink
+                      clientId={clientId}
+                      documentId={d.id}
+                      title={d.title}
+                      enabled={data.storageConfigured && (d.status === "uploaded" || d.status === "verified")}
+                    />
+                  ),
+                },
               ]}
             />
           </SectionCard>

@@ -254,10 +254,11 @@ test("portal api: messages go both directions through one run and email is state
   assertEqual(last.authorScope, "client", "author scope came from the plane");
 });
 
-test("portal api: documents list the vault rows and say storage is not configured", async () => {
+test("portal api: documents list the vault rows and say whether storage is configured", async () => {
   const r = await call(world, "GET", `/api/portal/${clientId}/documents`, { token: "client" });
   assertEqual(r.status, 200, "status");
-  assertEqual(r.body.storageConfigured, false, "storage not configured, stated");
+  assertEqual(r.body.storageConfigured, false, "this world has no store, stated");
+  assertEqual(r.body.storageProvider, null, "no provider");
   assertEqual(r.body.items.length, 1, "the engagement letter is the one document");
   assertEqual(r.body.items[0].docType, "engagement_letter", "doc type");
   assert(r.body.openRequests.length > 0, "open document requests are listed");

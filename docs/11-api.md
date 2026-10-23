@@ -64,7 +64,8 @@ routes add `requireClient` and, where marked, `requireFeature`.
 | GET | `/api/portal/:clientId/messages` | client, feature `messages` | `PortalMessages` | The thread between the client and the firm, oldest first. |
 | POST | `/api/portal/:clientId/messages` | client, feature `messages` | `PortalActionResult` | Body `{ body }`. Runs `PORTAL-POST-MESSAGE`. |
 | GET | `/api/portal/:clientId/documents` | client, feature `documents` | `PortalDocuments` | Rows from `docvault.documents`. `storageConfigured` is false until storage exists, so no download link is offered. |
-| POST | `/api/portal/:clientId/upload` | client, feature `documents` | `501 not_configured` | Needs document storage. |
+| POST | `/api/portal/:clientId/documents` | client or firm member, feature `documents` | `201 UploadDocumentResult` | Raw bytes. Headers `x-file-name`, `x-doc-type`, optional `x-request-id`. Runs `DOC-RECORD-UPLOAD` after the object is stored. `413 payload_too_large`, `400 upload_rejected`, `501 not_configured` without a store. |
+| GET | `/api/portal/:clientId/documents/:id/download` | client or firm member, feature `documents` | `DocumentDownload` or the bytes | Signed URL, sixty seconds, on Supabase Storage. The memory store streams the file. |
 | GET | `/api/portal/:clientId/sign` | client | `PortalSign` | The engagement, its letter document, and any signature evidence. Not feature gated: signing is how a client gets features. |
 | POST | `/api/portal/:clientId/sign` | client | `PortalActionResult` | Body `{ consent: true }`. Runs `ENG-SIGN-LETTER`, which records signature evidence and moves the engagement to `signed`. |
 | GET | `/api/portal/:clientId/aging` | client, feature `aging` | `PortalAging` | `side=receivable` or `payable`. Buckets from open ledger items. |
@@ -208,7 +209,7 @@ message or answer already exists.
   `207` and names the run. The fix is a migration that moves the key to
   `(client_id, id)`, which every referencing foreign key already uses, plus
   the matching change in the memory port. Recorded in api-report.md.
-- Document storage is not configured, so `POST .../upload` answers `501`
+- Document storage follows `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` (NOTES 243). Without them `POST .../documents` answers `501`
   and the documents and reports payloads carry `storageConfigured: false`.
   Messages no longer need mail: they are rows in `ledger.portal_messages`
   written by a run.

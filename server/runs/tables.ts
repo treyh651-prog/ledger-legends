@@ -708,6 +708,11 @@ export interface DocumentRow {
   kmsKeyAlias?: string;
   objectLockMode?: "GOVERNANCE" | "COMPLIANCE" | null;
   uploadedBy?: Ulid | null;
+  /** Migration 0031. DOC-RECORD-UPLOAD writes these; the reads leave them out. */
+  scanStatus?: "pending" | "not_scanned" | "clean" | "infected" | "failed";
+  magicVerified?: boolean;
+  headVerifiedAt?: string | null;
+  storageProvider?: "s3" | "supabase";
 }
 
 /**

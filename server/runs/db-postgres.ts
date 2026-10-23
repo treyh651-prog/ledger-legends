@@ -1769,6 +1769,15 @@ export const QUERIES: Record<QueryName, SqlSpec> = {
           where firm_id = $1 and client_id = $2 and id = $3`,
     params: (p) => [p.firmId, p.clientId, p.documentId],
   },
+  document_storage_by_id: {
+    table: "documents",
+    sql: `select id, title, content_type as "contentType", status, bucket,
+            object_key as "objectKey", storage_provider as "storageProvider"
+          from docvault.documents
+          where firm_id = $1 and client_id = $2 and id = $3
+            and archived_at is null and status in ('uploaded', 'verified')`,
+    params: (p) => [p.firmId, p.clientId, p.documentId],
+  },
   signature_evidence_for_engagement: {
     table: "signature_evidence",
     sql: `select id, firm_id as "firmId", client_id as "clientId",

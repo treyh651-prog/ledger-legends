@@ -13,6 +13,11 @@ export function setAuthHeaderProvider(fn: () => Promise<Record<string, string>>)
   authHeaders = fn;
 }
 
+/** The same headers apiRequest sends, for the two calls that carry bytes instead of JSON. */
+export function getAuthHeaders(): Promise<Record<string, string>> {
+  return authHeaders();
+}
+
 async function throwIfResNotOk(res: Response) {
   if (!res.ok) {
     const text = (await res.text()) || res.statusText;

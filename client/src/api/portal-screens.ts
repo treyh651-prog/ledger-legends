@@ -14,8 +14,11 @@ import type {
   PortalSign,
   PostMessageBody,
   SignLetterBody,
+  DocumentDownload,
+  UploadDocumentResult,
 } from "@shared/api";
-import { api, toQuery } from "./http";
+import { api, ApiRequestError, toQuery } from "./http";
+import { API_BASE, getAuthHeaders as authHeaders } from "@/lib/queryClient";
 import { portalKeys } from "./portal";
 
 /**
@@ -123,4 +126,87 @@ export function usePortalReports(clientId: string | null) {
 
 export function usePortalPeriods(clientId: string | null) {
   return read<PortalPeriods>(clientId, portalScreenKeys.periods(clientId ?? "none"), "/periods");
+}
+
+/* ---------------- Documents: upload and download ---------------- */
+
+export interface UploadDocumentArgs {
+  file: File;
+  docType: string;
+  requestId?: string | null;
+}
+
+/**
+ * POST /api/portal/:clientId/documents with the raw bytes. The server inspects
+ * name, type, size and first bytes, stores the object, then writes the row;
+ * 201 means both exist. The documents query is refreshed on success so the
+ * list shows the new row without a reload.
+ */
+export function useUploadDocument(clientId: string | null) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (args: UploadDocumentArgs): Promise<UploadDocumentResult> => {
+      const headers: Record<string, string> = {
+        ...(await authHeaders()),
+        "content-type": args.file.type || "application/octet-stream",
+        "x-file-name": encodeURIComponent(args.file.name),
+        "x-doc-type": args.docType,
+      };
+      if (args.requestId) headers["x-request-id"] = args.requestId;
+      let res: Response;
+      try {
+        res = await fetch(`${API_BASE}/api/portal/${clientId}/documents`, { method: "POST", headers, body: args.file });
+      } catch {
+        throw new ApiRequestError(0, "network", "The server could not be reached.");
+      }
+      if (!res.ok) throw await errorFromResponse(res);
+      return (await res.json()) as UploadDocumentResult;
+    },
+    onSuccess: () => void qc.invalidateQueries({ queryKey: portalScreenKeys.documents(clientId ?? "none") }),
+  });
+}
+
+/**
+ * GET /api/portal/:clientId/documents/:id/download. With Supabase Storage the
+ * answer is a sixty second signed URL; the development store streams the bytes.
+ * Either way the file opens in a new tab from a URL that was never public.
+ */
+export async function downloadDocument(clientId: string, documentId: string, title: string): Promise<void> {
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE}/api/portal/${clientId}/documents/${documentId}/download`, { headers: await authHeaders() });
+  } catch {
+    throw new ApiRequestError(0, "network", "The server could not be reached.");
+  }
+  if (!res.ok) throw await errorFromResponse(res);
+  const type = res.headers.get("content-type") ?? "";
+  let href: string;
+  let revoke: string | null = null;
+  if (type.startsWith("application/json")) {
+    href = ((await res.json()) as DocumentDownload).url;
+  } else {
+    href = URL.createObjectURL(await res.blob());
+    revoke = href;
+  }
+  const a = document.createElement("a");
+  a.href = href;
+  a.download = title;
+  a.rel = "noopener";
+  a.target = "_blank";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  if (revoke) setTimeout(() => URL.revokeObjectURL(revoke), 60_000);
+}
+
+async function errorFromResponse(res: Response): Promise<ApiRequestError> {
+  const text = await res.text();
+  try {
+    const raw = JSON.parse(text) as { error?: { code?: string; message?: string }; code?: string; message?: string };
+    const code = raw.error?.code ?? raw.code ?? "unknown";
+    const message = raw.error?.message ?? raw.message ?? "The server answered with an error.";
+    return new ApiRequestError(res.status, code, message);
+  } catch {
+    return new ApiRequestError(res.status, "unknown", text || "The server answered with an error.");
+  }
 }

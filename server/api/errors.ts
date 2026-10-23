@@ -96,7 +96,7 @@ export function translate(err: unknown): Translated {
     return { status: 400, code: "validation_failed", message: "The request body is not valid JSON." };
   }
   if (body && body.type === "entity.too.large") {
-    return { status: 413, code: "validation_failed", message: "The request body is too large." };
+    return { status: 413, code: "payload_too_large", message: "The request body is too large." };
   }
   return { status: 500, code: "internal", message: "Something went wrong on the server." };
 }

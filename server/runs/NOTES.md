@@ -2742,3 +2742,26 @@ Entries 193 to 210 belong to the login work above.
     `tier`, `tierName`, and `features` from `GET /api/portal/:id/home`; the
     static tier tables in `@/data/entitlement` remain only as names and
     descriptions of what each tier includes.
+
+243. **Document uploads live on Supabase Storage, through the server.**
+    The screens said "storage is not configured" because `storageConfigured`
+    was hard coded false and `POST .../upload` was a 501 stub. Options: (a)
+    S3 with Object Lock and a scanner as migration 0008 assumed, a second
+    paid service and a second credential set; (b) supabase-js in the browser
+    with storage RLS policies, which puts authorization in the client bundle
+    and needs the Realtime import the server already refuses; (c) a private
+    Supabase bucket written only by the server with the service role over
+    the Storage REST API, authorization from the session and `requireClient`,
+    the row written by a run after the object exists. Chose (c). The bucket
+    `documents` is private with no storage policies, so no browser key can
+    read it; downloads are sixty second signed URLs. 0031 widens three 0008
+    constraints for `storage_provider = 'supabase'` only: `scan_status` may
+    be `not_scanned` when `magic_verified` is true, `verified` still needs
+    `clean`, and the Object Lock rule applies to S3 rows alone. That is an
+    honest record of what this provider does, not a claim it does more. The
+    memory store exists for the memory database and the tests, and the
+    payload names it so the screen says files vanish with the process. A
+    server on Postgres without `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY`
+    answers 501 naming both; it never falls back to memory. Limits: one
+    ceiling `UPLOAD_MAX_BYTES` (default 25 MiB) applied before the body is
+    read, five types checked by extension, declared type, and first bytes.

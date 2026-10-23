@@ -87,10 +87,28 @@ export const portalDocumentsSchema = z.object({
   items: z.array(portalDocumentSchema),
   /** Open document requests, so the screen can say what the firm is waiting on. */
   openRequests: z.array(portalRequestDetailSchema),
-  /** False until object storage exists. Upload and download stay 501 until then. */
+  /** True when the server has a document store. Upload and download answer 501 until then. */
   storageConfigured: z.boolean(),
+  /** Which store. "memory" is the development server and keeps nothing across a restart. */
+  storageProvider: z.enum(["supabase", "memory"]).nullable(),
+  /** The server's ceiling, so the screen can refuse early with the same number. */
+  uploadMaxBytes: z.number().int().positive(),
 });
 export type PortalDocuments = z.infer<typeof portalDocumentsSchema>;
+
+/** POST /api/portal/:clientId/documents answers the stored row plus the run outcome. */
+export const uploadDocumentResultSchema = z.object({
+  document: portalDocumentSchema,
+  done: z.literal(true),
+});
+export type UploadDocumentResult = z.infer<typeof uploadDocumentResultSchema>;
+
+/** GET /api/portal/:clientId/documents/:id/download, when the store signs URLs. */
+export const documentDownloadSchema = z.object({
+  url: z.string().url(),
+  expiresInSeconds: z.number().int().positive(),
+});
+export type DocumentDownload = z.infer<typeof documentDownloadSchema>;
 
 /* ---------------- Engagement letter and signing ---------------- */
 
