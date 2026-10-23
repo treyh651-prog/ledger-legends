@@ -329,3 +329,156 @@ export const rulesSchema = z.object({
   autoPostCount: z.number().int(),
 });
 export type Rules = z.infer<typeof rulesSchema>;
+
+/* ------------------------------------------------------------------------ */
+/* Tax forms, the 1099 compilation                                           */
+/* ------------------------------------------------------------------------ */
+
+export const taxDataSetSchema = z.object({
+  id: idSchema,
+  taxYear: z.number().int(),
+  thresholdCents: centsSchema,
+  payeeCount: z.number().int(),
+  reportableCount: z.number().int(),
+  approachingCount: z.number().int(),
+  excludedCount: z.number().int(),
+  backupWithholdingCount: z.number().int(),
+  reportableTotalCents: centsSchema,
+  excludedCardTotalCents: centsSchema,
+  handoffStatement: z.string(),
+  builtAt: instantSchema,
+});
+export const taxDataLineSchema = z.object({
+  id: idSchema,
+  payeeName: z.string(),
+  formCode: z.string(),
+  boxCode: z.string(),
+  grossPaidCents: centsSchema,
+  excludedCardCents: centsSchema,
+  reportableCents: centsSchema,
+  state: z.enum(["reportable", "approaching_threshold"]),
+  w9State: z.string(),
+  backupWithholdingRequired: z.boolean(),
+  tinLast4: z.string().nullable(),
+  reason: z.string(),
+});
+export const w9StateSchema = z.object({
+  id: idSchema,
+  vendorName: z.string(),
+  state: z.enum(["not_requested", "requested", "received", "on_file", "expired"]),
+  requestedOn: daySchema.nullable(),
+  receivedOn: daySchema.nullable(),
+  expiresOn: daySchema.nullable(),
+  ageDays: z.number().int(),
+  escalation: z.enum(["none", "lead"]),
+  detail: z.string(),
+});
+export const taxFormsSchema = z.object({
+  clientId: idSchema,
+  taxYear: z.number().int(),
+  threshold: z.object({ thresholdCents: centsSchema, effectiveFrom: daySchema, sourceNote: z.string() }).nullable(),
+  dataSets: z.array(taxDataSetSchema),
+  selectedDataSetId: idSchema.nullable(),
+  lines: z.array(taxDataLineSchema),
+  w9: z.array(w9StateSchema),
+});
+export type TaxForms = z.infer<typeof taxFormsSchema>;
+export type TaxDataLine = z.infer<typeof taxDataLineSchema>;
+export type W9State = z.infer<typeof w9StateSchema>;
+
+/* ------------------------------------------------------------------------ */
+/* Substantiation                                                            */
+/* ------------------------------------------------------------------------ */
+
+export const substantiationRecordSchema = z.object({
+  id: idSchema,
+  kind: z.enum(["inventory_count", "payroll_register", "other"]),
+  accountNumber: z.string(),
+  accountName: z.string(),
+  supportedBalanceCents: centsSchema,
+  sourceRef: z.string().nullable(),
+  preparedOn: daySchema.nullable(),
+});
+export const documentationExceptionSchema = z.object({
+  id: idSchema,
+  transactionId: idSchema,
+  kind: z.enum(["missing_class", "missing_receipt"]),
+  categoryId: z.string(),
+  categoryName: z.string().nullable(),
+  detail: z.string(),
+  status: z.enum(["open", "resolved"]),
+  openedAt: instantSchema,
+});
+export const substantiationSchema = z.object({
+  clientId: idSchema,
+  period: daySchema,
+  records: z.array(substantiationRecordSchema),
+  exceptions: z.array(documentationExceptionSchema),
+  openExceptions: z.number().int(),
+  tieouts: z.array(tieoutSchema),
+});
+export type Substantiation = z.infer<typeof substantiationSchema>;
+export type SubstantiationRecord = z.infer<typeof substantiationRecordSchema>;
+export type DocumentationException = z.infer<typeof documentationExceptionSchema>;
+
+/* ------------------------------------------------------------------------ */
+/* Report package and narrative                                              */
+/* ------------------------------------------------------------------------ */
+
+export const reportSectionSchema = z.object({
+  id: idSchema,
+  sequence: z.number().int(),
+  sectionCode: z.string(),
+  sectionTitle: z.string(),
+  status: z.enum(["rendered", "omitted"]),
+  omissionReason: z.string().nullable(),
+  bannerText: z.string().nullable(),
+  lines: z.array(
+    z.object({ label: z.string(), accountNumber: z.string().nullable(), amountCents: centsSchema, comparisonCents: centsSchema.nullable(), note: z.string().nullable() }),
+  ),
+});
+export const reportPackageSchema = z.object({
+  id: idSchema,
+  period: daySchema,
+  basis: z.enum(["accrual", "cash"]),
+  comparisonBasis: z.string(),
+  comparisonAvailable: z.boolean(),
+  comparisonNote: z.string(),
+  state: z.enum(["draft", "superseded"]),
+  watermark: z.string().nullable(),
+  closedWithExceptions: z.boolean(),
+  exceptionBanner: z.string().nullable(),
+  sectionCount: z.number().int(),
+  omissionCount: z.number().int(),
+  builtAt: instantSchema,
+});
+export const reportPackagesSchema = z.object({
+  clientId: idSchema,
+  period: daySchema,
+  packages: z.array(reportPackageSchema),
+  selectedPackageId: idSchema.nullable(),
+  sections: z.array(reportSectionSchema),
+});
+export type ReportPackages = z.infer<typeof reportPackagesSchema>;
+export type ReportSection = z.infer<typeof reportSectionSchema>;
+export type ReportPackage = z.infer<typeof reportPackageSchema>;
+
+export const narrativeSchema = z.object({
+  id: idSchema,
+  period: daySchema,
+  audience: z.enum(["owner", "lender"]),
+  comparisonBasis: z.string(),
+  sentenceCount: z.number().int(),
+  droppedCount: z.number().int(),
+  bodyText: z.string(),
+  sentences: z.array(z.object({ sectionCode: z.string(), triggerCode: z.string(), priority: z.number(), text: z.string() })),
+  manualEdit: z.boolean(),
+  composedAt: instantSchema,
+});
+export const narrativesSchema = z.object({
+  clientId: idSchema,
+  period: daySchema,
+  items: z.array(narrativeSchema),
+});
+export type Narratives = z.infer<typeof narrativesSchema>;
+export type Narrative = z.infer<typeof narrativeSchema>;

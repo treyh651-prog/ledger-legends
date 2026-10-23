@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import type { Aging, Budget, CloseChecklist, FirmRequests, Forecast, Journal, PortalStatements, Reconcile, Rules, TrialBalance } from "@shared/api";
+import type { Aging, Budget, CloseChecklist, FirmRequests, Forecast, Journal, Narratives, PortalStatements, Reconcile, ReportPackages, Rules, Substantiation, TaxForms, TrialBalance } from "@shared/api";
 import { api, toQuery } from "./http";
 
 /** Reads for the firm screens. Keys live under the client so run mutations invalidate them. */
@@ -104,6 +104,41 @@ export function useRules(clientId: string | null) {
   return useQuery({
     queryKey: screenKeys.rules(clientId ?? "none"),
     queryFn: () => api<Rules>("GET", `/api/firm/clients/${clientId}/rules`),
+    enabled: !!clientId,
+  });
+}
+
+export function useTaxForms(clientId: string | null, dataSetId: string | null) {
+  return useQuery({
+    queryKey: ["api", "firm", "clients", clientId ?? "none", "tax-forms", dataSetId ?? "latest"],
+    queryFn: () => api<TaxForms>("GET", `/api/firm/clients/${clientId}/tax-forms${toQuery({ dataSetId: dataSetId ?? undefined })}`),
+    enabled: !!clientId,
+  });
+}
+
+export function useSubstantiation(clientId: string | null, period: string) {
+  const p = periodStartOf(period);
+  return useQuery({
+    queryKey: ["api", "firm", "clients", clientId ?? "none", "substantiation", p],
+    queryFn: () => api<Substantiation>("GET", `/api/firm/clients/${clientId}/substantiation${toQuery({ period: p })}`),
+    enabled: !!clientId,
+  });
+}
+
+export function useReportPackages(clientId: string | null, period: string, packageId: string | null) {
+  const p = periodStartOf(period);
+  return useQuery({
+    queryKey: ["api", "firm", "clients", clientId ?? "none", "report-packages", p, packageId ?? "latest"],
+    queryFn: () => api<ReportPackages>("GET", `/api/firm/clients/${clientId}/report-packages${toQuery({ period: p, packageId: packageId ?? undefined })}`),
+    enabled: !!clientId,
+  });
+}
+
+export function useNarratives(clientId: string | null, period: string) {
+  const p = periodStartOf(period);
+  return useQuery({
+    queryKey: ["api", "firm", "clients", clientId ?? "none", "narratives", p],
+    queryFn: () => api<Narratives>("GET", `/api/firm/clients/${clientId}/narratives${toQuery({ period: p })}`),
     enabled: !!clientId,
   });
 }

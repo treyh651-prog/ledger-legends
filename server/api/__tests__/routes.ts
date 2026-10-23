@@ -375,6 +375,18 @@ test("api: the screen read models answer for a new client with honest zeros", as
   const ru = await call(world, "GET", `${base}/rules`);
   assertEqual(ru.status, 200, "rules");
   assertEqual(ru.body.autoPostCount, ru.body.items.filter((r: any) => r.autoPostEnabled).length, "auto post count is a filter");
+  const tx = await call(world, "GET", `${base}/tax-forms`);
+  assertEqual(tx.status, 200, "tax forms");
+  assertEqual(tx.body.selectedDataSetId, null, "no compilation");
+  const su = await call(world, "GET", `${base}/substantiation?period=2026-10-01`);
+  assertEqual(su.status, 200, "substantiation");
+  assertEqual(su.body.openExceptions, 0, "no exceptions");
+  const rp = await call(world, "GET", `${base}/report-packages?period=2026-10-01`);
+  assertEqual(rp.status, 200, "report packages");
+  assertEqual(rp.body.packages.length, 0, "no package");
+  const na = await call(world, "GET", `${base}/narratives?period=2026-10-01`);
+  assertEqual(na.status, 200, "narratives");
+  assertEqual(na.body.items.length, 0, "no narrative");
   const bad = await call(world, "GET", `${base}/close?period=2026-10-15`);
   assertEqual(bad.status, 400, "a mid month period is refused");
 });

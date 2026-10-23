@@ -12,7 +12,11 @@ import type {
   Forecast,
   Journal,
   JournalEntry,
+  Narratives,
+  ReportPackages,
   Rules,
+  Substantiation,
+  TaxForms,
   FirmRequest,
   FirmRequests,
   RecBatch,
@@ -516,4 +520,204 @@ export async function rules(tx: RunTx, firmId: string, clientId: string): Promis
     version: r.version,
   }));
   return { clientId, items, autoPostCount: items.filter((r) => r.autoPostEnabled).length };
+}
+
+/* ---------------- Tax forms ---------------- */
+
+export async function taxForms(tx: RunTx, firmId: string, clientId: string, today: string, dataSetId: string | null): Promise<TaxForms> {
+  const [sets, w9, thresholds] = await Promise.all([
+    tx.query("tax_data_sets_for_client", { firmId, clientId }),
+    tx.query("w9_states_for_client", { firmId, clientId }),
+    tx.query("tax_thresholds_for_firm", { firmId }),
+  ]);
+  const ordered = [...sets].sort((a, b) => (a.taxYear !== b.taxYear ? b.taxYear - a.taxYear : a.builtAt < b.builtAt ? 1 : -1));
+  const selected = (dataSetId ? ordered.find((s) => s.id === dataSetId) : ordered[0]) ?? null;
+  const lines = selected ? await tx.query("tax_data_lines_for_set", { firmId, clientId, dataSetId: selected.id }) : [];
+  const taxYear = selected?.taxYear ?? Number(today.slice(0, 4));
+  const yearW9 = w9.filter((w) => w.taxYear === taxYear);
+  const current = thresholds
+    .filter((t) => t.effectiveFrom <= today && (t.effectiveTo === null || t.effectiveTo >= today))
+    .sort((a, b) => (a.effectiveFrom < b.effectiveFrom ? 1 : -1))[0];
+  return {
+    clientId,
+    taxYear,
+    threshold: current ? { thresholdCents: cents(current.thresholdCents), effectiveFrom: current.effectiveFrom, sourceNote: current.sourceNote } : null,
+    dataSets: ordered.map((s) => ({
+      id: s.id,
+      taxYear: s.taxYear,
+      thresholdCents: cents(s.thresholdCents),
+      payeeCount: s.payeeCount,
+      reportableCount: s.reportableCount,
+      approachingCount: s.approachingCount,
+      excludedCount: s.excludedCount,
+      backupWithholdingCount: s.backupWithholdingCount,
+      reportableTotalCents: cents(s.reportableTotalCents),
+      excludedCardTotalCents: cents(s.excludedCardTotalCents),
+      handoffStatement: s.handoffStatement,
+      builtAt: s.builtAt,
+    })),
+    selectedDataSetId: selected?.id ?? null,
+    lines: lines
+      .sort((a, b) => (a.payeeName < b.payeeName ? -1 : 1))
+      .map((l) => ({
+        id: l.id,
+        payeeName: l.payeeName,
+        formCode: l.formCode,
+        boxCode: l.boxCode,
+        grossPaidCents: cents(l.grossPaidCents),
+        excludedCardCents: cents(l.excludedCardCents),
+        reportableCents: cents(l.reportableCents),
+        state: l.state,
+        w9State: String(l.w9State),
+        backupWithholdingRequired: l.backupWithholdingRequired,
+        tinLast4: l.tinLast4,
+        reason: l.reason,
+      })),
+    w9: (yearW9.length > 0 ? yearW9 : w9)
+      .sort((a, b) => (a.vendorName < b.vendorName ? -1 : 1))
+      .map((w) => ({
+        id: w.id,
+        vendorName: w.vendorName,
+        state: w.state,
+        requestedOn: w.requestedOn,
+        receivedOn: w.receivedOn,
+        expiresOn: w.expiresOn,
+        ageDays: w.ageDays,
+        escalation: w.escalation,
+        detail: w.detail,
+      })),
+  };
+}
+
+/* ---------------- Substantiation ---------------- */
+
+export async function substantiation(tx: RunTx, firmId: string, clientId: string, period: string): Promise<Substantiation> {
+  const periodStart = periodWindow(period).periodStart;
+  const [records, exceptions, tieouts, chart, categories] = await Promise.all([
+    tx.query("substantiation_records_for_period", { firmId, clientId, periodStart }),
+    tx.query("documentation_exceptions_for_client", { firmId, clientId }),
+    tx.query("sub_tieouts_for_period", { firmId, clientId, periodStart }),
+    tx.query("chart_accounts_for_client", { firmId, clientId }),
+    tx.query("categories_for_client", { firmId, clientId }),
+  ]);
+  const names = new Map(chart.map((a) => [a.accountNumber, a.name]));
+  const categoryName = new Map(categories.map((c) => [c.id, c.name]));
+  const ex = exceptions
+    .sort((a, b) => (a.openedAt !== b.openedAt ? (a.openedAt < b.openedAt ? -1 : 1) : a.id < b.id ? -1 : 1))
+    .map((e) => ({
+      id: e.id,
+      transactionId: e.transactionId,
+      kind: e.kind,
+      categoryId: e.categoryId,
+      categoryName: categoryName.get(e.categoryId) ?? null,
+      detail: e.detail,
+      status: e.status,
+      openedAt: e.openedAt,
+    }));
+  return {
+    clientId,
+    period: periodStart,
+    records: records
+      .sort((a, b) => (a.accountNumber < b.accountNumber ? -1 : 1))
+      .map((r) => ({
+        id: r.id,
+        kind: r.kind,
+        accountNumber: r.accountNumber,
+        accountName: names.get(r.accountNumber) ?? r.accountNumber,
+        supportedBalanceCents: cents(r.supportedBalanceCents),
+        sourceRef: r.sourceRef,
+        preparedOn: r.preparedOn,
+      })),
+    exceptions: ex,
+    openExceptions: ex.filter((e) => e.status === "open").length,
+    tieouts: tieouts
+      .sort((a, b) => (a.accountNumber < b.accountNumber ? -1 : 1))
+      .map((t) => ({
+        id: t.id,
+        accountNumber: t.accountNumber,
+        accountName: t.accountName,
+        sourceKind: String(t.sourceKind),
+        ledgerBalanceCents: cents(t.ledgerBalanceCents),
+        supportedBalanceCents: orNull(t.supportedBalanceCents),
+        varianceCents: orNull(t.varianceCents),
+        state: t.state,
+        detail: t.detail,
+      })),
+  };
+}
+
+/* ---------------- Report package ---------------- */
+
+export async function reportPackages(tx: RunTx, firmId: string, clientId: string, period: string, packageId: string | null): Promise<ReportPackages> {
+  const periodStart = periodWindow(period).periodStart;
+  const all = await tx.query("report_packages_for_client", { firmId, clientId });
+  const inPeriod = all
+    .filter((p) => p.periodStart === periodStart)
+    .sort((a, b) => (a.builtAt !== b.builtAt ? (a.builtAt < b.builtAt ? 1 : -1) : a.id < b.id ? -1 : 1));
+  const selected = (packageId ? inPeriod.find((p) => p.id === packageId) : inPeriod[0]) ?? null;
+  const sections = selected ? await tx.query("report_sections_for_package", { firmId, clientId, packageId: selected.id }) : [];
+  return {
+    clientId,
+    period: periodStart,
+    packages: inPeriod.map((p) => ({
+      id: p.id,
+      period: p.periodStart,
+      basis: p.basis,
+      comparisonBasis: p.comparisonBasis,
+      comparisonAvailable: p.comparisonAvailable,
+      comparisonNote: p.comparisonNote,
+      state: p.state,
+      watermark: p.watermark,
+      closedWithExceptions: p.closedWithExceptions,
+      exceptionBanner: p.exceptionBanner,
+      sectionCount: p.sectionCount,
+      omissionCount: p.omissionCount,
+      builtAt: p.builtAt,
+    })),
+    selectedPackageId: selected?.id ?? null,
+    sections: sections
+      .sort((a, b) => a.sequence - b.sequence)
+      .map((s) => ({
+        id: s.id,
+        sequence: s.sequence,
+        sectionCode: s.sectionCode,
+        sectionTitle: s.sectionTitle,
+        status: s.status,
+        omissionReason: s.omissionReason,
+        bannerText: s.bannerText,
+        lines: s.lines.map((l) => ({
+          label: l.label,
+          accountNumber: l.accountNumber,
+          amountCents: Number(l.amountCents),
+          comparisonCents: l.comparisonCents === null ? null : Number(l.comparisonCents),
+          note: l.note,
+        })),
+      })),
+  };
+}
+
+/* ---------------- Narrative ---------------- */
+
+export async function narratives(tx: RunTx, firmId: string, clientId: string, period: string): Promise<Narratives> {
+  const periodStart = periodWindow(period).periodStart;
+  const all = await tx.query("report_narratives_for_client", { firmId, clientId });
+  return {
+    clientId,
+    period: periodStart,
+    items: all
+      .filter((n) => n.periodStart === periodStart)
+      .sort((a, b) => (a.audience !== b.audience ? (a.audience < b.audience ? -1 : 1) : a.composedAt < b.composedAt ? 1 : -1))
+      .map((n) => ({
+        id: n.id,
+        period: n.periodStart,
+        audience: n.audience,
+        comparisonBasis: n.comparisonBasis,
+        sentenceCount: n.sentenceCount,
+        droppedCount: n.droppedCount,
+        bodyText: n.bodyText,
+        sentences: n.sentences.map((s) => ({ sectionCode: s.sectionCode, triggerCode: s.triggerCode, priority: s.priority, text: s.text })),
+        manualEdit: n.manualEdit,
+        composedAt: n.composedAt,
+      })),
+  };
 }

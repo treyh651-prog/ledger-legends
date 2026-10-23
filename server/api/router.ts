@@ -22,7 +22,7 @@ import {
 } from "../../shared/api/runs";
 import { transactionQuerySchema } from "../../shared/api/transactions";
 import { z } from "zod";
-import { aging, budget, closeChecklist, firmRequests, forecast, journal, reconcile, rules, trialBalance } from "./reads-screens";
+import { aging, budget, closeChecklist, firmRequests, forecast, journal, narratives, reconcile, reportPackages, rules, substantiation, taxForms, trialBalance } from "./reads-screens";
 import type { ActorMiddleware } from "../auth/middleware";
 import {
   featuresForTier,
@@ -327,6 +327,51 @@ export function createApiRouter(deps: ApiDeps): Router {
       const { clientId } = parse(clientParamsSchema, req.params);
       const firmId = req.firm!.firmId;
       const body = await deps.db.tx(readSession(req.actor!, firmId, clientId), (tx) => rules(tx, firmId, clientId));
+      return { body };
+    }),
+  );
+
+  firmClient.get(
+    "/tax-forms",
+    route(async (req) => {
+      const { clientId } = parse(clientParamsSchema, req.params);
+      const { dataSetId } = parse(z.object({ dataSetId: z.string().uuid().optional() }), req.query);
+      const firmId = req.firm!.firmId;
+      const body = await deps.db.tx(readSession(req.actor!, firmId, clientId), (tx) => taxForms(tx, firmId, clientId, todayOf(deps), dataSetId ?? null));
+      return { body };
+    }),
+  );
+
+  firmClient.get(
+    "/substantiation",
+    route(async (req) => {
+      const { clientId } = parse(clientParamsSchema, req.params);
+      const period = screenPeriod(req);
+      const firmId = req.firm!.firmId;
+      const body = await deps.db.tx(readSession(req.actor!, firmId, clientId), (tx) => substantiation(tx, firmId, clientId, period));
+      return { body };
+    }),
+  );
+
+  firmClient.get(
+    "/report-packages",
+    route(async (req) => {
+      const { clientId } = parse(clientParamsSchema, req.params);
+      const period = screenPeriod(req);
+      const { packageId } = parse(z.object({ packageId: z.string().uuid().optional() }), req.query);
+      const firmId = req.firm!.firmId;
+      const body = await deps.db.tx(readSession(req.actor!, firmId, clientId), (tx) => reportPackages(tx, firmId, clientId, period, packageId ?? null));
+      return { body };
+    }),
+  );
+
+  firmClient.get(
+    "/narratives",
+    route(async (req) => {
+      const { clientId } = parse(clientParamsSchema, req.params);
+      const period = screenPeriod(req);
+      const firmId = req.firm!.firmId;
+      const body = await deps.db.tx(readSession(req.actor!, firmId, clientId), (tx) => narratives(tx, firmId, clientId, period));
       return { body };
     }),
   );
