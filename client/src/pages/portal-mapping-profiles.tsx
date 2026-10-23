@@ -16,61 +16,70 @@
  *
  * The preview takes rows the user pastes. Nothing is uploaded and nothing is
  * sent anywhere.
+ *
+ * Profiles are read from GET /api/firm/clients/:id/setup for the client in
+ * the header, which is import.mapping_profiles with its active column rows.
+ * Nothing on this screen writes; a profile is written by the import runs.
  */
 
 import { useMemo, useState } from "react";
 import { FileWarning } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
-import { EmptyState, PageHeader, Pill, SectionCard } from "@/components/kit";
-import { useApp } from "@/store";
-import { parseSampleRows } from "@/lib/wizard-controller";
-import type { MappingProfile } from "@/data/types";
+import { EmptyState, ErrorState, LoadingRows, PageHeader, Pill, SectionCard } from "@/components/kit";
+import { useActiveClient } from "@/lib/active-client";
+import { useClientSetup, errorMessage } from "@/api";
+import { parseSampleRows } from "@/lib/sample-rows";
+import type { SetupMappingProfile } from "@shared/api";
 
 /** Where each canonical field lands in a pasted header row, or nothing. */
 function matchAgainstHeader(
-  profile: MappingProfile,
+  profile: SetupMappingProfile,
   header: readonly string[],
 ): Array<{ canonicalField: string; sourceColumn: string; columnIndex: number | null }> {
   const normalized = header.map((h) => h.trim().toUpperCase());
   return profile.columns
     .filter((c) => c.canonicalField !== "unmapped")
     .map((c) => {
-      const index = normalized.indexOf(c.sourceColumn.trim().toUpperCase());
-      return { canonicalField: c.canonicalField, sourceColumn: c.sourceColumn, columnIndex: index === -1 ? null : index };
+      const index = normalized.indexOf(c.sourceName.trim().toUpperCase());
+      return { canonicalField: c.canonicalField, sourceColumn: c.sourceName, columnIndex: index === -1 ? null : index };
     });
 }
 
 export default function PortalMappingProfiles() {
-  const { ds } = useApp();
+  const { client, clientId } = useActiveClient();
+  const q = useClientSetup(clientId);
   const [sample, setSample] = useState("");
   const [selected, setSelected] = useState("");
 
   const parsed = useMemo(() => parseSampleRows(sample), [sample]);
-  const profiles = ds.mappingProfiles;
+  const profiles = q.data?.mappingProfiles ?? [];
   const active = profiles.find((p) => p.id === selected) ?? profiles[0];
-
-  const clientName = (id: string): string => ds.clients.find((c) => c.id === id)?.dba ?? id;
-  const accountLabel = (id: string): string => {
-    const b = ds.bankAccounts.find((x) => x.id === id);
-    return b === undefined ? id : `${b.institution} ${b.nickname} ${b.last4}`;
+  const banks = q.data?.bankAccounts ?? [];
+  const nameOf = (p: SetupMappingProfile): string => `${p.institutionName} ${p.accountNumber}`;
+  const accountLabel = (accountNumber: string): string => {
+    const b = banks.find((x) => x.accountNumber === accountNumber);
+    return b === undefined ? accountNumber : `${b.nickname} ${b.accountNumber}`;
   };
+
+  if (q.isError) return <ErrorState message={errorMessage(q.error)} onRetry={() => void q.refetch()} />;
+  if (clientId && q.isPending) return <LoadingRows rows={4} cols={3} />;
 
   return (
     <>
       <PageHeader
         title="Mapping profiles"
-        subtitle="Saved column layouts for the spreadsheet exports we import. One profile per institution layout, attached to the accounts that use it."
+        subtitle={`Saved column layouts for the spreadsheet exports we import for ${client?.name ?? "this client"}. One profile per institution layout, attached to the account that uses it.`}
       />
 
       {profiles.length === 0 ? (
         <EmptyState
           title="No saved profiles"
-          body="A profile is created on step four of the client setup wizard, at the moment an account is set to import from CSV or XLSX."
+          body="A profile is written to import.mapping_profiles when the first CSV or XLSX for an account is mapped. No run writes one yet."
         />
       ) : (
         <div className="grid gap-4 lg:grid-cols-[1fr_1fr]">
-          <SectionCard title="Saved profiles" description={`${String(profiles.length)} saved across the practice.`} bodyClassName="p-0">
+          <SectionCard title="Saved profiles" description={`${String(profiles.length)} saved on this client.`} bodyClassName="p-0">
             <ul className="divide-y divide-border">
               {profiles.map((p) => (
                 <li key={p.id}>
@@ -81,17 +90,13 @@ export default function PortalMappingProfiles() {
                     data-testid={`button-profile-${p.id}`}
                   >
                     <div className="flex items-center gap-2">
-                      <span className="font-medium">{p.name}</span>
+                      <span className="font-medium">{nameOf(p)}</span>
                       <Pill tone="neutral">{p.fileFormat.toUpperCase()}</Pill>
                     </div>
                     <p className="mt-1 text-muted-foreground">
-                      {clientName(p.clientId)}, {String(p.columns.length)} columns, dates read as {p.dateFormat}
+                      version {p.version}, {String(p.columns.length)} columns, dates read as {p.dateFormat}
                     </p>
-                    <p className="mt-0.5 text-muted-foreground">
-                      {p.bankAccountIds.length === 0
-                        ? "Saved and not attached to an account"
-                        : p.bankAccountIds.map(accountLabel).join(", ")}
-                    </p>
+                    <p className="mt-0.5 text-muted-foreground">{accountLabel(p.accountNumber)}</p>
                   </button>
                 </li>
               ))}
@@ -100,7 +105,7 @@ export default function PortalMappingProfiles() {
 
           <div className="space-y-4">
             {active === undefined ? null : (
-              <SectionCard title={`Columns, ${active.name}`} bodyClassName="p-0">
+              <SectionCard title={`Columns, ${nameOf(active)}`} bodyClassName="p-0">
                 <table className="w-full text-xs">
                   <thead>
                     <tr className="border-b border-border text-left text-muted-foreground">
@@ -110,8 +115,8 @@ export default function PortalMappingProfiles() {
                   </thead>
                   <tbody>
                     {active.columns.map((c) => (
-                      <tr key={c.sourceColumn} className="border-b border-border/60" data-testid={`row-column-${c.sourceColumn}`}>
-                        <td className="px-4 py-1.5">{c.sourceColumn}</td>
+                      <tr key={c.sourceIndex} className="border-b border-border/60" data-testid={`row-column-${c.sourceIndex}`}>
+                        <td className="px-4 py-1.5">{c.sourceName}</td>
                         <td className="px-4 py-1.5">
                           {c.canonicalField === "unmapped" ? (
                             <span className="text-muted-foreground">not imported</span>

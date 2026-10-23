@@ -44,7 +44,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { cn } from "@/lib/utils";
 import { Logo } from "./logo";
 import { useApp } from "@/store";
-import { hasFeature, tierMeta, type FeatureId } from "@/data/entitlement";
+import { hasFeature, tierMeta, type FeatureId } from "@shared/tiers";
 import { fmtPeriod } from "@/lib/money";
 import { useAuth } from "@/lib/auth";
 import { defaultPeriodFor, periodsFor, useActiveClient } from "@/lib/active-client";

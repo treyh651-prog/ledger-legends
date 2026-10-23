@@ -14,6 +14,8 @@ export const transactionSchema = z.object({
   description: z.string(),
   normalizedVendor: z.string().nullable(),
   categoryId: z.string().nullable(),
+  /** The category's name, joined for the screens. Null when uncategorized. */
+  categoryName: z.string().nullable(),
   cascadeLevel: z.number().int().nullable(),
   manualOverride: z.boolean(),
   status: z.string(),

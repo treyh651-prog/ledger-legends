@@ -10,7 +10,15 @@ import { AppShell } from "@/components/shell";
 
 import FirmOverview from "@/pages/firm-overview";
 import ClientBook from "@/pages/client-book";
-import Intake from "@/pages/intake";
+
+/** /intake opens the client book with the create form showing. The server runs the four intake runs. */
+function ClientBookPage(): JSX.Element {
+  return <ClientBook />;
+}
+
+function NewClient(): JSX.Element {
+  return <ClientBook startAdding={true} />;
+}
 import Transactions from "@/pages/transactions";
 import Rules from "@/pages/rules";
 import Reconcile from "@/pages/reconcile";
@@ -83,8 +91,8 @@ function AppRouter() {
   return (
     <Switch>
       <Route path="/">{guarded("/", FirmOverview)}</Route>
-      <Route path="/clients">{guarded("/clients", ClientBook)}</Route>
-      <Route path="/intake">{guarded("/intake", Intake)}</Route>
+      <Route path="/clients">{guarded("/clients", ClientBookPage)}</Route>
+      <Route path="/intake">{guarded("/intake", NewClient)}</Route>
       <Route path="/transactions">{guarded("/transactions", Transactions)}</Route>
       <Route path="/rules">{guarded("/rules", Rules)}</Route>
       <Route path="/reconcile">{guarded("/reconcile", Reconcile)}</Route>

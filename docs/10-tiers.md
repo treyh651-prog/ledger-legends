@@ -93,7 +93,7 @@ joins them.
 | Thing | Place |
 | --- | --- |
 | The `TierId` type, `TIER_ORDER`, the feature keys, `hasFeature` | `shared/tiers.ts`, imported by server and client |
-| The client's re export plus dataset helpers | `client/src/data/entitlement.ts` |
+| The client imports the same module | `@shared/tiers`, there is no client side copy |
 | Tiers as rows | `tenancy.service_tiers` (id, name, rank, tagline, revenue band) |
 | Features as rows, once each at the lowest tier | `tenancy.tier_features` (tier_id, feature_key, label, summary) |
 | Which tier an engagement has | `tenancy.engagements.service_level`, a foreign key to `service_tiers` |

@@ -22,12 +22,12 @@ import { NO_CLIENTS_COPY } from "./firm-overview";
  * from GET /api/firm/clients/:id. Adding a client is one POST that the server
  * turns into four intake runs; the outcome of each run is shown as returned.
  */
-export default function ClientBook() {
+export default function ClientBook({ startAdding = false }: { startAdding?: boolean }) {
   const { activeClientId, setActiveClient, setPlane } = useApp();
   const [, navigate] = useLocation();
   const list = useClients();
   const clients = list.data?.items ?? [];
-  const [adding, setAdding] = useState(false);
+  const [adding, setAdding] = useState(startAdding);
 
   // The store's active client may still be a mock id. Use it only when it
   // names a client the API knows; otherwise land on the first API client.
@@ -252,6 +252,8 @@ export function CreateClientForm({ onCreated }: { onCreated: (r: CreateClientRes
   const [startDate, setStartDate] = useState(today());
   const [fye, setFye] = useState("12");
   const [scopes, setScopes] = useState<ScopeKey[]>(["monthly_close"]);
+  const [reportingBasis, setReportingBasis] = useState<"accrual" | "cash" | "both">("accrual");
+  const [monthlyFee, setMonthlyFee] = useState("");
   const result = create.data;
 
   const submit = (e: React.FormEvent) => {
@@ -265,6 +267,8 @@ export function CreateClientForm({ onCreated }: { onCreated: (r: CreateClientRes
       fiscalYearEndMonth: Number(fye),
       isNonprofit: entityType === "Nonprofit",
       scopeKeys: scopes,
+      reportingBasis,
+      monthlyFeeCents: Math.round((Number(monthlyFee) || 0) * 100),
     };
     create.mutate(body, { onSuccess: onCreated });
   };
@@ -316,6 +320,21 @@ export function CreateClientForm({ onCreated }: { onCreated: (r: CreateClientRes
         <div className="space-y-1.5">
           <Label htmlFor="client-fye">Fiscal year end month</Label>
           <Input id="client-fye" type="number" min={1} max={12} value={fye} onChange={(e) => setFye(e.target.value)} data-testid="input-fye" />
+        </div>
+        <div className="space-y-1.5">
+          <Label>Reporting basis</Label>
+          <Select value={reportingBasis} onValueChange={(v) => setReportingBasis(v as "accrual" | "cash" | "both")}>
+            <SelectTrigger data-testid="select-reporting-basis"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="accrual">Accrual</SelectItem>
+              <SelectItem value="cash">Cash</SelectItem>
+              <SelectItem value="both">Both</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="client-fee">Monthly fee, dollars</Label>
+          <Input id="client-fee" type="number" min={0} step="1" value={monthlyFee} onChange={(e) => setMonthlyFee(e.target.value)} placeholder="0" data-testid="input-monthly-fee" />
         </div>
         <div className="space-y-2 md:col-span-2">
           <Label>Scope of service</Label>

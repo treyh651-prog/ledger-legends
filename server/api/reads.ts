@@ -204,8 +204,9 @@ export async function runHistory(
 
 /* ---------------- Transactions ---------------- */
 
-function transactionDto(row: TransactionRow): Transaction {
+function transactionDto(row: TransactionRow, categoryName: string | null = null): Transaction {
   return {
+    categoryName,
     id: row.id,
     bankAccountId: row.bankAccountId,
     accountNumber: row.accountNumber,
@@ -235,11 +236,19 @@ export async function transactionPage(
     search: q.search && q.search.length > 0 ? q.search : null,
     uncategorized: q.uncategorized === true,
   };
-  const [rows, all] = await Promise.all([
+  const [rows, all, categories] = await Promise.all([
     tx.query("transactions_page", { ...params, limit: q.limit, offset: q.offset }),
     tx.query("transactions_page", { ...params, limit: 1000000, offset: 0 }),
+    tx.query("categories_for_client", { firmId, clientId }),
   ]);
-  return { items: rows.map(transactionDto), total: all.length, limit: q.limit, offset: q.offset };
+  // The category name rides along so a screen never shows a raw CAT- id.
+  const names = new Map(categories.map((c) => [c.id, c.name] as const));
+  return {
+    items: rows.map((r) => transactionDto(r, r.categoryId ? names.get(r.categoryId) ?? null : null)),
+    total: all.length,
+    limit: q.limit,
+    offset: q.offset,
+  };
 }
 
 /* ---------------- Portal ---------------- */

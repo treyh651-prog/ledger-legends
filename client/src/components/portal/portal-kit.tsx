@@ -1,13 +1,7 @@
 import type { ReactNode } from "react";
-import { Link } from "wouter";
-import { CheckCircle2, Info, Lock, ShieldCheck } from "lucide-react";
-import { Money, Pill } from "@/components/kit";
-import { Button } from "@/components/ui/button";
+import { CheckCircle2, Info, Lock } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { fmtPeriod } from "@/lib/money";
-import { FEATURE_BY_ID, tierMeta, type FeatureId } from "@/data/entitlement";
-import type { PeriodClose, TierId } from "@/data/types";
-import type { FactStat, TruthfulFact } from "@/data/portal-facts";
+import { tierMeta, type TierId } from "@shared/tiers";
 
 /**
  * Portal furniture. The portal reads as its own product while using the same tokens as
@@ -74,29 +68,7 @@ export function PortalHero({
   );
 }
 
-export function ClosePill({ close, testId }: { close?: PeriodClose; testId?: string }) {
-  if (!close) return <Pill tone="neutral" testId={testId}>No close record</Pill>;
-  if (close.state === "open") {
-    return (
-      <Pill tone="watch" testId={testId}>
-        {fmtPeriod(close.period)} still open
-      </Pill>
-    );
-  }
-  return (
-    <Pill tone={close.withExceptions ? "watch" : "good"} testId={testId}>
-      <ShieldCheck className="h-3 w-3" />
-      {fmtPeriod(close.period)} closed{close.locked ? " and locked" : ""}
-      {close.withExceptions ? ", with a noted exception" : ""}
-    </Pill>
-  );
-}
 
-function statValue(stat: FactStat) {
-  if (typeof stat.cents === "number") return <Money cents={stat.cents} signed={stat.signed} testId="text-fact-value" />;
-  if (typeof stat.count === "number") return <span className="tnum">{stat.count}</span>;
-  return <span>{stat.text}</span>;
-}
 
 const TONE_TEXT: Record<string, string> = {
   good: "text-positive",
@@ -106,30 +78,6 @@ const TONE_TEXT: Record<string, string> = {
 };
 
 /** The true number, rendered the same way everywhere it appears. */
-export function FactPanel({ fact, testId }: { fact: TruthfulFact; testId?: string }) {
-  return (
-    <div className="rounded-md border border-border bg-background p-3" data-testid={testId}>
-      <p className="text-xs text-muted-foreground">{fact.headline.label}</p>
-      <p className={cn("mt-0.5 text-2xl font-semibold tracking-tight", TONE_TEXT[fact.headline.tone || "neutral"])}>
-        {statValue(fact.headline)}
-      </p>
-      {fact.supporting.length > 0 ? (
-        <dl className={cn("mt-3 grid gap-2 border-t border-border pt-3", fact.supporting.length === 3 ? "sm:grid-cols-3" : "sm:grid-cols-2")}>
-          {fact.supporting.map((s) => (
-            <div key={s.label} className="min-w-0">
-              <dt className="text-xs text-muted-foreground">{s.label}</dt>
-              <dd className={cn("text-sm font-medium", TONE_TEXT[s.tone || "neutral"])}>{statValue(s)}</dd>
-            </div>
-          ))}
-        </dl>
-      ) : null}
-      <p className="mt-3 flex items-start gap-1.5 text-xs leading-relaxed text-muted-foreground">
-        <Info className="mt-0.5 h-3 w-3 shrink-0" />
-        <span>{fact.basis}</span>
-      </p>
-    </div>
-  );
-}
 
 /**
  * The one locked state used across the portal.
@@ -138,67 +86,6 @@ export function FactPanel({ fact, testId }: { fact: TruthfulFact; testId?: strin
  * the detail is held back. When there is no data behind the feature, it says that plainly
  * instead of putting a lock over an empty panel. Nothing here is blurred, sampled, or made up.
  */
-export function LockedFeature({
-  feature,
-  fact,
-  currentTier,
-  className,
-  testId,
-}: {
-  feature: FeatureId;
-  fact: TruthfulFact;
-  currentTier: TierId;
-  className?: string;
-  testId?: string;
-}) {
-  const meta = FEATURE_BY_ID[feature];
-  const needed = tierMeta(meta.minTier);
-  const current = tierMeta(currentTier);
-  const detail = fact.lockedDetail.replace(/\.$/, "");
-  return (
-    <section
-      className={cn("rounded-lg border border-dashed border-primary/40 bg-card", className)}
-      data-testid={testId || `locked-${feature}`}
-    >
-      <header className="flex flex-col gap-2 border-b border-border px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex min-w-0 items-start gap-2">
-          <Lock className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
-          <div className="min-w-0">
-            <h2 className="text-sm font-semibold">{meta.label}</h2>
-            <p className="mt-0.5 text-xs text-muted-foreground">{meta.summary}</p>
-          </div>
-        </div>
-        <TierBadge tier={meta.minTier} className="self-start sm:self-auto" testId={`badge-need-${feature}`} />
-      </header>
-      <div className="space-y-3 p-4">
-        {fact.hasData ? (
-          <>
-            <FactPanel fact={fact} testId={`fact-${feature}`} />
-            <p className="text-sm leading-relaxed">
-              That number is yours and it is current, taken from your own posted records. What opens at {needed.name}: {detail}.
-            </p>
-          </>
-        ) : (
-          <div className="rounded-md border border-border bg-muted/40 p-3" data-testid={`fact-empty-${feature}`}>
-            <p className="text-sm font-medium">Nothing to unlock here yet</p>
-            <p className="mt-1 text-sm leading-relaxed text-muted-foreground">{fact.emptyNote}</p>
-            <p className="mt-2 text-xs text-muted-foreground">
-              Part of {needed.name}: {detail}. It stays quiet until there is something real to show.
-            </p>
-          </div>
-        )}
-        <div className="flex flex-col gap-2 border-t border-border pt-3 sm:flex-row sm:items-center">
-          <p className="min-w-0 text-xs leading-relaxed text-muted-foreground sm:flex-1">
-            You are on {current.name}. Your service level is set on your engagement, so ask us and we will change it. Nothing to buy here.
-          </p>
-          <Button asChild size="sm" variant="outline" className="self-start sm:self-auto" data-testid={`link-tiers-${feature}`}>
-            <Link href="/portal/tiers">Compare service levels</Link>
-          </Button>
-        </div>
-      </div>
-    </section>
-  );
-}
 
 /** Small inline note for a feature the client does have, used to explain a limit honestly. */
 export function PortalNote({ children, tone = "info", testId }: { children: ReactNode; tone?: "info" | "watch"; testId?: string }) {

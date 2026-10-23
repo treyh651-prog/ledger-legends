@@ -27,9 +27,9 @@ export function usePortalStatements(clientId: string | null, period: string | nu
   });
 }
 
-export function usePortalTransactions(clientId: string | null, range: { from?: string; to?: string } = {}) {
+export function usePortalTransactions(clientId: string | null, range: { from?: string; to?: string; search?: string } = {}) {
   return useQuery({
-    queryKey: portalKeys.transactions(clientId ?? "none", `${range.from ?? ""}..${range.to ?? ""}`),
+    queryKey: portalKeys.transactions(clientId ?? "none", `${range.from ?? ""}..${range.to ?? ""}..${range.search ?? ""}`),
     queryFn: () => api<TransactionPage>("GET", `/api/portal/${clientId}/transactions${toQuery(range)}`),
     enabled: !!clientId,
   });

@@ -291,7 +291,6 @@ build.
 npx tsc --noEmit
 npx tsx server/runs/__tests__/index.ts      # includes the API route tests
 npx tsx script/check-style.ts
-npx tsx script/check-books.ts
 npx tsx script/check-schema.ts              # needs the Supabase connector or DATABASE_URL
 npx tsx script/check-queries.ts             # same
 npm run build

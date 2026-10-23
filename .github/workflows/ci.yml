@@ -28,11 +28,10 @@ jobs:
       - name: Type check
         run: npx tsc --noEmit
 
-      # The important one. Asserts that debits equal credits, that every
-      # balance sheet balances, and that cash flow ties to the balance sheet
-      # for every client and every period. Exits 1 on any failure.
-      - name: Books must foot
-        run: npx tsx script/check-books.ts
+      # check-books.ts was retired with the browser fixture it read. The
+      # footing invariants it asserted live in the run harness below: the
+      # ledger pipeline tests assert that debits equal credits, that the
+      # trial balance foots, and that statements tie, against the engine.
 
       # The run framework contract. Covers the invariant table in doc 03,
       # the two tenant negative test, and preview matching apply exactly.

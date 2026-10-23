@@ -31,6 +31,7 @@
  * anything, does not register anything, and does not advise.
  */
 
+import { TIER_ORDER, TIERS } from "@shared/tiers";
 import {
   MANDATORY_CLEARING_ACCOUNTS,
   OPENING_BALANCE_EQUITY_ACCOUNT,
@@ -141,11 +142,7 @@ export const ENTITY_TYPE_OPTIONS: ReadonlyArray<{ value: string; label: string }
   { value: "Nonprofit", label: "Nonprofit" },
 ];
 
-export const SERVICE_TIERS: ReadonlyArray<{ value: string; label: string }> = [
-  { value: "story", label: "Story" },
-  { value: "journey", label: "Journey" },
-  { value: "legend", label: "Legend" },
-];
+export const SERVICE_TIERS: ReadonlyArray<{ value: string; label: string }> = TIER_ORDER.map((t) => ({ value: t, label: TIERS[t].name }));
 
 export const PERSON_ROLES: ReadonlyArray<{ value: string; label: string }> = [
   { value: "owner", label: "Owner" },
@@ -245,7 +242,7 @@ export const COMPLIANCE_BANNER =
   "This wizard sets up bookkeeping records. It does not file tax documents, does not act as a registered agent, and does not provide legal or tax advice.";
 
 /** Step 2's banner. Nothing in this build sends anything to anybody. */
-export const INVITE_BANNER = "invite queued in audit log, no external send in this build";
+export const INVITE_BANNER = "nothing is sent and nothing is stored from this step in this build. Invite people from the Access screen once the client exists";
 
 export function emptyWizard(): WizardDraft {
   return {
@@ -255,7 +252,7 @@ export function emptyWizard(): WizardDraft {
     stateOfIncorporation: "",
     entityType: "LLC",
     fiscalYearEnd: "12-31",
-    serviceTier: "journey",
+    serviceTier: "ledger",
     cutoverDate: "",
     industry: "services",
     people: [],
@@ -718,7 +715,12 @@ export function plannedRuns(draft: WizardDraft): PlannedRun[] {
   ];
 }
 
-/** The mapping profiles Finish will save, and which account each is for. */
+/**
+ * Which drafted profiles would attach to which drafted accounts. Shown on the
+ * review step so the person sees that this build records neither: no run
+ * writes import.bank_accounts or import.mapping_profiles yet, and the review
+ * step says so in those words.
+ */
 export function plannedProfiles(
   draft: WizardDraft,
 ): Array<{ profile: WizardProfile; accounts: string[] }> {
@@ -728,96 +730,6 @@ export function plannedProfiles(
       .filter((b) => b.profileKey === profile.key)
       .map((b) => (b.nickname.trim().length > 0 ? b.nickname : b.institutionName)),
   }));
-}
-
-export interface RunReport {
-  type: string;
-  status: "applied" | "nothing to do" | "refused" | "not reached";
-  message: string;
-}
-
-export interface FinishResult {
-  ok: boolean;
-  clientId: string;
-  reports: RunReport[];
-}
-
-/**
- * Run the four setup runs in order and report on each.
- *
- * The real Run implementations live in server/runs and are proven by the run
- * harness. This client is the in memory mock the whole app is built on, so what
- * happens here is the mock equivalent: the client record is created, the chart
- * template choice and the cutover are recorded on it, the mapping profiles are
- * saved, and each of the four runs reports what it wrote. The order, the
- * refusal behaviour, and the offset account are the same in both places, and
- * the server suite is what holds them to it.
- */
-export function finishIntake(
-  draft: WizardDraft,
-  create: (draft: WizardDraft, plan: FinishPlan) => string,
-): FinishResult {
-  const reports: RunReport[] = [];
-  const footing = footingOf(draft.balanceLines);
-  const chart = previewChart(draft.industry, draft.excludedAccounts, draft.addedAccounts);
-  const template = templateFor(draft.industry);
-  const catalog = previewCatalog([]);
-  const requests = previewRequests([]);
-
-  if (!canFinish(draft)) {
-    return {
-      ok: false,
-      clientId: "",
-      reports: INTAKE_ORDER.map((type) => ({
-        type,
-        status: "not reached",
-        message: "the wizard has unresolved issues, so nothing was run",
-      })),
-    };
-  }
-
-  const plan: FinishPlan = {
-    chart,
-    templateId: template?.templateId ?? "",
-    catalogCodes: catalog.map((c) => c.catalogCode),
-    requestSubjects: requests.map((r) => r.subjectKey),
-    offsetCents: footing.offsetCents,
-    postedLineCount: footing.parsedCount + (footing.offsetCents === BigInt(0) ? 0 : 1),
-  };
-
-  const clientId = create(draft, plan);
-
-  reports.push({
-    type: "INTAKE-BUILD-CHART",
-    status: "applied",
-    message: `${String(chart.length)} accounts and ${String(template?.categoryCount ?? 0)} categories seeded from ${plan.templateId}`,
-  });
-  reports.push({
-    type: "INTAKE-SEED-TASKS",
-    status: "applied",
-    message: `${String(catalog.length)} catalog rows seeded and the first period scheduled`,
-  });
-  reports.push({
-    type: "INTAKE-OPEN-REQUESTS",
-    status: "applied",
-    message: `${String(requests.length)} asks raised, invite intent written to the audit log, nothing sent`,
-  });
-  reports.push({
-    type: "SETUP-IMPORT-BALANCES",
-    status: "applied",
-    message: `one entry dated ${draft.cutoverDate} with ${String(plan.postedLineCount)} lines, offset ${plan.offsetCents.toString()} cents to ${OPENING_BALANCE_EQUITY_ACCOUNT}`,
-  });
-
-  return { ok: true, clientId, reports };
-}
-
-export interface FinishPlan {
-  chart: readonly TemplateAccount[];
-  templateId: string;
-  catalogCodes: readonly string[];
-  requestSubjects: readonly string[];
-  offsetCents: bigint;
-  postedLineCount: number;
 }
 
 /** Re exported so a page can show the forced clearing rows without a second import. */

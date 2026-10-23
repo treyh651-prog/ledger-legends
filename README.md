@@ -40,10 +40,11 @@ npm run build
 
 Output lands in `dist/public`.
 
-Verify the books foot:
+The books footing is asserted by the run harness, which is the same
+engine the server runs; there is no separate browser dataset to check:
 
 ```
-npx tsx script/check-books.ts
+npx tsx server/runs/__tests__/index.ts
 ```
 
 Verify the run port against the real database. Both read the catalog through
@@ -71,7 +72,7 @@ set, `npm run dev` keeps running on the in memory store exactly as before.
 These are not style preferences, they are correctness rules. Do not relax them.
 
 1. **Money is stored as integer cents.** Never a float. Format only at the render boundary.
-2. **Debits must equal credits.** The post action stays disabled until an entry balances. `script/check-books.ts` asserts the trial balance and the balance sheet.
+2. **Debits must equal credits.** The post action stays disabled until an entry balances. The run harness asserts the trial balance, the statements, and that every pipeline leaves the books footing.
 3. **Corrections are reversals.** Posted entries are never edited or deleted in place.
 4. **The document audit trail is append only.** No row is ever updated or removed.
 5. **No credential storage fields anywhere in the product.** Bank connections are represented, never secrets.

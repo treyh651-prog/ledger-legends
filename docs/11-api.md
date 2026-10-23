@@ -179,10 +179,10 @@ see. A client scoped person's memberships are the whole list.
    id.
 6. Convert the screen: loading state, empty state with the copy from
    `client/src/data/labels.ts` voice, error state showing
-   `errorMessage(error)` and a retry. Do not import the mock dataset.
+   `errorMessage(error)` and a retry. There is no mock dataset to import; every figure comes from a route.
 7. Add a route test in `server/api/__tests__/routes.ts`: auth required,
    scope enforced, the happy path.
-8. Run the gates in `docs/RUNNING.md` section 9: `npx tsc --noEmit`, the test harness, `check-style`, `check-books`, `check-schema`, `check-queries`, `npm run build`.
+8. Run the gates in `docs/RUNNING.md` section 9: `npx tsc --noEmit`, the test harness, `check-style`, `check-schema`, `check-queries`, `npm run build`.
 
 ## 8. Client side runs
 

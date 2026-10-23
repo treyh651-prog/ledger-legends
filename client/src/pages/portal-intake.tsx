@@ -12,19 +12,19 @@
  * client already is, and never suggests what it ought to be. Read the help text
  * under those fields before changing them.
  *
- * NO SENDS. Step 2 collects who should get a portal login. Nothing is emailed.
- * The intent is written to the audit log and the banner on that step says so in
- * plain words.
+ * NO SENDS. Step 2 collects who should get a portal login. Nothing is emailed
+ * and nothing is stored: no run records people yet, and the banner on that
+ * step says so in plain words. Invitations are sent from the Access screen.
  *
  * STATE. The draft lives in React state and the step number lives in the URL
  * query. Nothing is written to browser storage of any kind, which the CI grep
  * guard enforces across the whole tree. A refresh keeps the step and loses the
- * draft, which is the honest behaviour for a form that has no server behind it
- * yet, and the review step says so.
+ * draft, and the review step says so.
  *
- * WHAT FINISH DOES. Hands the draft to the wizard controller, which runs the
- * four setup runs in registry order, then routes to the new client with a
- * success banner. Nothing is written until Finish is pressed.
+ * WHAT FINISH DOES. POST /api/firm/clients, where the server runs the four
+ * intake runs in registry order and stops at the first refusal, then
+ * SETUP-IMPORT-BALANCES when the sheet has lines, then routes to the new
+ * client with a success banner. Nothing is written until Finish is pressed.
  */
 
 import { useMemo, useState } from "react";
@@ -37,7 +37,6 @@ import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { PageHeader, Pill, SectionCard } from "@/components/kit";
-import { useApp } from "@/store";
 import {
   BLOCK_ORDER,
   INDUSTRY_OPTIONS,
@@ -62,6 +61,7 @@ import {
   SIGN_CONVENTIONS,
   WIZARD_STEPS,
   canFinish,
+  centsOf,
   emptyWizard,
   footingOf,
   formatOption,
@@ -76,6 +76,9 @@ import {
 } from "@/lib/wizard-controller";
 import type { WizardDraft, WizardProfile } from "@/lib/wizard-controller";
 import { usd } from "@/lib/money";
+import { api, errorMessage } from "@/api/http";
+import type { CreateClientResult } from "@/api";
+import type { CreateClientInput, RunOutcomeDto } from "@shared/api";
 
 /** Read the step out of the query string. Out of range values fall back to one. */
 function readStep(): number {
@@ -111,8 +114,8 @@ function centsLabel(cents: bigint): string {
 }
 
 export default function PortalIntake() {
-  const { commitWizard } = useApp();
   const [, navigate] = useLocation();
+  const [finishing, setFinishing] = useState(false);
   const [draft, setDraft] = useState<WizardDraft>(emptyWizard);
   const [step, setStepState] = useState<number>(readStep);
   const [seq, setSeq] = useState(1);
@@ -146,13 +149,73 @@ export default function PortalIntake() {
   const updateProfile = (key: string, p: Partial<WizardProfile>) =>
     patch({ profiles: draft.profiles.map((x) => (x.key === key ? { ...x, ...p } : x)) });
 
-  function finish() {
-    const result = commitWizard(draft);
-    if (!result.ok) {
-      setFailure("The wizard still has unresolved issues, so nothing was written. Walk back through the steps marked below.");
-      return;
+  /**
+   * Finish is two requests. POST /api/firm/clients runs the four intake runs
+   * on the server in order and stops at the first refusal. When the sheet has
+   * balance lines, SETUP-IMPORT-BALANCES follows, preview then apply, with
+   * the typed lines as integer cents. Bank accounts, people, and mapping
+   * profiles are not written: no run records them yet, and the review step
+   * says so rather than pretending.
+   */
+  async function finish() {
+    if (!canFinish(draft) || finishing) return;
+    setFailure("");
+    setFinishing(true);
+    try {
+      const body: CreateClientInput = {
+        name: draft.legalName.trim(),
+        entityType: draft.entityType as CreateClientInput["entityType"],
+        industry: draft.industry as CreateClientInput["industry"],
+        isNonprofit: draft.entityType === "Nonprofit",
+        fiscalYearEndMonth: Number(draft.fiscalYearEnd.slice(0, 2)) || 12,
+        serviceLevel: draft.serviceTier,
+        startDate: draft.cutoverDate,
+        excludeAccountNumbers: draft.excludedAccounts,
+        addAccounts: draft.addedAccounts.map((a) => ({ accountNumber: a.accountNumber, name: a.name, normalSide: a.normalSide })),
+      };
+      const created = await api<CreateClientResult>("POST", "/api/firm/clients", body);
+      if (!created.client) {
+        const last = created.runs[created.runs.length - 1];
+        setFailure(`${last?.runType ?? "Intake"} ended ${last?.status ?? "without a client"}: ${last?.errors[0]?.message ?? "nothing was written."}`);
+        return;
+      }
+      const clientId = created.client.id;
+      const lines = draft.balanceLines
+        .map((l) => ({ accountNumber: l.accountNumber.trim(), cents: centsOf(l.amount) }))
+        .filter((l): l is { accountNumber: string; cents: bigint } => l.accountNumber.length > 0 && l.cents !== null)
+        .map((l) => ({ accountNumber: l.accountNumber, amountCents: l.cents.toString() }));
+      if (lines.length > 0) {
+        const scope = {
+          clientId,
+          period: `${draft.cutoverDate.slice(0, 7)}-01`,
+          cutoverDate: draft.cutoverDate,
+          lines,
+          sourceKind: draft.balanceSource,
+        };
+        const preview = await api<RunOutcomeDto>("POST", `/api/firm/clients/${clientId}/runs/SETUP-IMPORT-BALANCES`, { mode: "preview", scope });
+        if (preview.status === "completed" || preview.status === "completed_with_skips") {
+          const applied = await api<RunOutcomeDto>("POST", `/api/firm/clients/${clientId}/runs/SETUP-IMPORT-BALANCES`, {
+            mode: "apply",
+            previewRunId: preview.executionId,
+            scope,
+          });
+          if (applied.status !== "completed" && applied.status !== "completed_with_skips") {
+            setFailure(`The client was created but SETUP-IMPORT-BALANCES ended ${applied.status}: ${applied.errors[0]?.message ?? "see the run log."}`);
+            navigate(`/portal/clients/${clientId}`);
+            return;
+          }
+        } else if (preview.status !== "no_op") {
+          setFailure(`The client was created but SETUP-IMPORT-BALANCES ended ${preview.status}: ${preview.errors[0]?.message ?? "see the run log."}`);
+          navigate(`/portal/clients/${clientId}`);
+          return;
+        }
+      }
+      navigate(`/portal/clients/${clientId}?setup=done`);
+    } catch (e) {
+      setFailure(errorMessage(e));
+    } finally {
+      setFinishing(false);
     }
-    navigate(`/portal/clients/${result.clientId}?setup=done`);
   }
 
   return (
@@ -661,9 +724,9 @@ export default function PortalIntake() {
                     </li>
                   ))}
                 </ol>
-                <SectionCard title="Mapping profiles that will be saved" bodyClassName="p-3">
+                <SectionCard title="Bank accounts, people, and mapping profiles" description="Not written by Finish. No run records these yet; they are drafted here so the firm has them to hand when the first file arrives." bodyClassName="p-3">
                   {profilePlan.length === 0 ? (
-                    <p className="text-xs text-muted-foreground">None. No account on this client imports from a spreadsheet.</p>
+                    <p className="text-xs text-muted-foreground">No mapping profiles drafted. No account on this client imports from a spreadsheet.</p>
                   ) : (
                     <ul className="space-y-1.5 text-xs">
                       {profilePlan.map((p) => (
@@ -684,8 +747,8 @@ export default function PortalIntake() {
                 {failure.length > 0 ? (
                   <p className="rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-xs text-danger" data-testid="text-finish-failure">{failure}</p>
                 ) : null}
-                <Button onClick={finish} disabled={!canFinish(draft)} data-testid="button-finish">
-                  <Check className="mr-1 h-3.5 w-3.5" /> Finish and set the client up
+                <Button onClick={() => void finish()} disabled={!canFinish(draft) || finishing} data-testid="button-finish">
+                  <Check className="mr-1 h-3.5 w-3.5" /> {finishing ? "Running the intake runs" : "Finish and set the client up"}
                 </Button>
               </div>
             ) : null}

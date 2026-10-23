@@ -1,156 +1,100 @@
 import { useMemo, useState } from "react";
-import { Input } from "@/components/ui/input";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { DataGrid, EmptyState, Kpi, Money, Pill, SectionCard } from "@/components/kit";
+import { Search } from "lucide-react";
+import { DataGrid, EmptyState, ErrorState, Money, Pill, SectionCard } from "@/components/kit";
 import { PortalHero, PortalNote } from "@/components/portal/portal-kit";
-import { usePortal } from "@/lib/use-portal";
-import { acctLabel } from "@/data/coa";
-import { fmtPeriod, fmtShortDate, usd } from "@/lib/money";
-import type { Txn } from "@/data/types";
+import { Input } from "@/components/ui/input";
+import { usePortalClient } from "@/lib/use-portal-client";
+import { usePortalHome, usePortalTransactions, errorMessage } from "@/api";
+import { fmtShortDate } from "@/lib/money";
+import type { Transaction } from "@shared/api";
+import type { TierId } from "@shared/tiers";
 
 /**
- * A client's own transactions. Base level, and every period is included, open months too.
- * Holding a client's own records back would be indefensible, so nothing here is gated.
+ * The client's transaction register, read from
+ * GET /api/portal/:clientId/transactions. Rows are ledger.transactions as the
+ * firm categorised them; the category name is joined on the server. The
+ * client reads and searches here and never edits, a change of category is a
+ * message to the firm.
  */
 export default function PortalTransactions() {
-  const p = usePortal();
-  const [query, setQuery] = useState("");
-  const [scope, setScope] = useState("all");
+  const sel = usePortalClient();
+  const home = usePortalHome(sel.clientId);
+  const [search, setSearch] = useState("");
+  const q = usePortalTransactions(sel.clientId, { search: search.trim() || undefined });
+  const tier = home.data ? (home.data.tier as TierId) : undefined;
 
-  const all = useMemo(
-    () => p.ds.txns.filter((t) => t.clientId === p.clientId).slice().sort((a, b) => (a.date < b.date ? 1 : -1)),
-    [p.ds, p.clientId],
-  );
+  const rows = q.data?.items ?? [];
+  const totals = useMemo(() => {
+    let inflow = 0;
+    let outflow = 0;
+    for (const t of rows) {
+      if (t.amountCents >= 0) inflow += t.amountCents;
+      else outflow += t.amountCents;
+    }
+    return { inflow, outflow };
+  }, [rows]);
 
-  const periods = useMemo(() => Array.from(new Set(all.map((t) => t.period))).sort().reverse(), [all]);
-
-  const rows = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    return all.filter((t) => {
-      if (scope !== "all" && t.period !== scope) return false;
-      if (!q) return true;
-      return (
-        t.description.toLowerCase().includes(q) ||
-        t.vendor.toLowerCase().includes(q) ||
-        acctLabel(t.categoryAccountId).toLowerCase().includes(q)
-      );
-    });
-  }, [all, query, scope]);
-
-  const money = rows.reduce((s, t) => s + t.baseAmountCents, 0);
-  const inflow = rows.filter((t) => t.baseAmountCents > 0).reduce((s, t) => s + t.baseAmountCents, 0);
-  const outflow = rows.filter((t) => t.baseAmountCents < 0).reduce((s, t) => s + Math.abs(t.baseAmountCents), 0);
-  const waiting = rows.filter((t) => t.status === "needs_review").length;
+  if (sel.error) return <ErrorState message={errorMessage(sel.error)} onRetry={sel.retry} />;
+  if (q.isError) return <ErrorState message={errorMessage(q.error)} onRetry={() => void q.refetch()} />;
 
   return (
     <>
       <PortalHero
-        title="Your transactions"
-        subtitle={`Every transaction posted on ${p.client.dba} accounts, with the category we used. Search it, read it, and tell us if anything looks wrong.`}
-        tier={p.tier}
-        meta={<Pill tone="info">Open to every service level</Pill>}
-        actions={
-          <div className="flex flex-wrap items-center gap-2">
-            <Input
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search vendor or category"
-              className="h-8 w-[210px] text-xs"
-              data-testid="input-portal-txn-search"
-            />
-            <Select value={scope} onValueChange={setScope}>
-              <SelectTrigger className="h-8 w-[150px] text-xs" data-testid="select-portal-txn-period">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All months</SelectItem>
-                {periods.map((v) => (
-                  <SelectItem key={v} value={v}>
-                    {fmtPeriod(v)}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-        }
+        title="Transactions"
+        subtitle="Every bank and card line your books hold, as categorised by your firm. Search by description or vendor."
+        tier={tier}
+        meta={q.data ? <Pill tone="neutral">{q.data.total} rows</Pill> : null}
         testId="hero-portal-transactions"
       />
 
-      {all.length === 0 ? (
-        <SectionCard title="Transactions" testId="card-portal-txns-empty">
-          <EmptyState
-            title="No transactions posted yet"
-            body="This list fills in as your bank and card activity posts to your books. Your own records are never held back from you."
-          />
+      <div className="grid gap-3 sm:grid-cols-2">
+        <SectionCard title="Money in" description="Sum of the rows shown.">
+          <Money cents={totals.inflow} className="text-lg font-semibold" />
         </SectionCard>
-      ) : (
-        <>
-          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-            <Kpi label="Transactions shown" value={String(rows.length)} hint={`${all.length} on your books`} testId="kpi-portal-txn-count" />
-            <Kpi label="Money in" value={usd(inflow)} tone="good" testId="kpi-portal-txn-in" />
-            <Kpi label="Money out" value={usd(outflow)} tone="watch" testId="kpi-portal-txn-out" />
-            <Kpi label="Net movement" value={usd(money)} tone={money >= 0 ? "good" : "watch"} testId="kpi-portal-txn-net" />
+        <SectionCard title="Money out" description="Sum of the rows shown.">
+          <Money cents={totals.outflow} className="text-lg font-semibold" />
+        </SectionCard>
+      </div>
+
+      <SectionCard
+        title="Register"
+        description="Newest first. Uncategorised rows are still with your firm."
+        actions={
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-2 top-2 h-4 w-4 text-muted-foreground" />
+            <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search description or vendor" className="h-8 w-64 pl-8" data-testid="input-portal-txn-search" />
           </div>
-
-          {waiting > 0 ? (
-            <PortalNote tone="watch" testId="note-portal-txn-review">
-              {waiting} of these are still with us for a category or a receipt. They are shown as posted so you can see everything, and the
-              category may change before the month closes.
-            </PortalNote>
-          ) : null}
-
-          <SectionCard title="Posted activity" description="Newest first. Amounts are in your reporting currency." testId="card-portal-txns">
-            <DataGrid<Txn>
-              rows={rows}
-              rowKey={(t) => t.id}
-              maxHeight="60vh"
-              cols={[
-                { key: "date", label: "Date", width: "104px", mobile: "sub", render: (t) => fmtShortDate(t.date) },
-                {
-                  key: "description",
-                  label: "Description",
-                  mobile: "title",
-                  render: (t) => (
-                    <div className="min-w-0">
-                      <p className="truncate font-medium">{t.description}</p>
-                      <p className="truncate text-xs text-muted-foreground">{t.vendor}</p>
-                    </div>
-                  ),
-                },
-                {
-                  key: "category",
-                  label: "Category",
-                  mobile: "row",
-                  render: (t) => <span className="text-xs">{acctLabel(t.categoryAccountId)}</span>,
-                },
-                {
-                  key: "status",
-                  label: "State",
-                  width: "120px",
-                  mobile: "row",
-                  render: (t) =>
-                    t.status === "needs_review" ? (
-                      <Pill tone="watch">With us for review</Pill>
-                    ) : t.cleared ? (
-                      <Pill tone="good">Cleared the bank</Pill>
-                    ) : (
-                      <Pill tone="neutral">Posted</Pill>
-                    ),
-                },
-                {
-                  key: "amount",
-                  label: "Amount",
-                  align: "right",
-                  width: "128px",
-                  mobile: "value",
-                  render: (t) => <Money cents={t.baseAmountCents} signed />,
-                },
-              ]}
-              testId="grid-portal-txns"
+        }
+      >
+        <DataGrid<Transaction>
+          rows={rows}
+          loading={q.isPending || sel.loading}
+          rowKey={(t) => t.id}
+          testId="grid-portal-transactions"
+          empty={
+            <EmptyState
+              title={search ? "Nothing matches" : "No transactions yet"}
+              body={search ? "Try a shorter search." : "Rows appear here after your firm imports the first bank file."}
             />
-          </SectionCard>
-        </>
-      )}
+          }
+          cols={[
+            { key: "date", label: "Date", mobile: "row", render: (t) => <span className="tnum text-xs">{fmtShortDate(t.postedDate)}</span> },
+            { key: "desc", label: "Description", mobile: "title", render: (t) => <span className="font-medium">{t.normalizedVendor ?? t.description}</span> },
+            { key: "acct", label: "Account", mobile: "row", render: (t) => <span className="tnum text-xs">{t.accountNumber}</span> },
+            {
+              key: "cat",
+              label: "Category",
+              mobile: "row",
+              render: (t) => (t.categoryId ? <span className="text-xs">{t.categoryName ?? t.categoryId}</span> : <Pill tone="watch">With your firm</Pill>),
+            },
+            { key: "amt", label: "Amount", align: "right", mobile: "value", render: (t) => <Money cents={t.amountCents} signed /> },
+          ]}
+        />
+      </SectionCard>
+
+      <PortalNote>
+        A category you disagree with is a message to your firm, not a button here. Nothing on this page is editable and nothing you do here changes the books.
+      </PortalNote>
     </>
   );
 }

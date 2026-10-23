@@ -4,7 +4,7 @@ import { IncludedRow, PortalHero, PortalNote, TierBadge } from "@/components/por
 import { usePortalClient } from "@/lib/use-portal-client";
 import { usePortalHome } from "@/api";
 import type { TierId } from "@shared/tiers";
-import { ADDON_ORDER, ADDONS, FEATURES, TIER_ORDER, TIERS, featuresAtTier, hasFeature, tierRank } from "@/data/entitlement";
+import { ADDON_ORDER, ADDONS, FEATURES, TIER_ORDER, TIERS, featuresAtTier, hasFeature, tierRank } from "@shared/tiers";
 import { cn } from "@/lib/utils";
 import { fmtDate } from "@/lib/money";
 

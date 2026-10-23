@@ -97,7 +97,7 @@ export default function Transactions() {
             { key: "date", label: "Date", mobile: "row", render: (t) => <span className="tnum text-xs">{fmtShortDate(t.postedDate)}</span> },
             { key: "desc", label: "Description", mobile: "title", render: (t) => <div><div>{t.description}</div>{t.normalizedVendor ? <div className="text-xs text-muted-foreground">{t.normalizedVendor}</div> : null}</div> },
             { key: "bank", label: "Account", mobile: "row", render: (t) => <span className="text-xs">{bankName(t.bankAccountId)}</span> },
-            { key: "cat", label: "Category", mobile: "row", render: (t) => (t.categoryId ? <span className="text-xs">{t.accountNumber}{t.manualOverride ? " (manual)" : t.cascadeLevel !== null ? ` (level ${t.cascadeLevel})` : ""}</span> : <Pill tone="watch">Uncategorized</Pill>) },
+            { key: "cat", label: "Category", mobile: "row", render: (t) => (t.categoryId ? <span className="text-xs">{t.categoryName ?? t.categoryId}{t.manualOverride ? " (manual)" : t.cascadeLevel !== null ? ` (level ${t.cascadeLevel})` : ""}</span> : <Pill tone="watch">Uncategorized</Pill>) },
             { key: "status", label: "Status", mobile: "row", render: (t) => <Pill>{t.status}</Pill> },
             { key: "amt", label: "Amount", align: "right", mobile: "value", render: (t) => <Money cents={t.amountCents} signed /> },
           ]}
