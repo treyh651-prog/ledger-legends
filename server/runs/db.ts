@@ -96,6 +96,8 @@ import type {
   SchedRunPolicyRow,
   SchedScheduleRow,
   SchedWindowRow,
+  ClientRow,
+  EngagementRow,
 } from "./tables";
 
 export type Isolation = "repeatable read" | "serializable";
@@ -769,6 +771,58 @@ export interface QueryCatalog {
   sched_recent_windows_for_firm: {
     params: { firmId: Ulid; since: string; limit: number };
     row: SchedWindowRow;
+  };
+
+  // -------------------------------------------------------------------------
+  // Screen reads, added by the API layer. NOTES 220. The interface reads
+  // through the same catalog the runs use, so both ports stay in step and
+  // check-queries covers every read a screen makes.
+  // -------------------------------------------------------------------------
+
+  /** Every client of a firm, name ascending. Archived rows included. */
+  clients_for_firm: {
+    params: { firmId: Ulid };
+    row: ClientRow;
+  };
+  client_by_id: {
+    params: { firmId: Ulid; clientId: Ulid };
+    row: ClientRow;
+  };
+  /** Newest engagement first. The head is the one the portal reports. */
+  engagements_for_client: {
+    params: { firmId: Ulid; clientId: Ulid };
+    row: EngagementRow;
+  };
+  /** Run history for one client, newest first, paged. */
+  run_log_for_client: {
+    params: {
+      firmId: Ulid;
+      clientId: Ulid;
+      runType: string | null;
+      limit: number;
+      offset: number;
+    };
+    row: RunLogRow;
+  };
+  /** The firm wide recent activity strip on the home screen. */
+  run_log_recent_for_firm: {
+    params: { firmId: Ulid; limit: number };
+    row: RunLogRow;
+  };
+  /** The register, newest first, with the filters the screen offers. */
+  transactions_page: {
+    params: {
+      firmId: Ulid;
+      clientId: Ulid;
+      from: string | null;
+      to: string | null;
+      bankAccountId: Ulid | null;
+      search: string | null;
+      uncategorized: boolean;
+      limit: number;
+      offset: number;
+    };
+    row: TransactionRow;
   };
 }
 

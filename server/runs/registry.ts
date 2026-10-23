@@ -44,6 +44,7 @@ import { perReverseAccruals } from "./runs/per-reverse-accruals";
 import { perSplitLoan } from "./runs/per-split-loan";
 import { importParseFeed } from "./runs/import-parse-feed";
 import { intakeBuildChart } from "./runs/intake-build-chart";
+import { intakeCreateClient } from "./runs/intake-create-client";
 import { intakeSeedTasks } from "./runs/intake-seed-tasks";
 import { intakeOpenRequests } from "./runs/intake-open-requests";
 import { setupImportBalances } from "./runs/setup-import-balances";
@@ -83,6 +84,7 @@ export const registry: readonly RegistryEntry[] = [
   // Module 1 intake and setup, in the order INTAKE_ORDER explains. These four
   // run once per client, at the moment the firm finishes the wizard, and every
   // other run in this list assumes they already did.
+  entry(intakeCreateClient),
   entry(intakeBuildChart),
   entry(intakeSeedTasks),
   entry(intakeOpenRequests),
@@ -183,6 +185,17 @@ export const INTAKE_ORDER: readonly string[] = [
  * line. Compiling first and tracking second would produce a data set whose
  * flags describe the paperwork as it was before the run that refreshed it.
  */
+/**
+ * The create client path the API runs. INTAKE-CREATE-CLIENT writes the client
+ * and draft engagement rows first, then the three runs that need a client to
+ * exist. Opening balances are not here: they come later, when the firm has a
+ * trial balance, through SETUP-IMPORT-BALANCES on the client's run page.
+ */
+export const CLIENT_INTAKE_ORDER: readonly string[] = [
+  "INTAKE-CREATE-CLIENT",
+  ...INTAKE_ORDER.slice(0, 3),
+];
+
 export const TAX_ORDER: readonly string[] = ["TAX-TRACK-W9", "TAX-BUILD-1099"];
 
 /**

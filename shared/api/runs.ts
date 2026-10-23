@@ -22,6 +22,7 @@ export const RUN_STATUSES = [
   "rejected_locked",
   "failed",
   "deduplicated",
+  "abandoned",
   "started",
 ] as const;
 export const runStatusSchema = z.enum(RUN_STATUSES);

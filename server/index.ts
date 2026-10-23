@@ -7,6 +7,7 @@ import { serveStatic } from "./static";
 import { applyHardening, finalErrorHandler } from "./http-hardening";
 import { buildAuthRuntime, readAppOrigin, type AuthRuntime } from "./auth/setup";
 import { readSupabaseEnv } from "./auth/jwt";
+import { buildDevActor, devActorEnabled, type DevActorRuntime } from "./api/dev-actor";
 
 const app = express();
 const httpServer = createServer(app);
@@ -35,11 +36,17 @@ export function log(message: string, source = "express") {
   // one is a startup refusal, same as DATABASE_URL. In memory mode there is
   // nothing to resolve against, so the server runs with sign in off and says so.
   let auth: AuthRuntime | null = null;
+  let devActor: DevActorRuntime | null = null;
   if (runDb.kind === "postgres") {
     auth = buildAuthRuntime();
     for (const n of auth.notes) log(n, "auth");
   } else {
     log("sign in is off: runs execute in memory and there is no tenancy schema to resolve actors against", "auth");
+  }
+  // Throws when DEV_ACTOR is set in production, or with the Postgres port.
+  if (devActorEnabled(process.env, runDb.kind)) {
+    devActor = buildDevActor(runDb.db);
+    log("development actor is on: every request is answered as the firm owner of the development firm. Never set DEV_ACTOR in production.", "auth");
   }
 
   applyHardening(app, {
@@ -61,7 +68,7 @@ export function log(message: string, source = "express") {
     next();
   });
 
-  await registerRoutes(httpServer, app, { runDb, auth });
+  await registerRoutes(httpServer, app, { runDb, auth, devActor });
 
   app.use(finalErrorHandler);
 

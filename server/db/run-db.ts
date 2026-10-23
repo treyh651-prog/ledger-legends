@@ -23,6 +23,7 @@ import { MemoryRunDb } from "../runs/db-memory";
 import { PostgresRunDb } from "../runs/db-postgres";
 import type { RunDb } from "../runs/db";
 import { databaseUrl, getPool } from "./pool";
+import { resolveDbRole } from "./with-actor";
 
 export type RunDbKind = "memory" | "postgres";
 
@@ -65,7 +66,7 @@ export function resolveRunDb(env: NodeJS.ProcessEnv = process.env): ResolvedRunD
     databaseUrl(env);
     return {
       kind,
-      db: new PostgresRunDb(getPool(env)),
+      db: new PostgresRunDb(getPool(env), { dbRole: resolveDbRole(env) ?? undefined }),
       description: "runs execute against Postgres",
     };
   }

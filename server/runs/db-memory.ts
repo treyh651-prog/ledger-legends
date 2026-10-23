@@ -92,11 +92,15 @@ import {
   type SuspenseItemRow,
   type TableName,
   type TransactionRow,
+  type ClientRow,
+  type EngagementRow,
 } from "./tables";
 
 type AnyRow = Record<string, unknown> & { id: string };
 
 const TABLES: TableName[] = [
+  "clients",
+  "engagements",
   "bank_accounts",
   "chart_accounts",
   "transactions",
@@ -1792,12 +1796,97 @@ class MemoryTx implements RunTx {
           .slice(0, p.limit)
           .map((r) => clone(r as unknown as AnyRow));
       }
+
+      /* Screen reads, NOTES 220. */
+
+      case "clients_for_firm": {
+        const p = rawParams as QueryCatalog["clients_for_firm"]["params"];
+        return this.view("clients")
+          .map((r) => r as unknown as ClientRow)
+          .filter((r) => r.firmId === p.firmId)
+          .sort((a, b) => (a.name !== b.name ? (a.name < b.name ? -1 : 1) : byId(a, b)))
+          .map((r) => clone(r as unknown as AnyRow));
+      }
+      case "client_by_id": {
+        const p = rawParams as QueryCatalog["client_by_id"]["params"];
+        return this.view("clients")
+          .map((r) => r as unknown as ClientRow)
+          .filter((r) => r.firmId === p.firmId && r.id === p.clientId)
+          .map((r) => clone(r as unknown as AnyRow));
+      }
+      case "engagements_for_client": {
+        const p = rawParams as QueryCatalog["engagements_for_client"]["params"];
+        return this.view("engagements")
+          .map((r) => r as unknown as EngagementRow)
+          .filter((r) => r.firmId === p.firmId && r.clientId === p.clientId)
+          .sort((a, b) =>
+            a.createdAt !== b.createdAt ? (a.createdAt > b.createdAt ? -1 : 1) : byId(a, b),
+          )
+          .map((r) => clone(r as unknown as AnyRow));
+      }
+      case "run_log_for_client": {
+        const p = rawParams as QueryCatalog["run_log_for_client"]["params"];
+        return this.view("run_log")
+          .map((r) => r as unknown as RunLogRow)
+          .filter(
+            (r) =>
+              r.firmId === p.firmId &&
+              r.clientId === p.clientId &&
+              (p.runType === null || r.runType === p.runType),
+          )
+          .sort(newestRunFirst)
+          .slice(p.offset, p.offset + p.limit)
+          .map((r) => clone(r as unknown as AnyRow));
+      }
+      case "run_log_recent_for_firm": {
+        const p = rawParams as QueryCatalog["run_log_recent_for_firm"]["params"];
+        return this.view("run_log")
+          .map((r) => r as unknown as RunLogRow)
+          .filter((r) => r.firmId === p.firmId)
+          .sort(newestRunFirst)
+          .slice(0, p.limit)
+          .map((r) => clone(r as unknown as AnyRow));
+      }
+      case "transactions_page": {
+        const p = rawParams as QueryCatalog["transactions_page"]["params"];
+        const needle = p.search === null ? null : p.search.toLowerCase();
+        return this.view("transactions")
+          .map((r) => r as unknown as TransactionRow)
+          .filter(
+            (r) =>
+              r.firmId === p.firmId &&
+              r.clientId === p.clientId &&
+              (p.from === null || r.postedDate >= p.from) &&
+              (p.to === null || r.postedDate <= p.to) &&
+              (p.bankAccountId === null || r.bankAccountId === p.bankAccountId) &&
+              (needle === null ||
+                r.description.toLowerCase().includes(needle) ||
+                (r.normalizedVendor ?? "").toLowerCase().includes(needle)) &&
+              (!p.uncategorized || r.categoryId === null),
+          )
+          .sort((a, b) =>
+            a.postedDate !== b.postedDate
+              ? a.postedDate > b.postedDate
+                ? -1
+                : 1
+              : a.id > b.id
+                ? -1
+                : 1,
+          )
+          .slice(p.offset, p.offset + p.limit)
+          .map((r) => clone(r as unknown as AnyRow));
+      }
       default: {
         const exhaustive: never = name;
         throw new Error(`unknown query ${String(exhaustive)}`);
       }
     }
   }
+}
+
+function newestRunFirst(a: RunLogRow, b: RunLogRow): number {
+  if (a.startedAt !== b.startedAt) return a.startedAt > b.startedAt ? -1 : 1;
+  return a.id > b.id ? -1 : 1;
 }
 
 function compareChartAccounts(a: ChartAccountRow, b: ChartAccountRow): number {

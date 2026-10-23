@@ -29,6 +29,8 @@ import type {
   CategoryRow,
   ChartAccountRow,
   PracticeTaskCatalogRow,
+  ClientRow,
+  EngagementRow,
   DeferralLineRow,
   DepreciationScheduleRow,
   InvoiceRow,
@@ -672,6 +674,16 @@ async function insertRow(
       await tx.insert("practice_task_catalog", [
         withId as unknown as PracticeTaskCatalogRow,
       ]);
+      return;
+    /**
+     * The two tenancy rows INTAKE-CREATE-CLIENT writes. Insert only, like the
+     * intake rows above: a client row is never rewritten by a run. NOTES 222.
+     */
+    case "clients":
+      await tx.insert("clients", [withId as unknown as ClientRow]);
+      return;
+    case "engagements":
+      await tx.insert("engagements", [withId as unknown as EngagementRow]);
       return;
     default:
       throw new ProposalWriteError(

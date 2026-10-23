@@ -33,6 +33,7 @@ alters, per doc 05 Part 9 step 2.
 | `0021_query_drift_columns.sql` | The columns the named queries read and the port writes that no earlier file created: the proposal on a log item, the counts on a terminal log event, entry provenance that is neither a transaction nor a document, the line entry date and net asset restriction, the feed side institution id, rule promotion state, the recurring amount window, the vendor default category version, the loan escrow account, and `version` on the two import tables. |
 | `0022_scheduler.sql` | The scheduler: run policies as a reference table, schedules, and the windows a tick produces. |
 | `0024_tiers.sql` | Service tiers as data: `tenancy.service_tiers`, `tenancy.tier_features` seeded from the public pricing page, a foreign key from `engagements.service_level`, `tenancy.engagement_addons` for payroll and cleanup, and the `tenancy.client_entitlements` view. 0023 is reserved for the auth brief. |
+| `0025_api_intake_client.sql` | The `INTAKE-CREATE-CLIENT` policy row in `sched.run_policies`. The API layer creates clients through this run. |
 
 ## Conventions held across every file
 

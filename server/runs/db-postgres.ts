@@ -67,6 +67,8 @@ const SCHEMA = "ledger";
  * lookup rather than a prefix so the mismatch stays in one place.
  */
 export const PHYSICAL_TABLES: Partial<Record<TableName, string>> = {
+  clients: "tenancy.clients",
+  engagements: "tenancy.engagements",
   mapping_profiles: "import.mapping_profiles",
   mapping_profile_columns: "import.mapping_profile_columns",
   wizard_sessions: "intake.wizard_sessions",
@@ -141,6 +143,7 @@ export function physical(table: TableName): string {
 
 /** Cents columns per table, converted from text to bigint on the way out. */
 const CENTS_FIELDS: Record<string, readonly string[]> = {
+  clients: ["capitalizeOverCents"],
   transactions: ["amountCents"],
   journal_lines: ["amountCents"],
   categories: ["requiresReceiptOverCents", "capitalizeOverCents"],
@@ -495,6 +498,24 @@ const STAGED_ROW_COLUMNS = `
   committed_transaction_id as "committedTransactionId",
   committed_entry_id as "committedEntryId",
   error_code as "errorCode", error_message as "errorMessage", version`;
+
+const CLIENT_COLUMNS = `
+  id, firm_id as "firmId", name, entity_type as "entityType",
+  is_nonprofit as "isNonprofit", fiscal_year_end_month as "fiscalYearEndMonth",
+  functional_currency as "functionalCurrency",
+  capitalize_over_cents::text as "capitalizeOverCents",
+  engagement_scope as "engagementScope", chart_template_id as "chartTemplateId",
+  inventory_method as "inventoryMethod", onboarded_at::text as "onboardedAt",
+  archived_at::text as "archivedAt"`;
+
+const ENGAGEMENT_COLUMNS = `
+  id, firm_id as "firmId", client_id as "clientId", name, status,
+  service_level as "serviceLevel", reporting_basis as "reportingBasis", scope,
+  start_date::text as "startDate", end_date::text as "endDate",
+  letter_document_id as "letterDocumentId", signed_at::text as "signedAt",
+  terminated_at::text as "terminatedAt", termination_reason as "terminationReason",
+  offboarding_export_days as "offboardingExportDays", created_at::text as "createdAt",
+  created_by as "createdBy"`;
 
 const RUN_LOG_COLUMNS = `
   id, firm_id as "firmId", client_id as "clientId", run_type as "runType",
@@ -2314,6 +2335,82 @@ export const QUERIES: Record<QueryName, SqlSpec> = {
           limit $3::integer`,
     params: (p) => [p.firmId, p.since, p.limit],
   },
+
+  // -------------------------------------------------------------------------
+  // Screen reads, added by the API layer. NOTES 220. Each one is a plain read
+  // of a table the screen shows, scoped by firm and where it applies by client,
+  // and ordered so a rerun pages the same way.
+  // -------------------------------------------------------------------------
+
+  clients_for_firm: {
+    table: "clients",
+    sql: `select ${CLIENT_COLUMNS}
+          from tenancy.clients
+          where firm_id = $1
+          order by name asc, id asc`,
+    params: (p) => [p.firmId],
+  },
+  client_by_id: {
+    table: "clients",
+    sql: `select ${CLIENT_COLUMNS}
+          from tenancy.clients
+          where firm_id = $1 and id = $2`,
+    params: (p) => [p.firmId, p.clientId],
+  },
+  engagements_for_client: {
+    table: "engagements",
+    sql: `select ${ENGAGEMENT_COLUMNS}
+          from tenancy.engagements
+          where firm_id = $1 and client_id = $2
+          order by created_at desc, id asc`,
+    params: (p) => [p.firmId, p.clientId],
+  },
+  run_log_for_client: {
+    table: "run_log",
+    sql: `select ${RUN_LOG_COLUMNS}
+          from ${SCHEMA}.run_log
+          where firm_id = $1 and client_id = $2
+            and ($3::text is null or run_type = $3::text)
+          order by started_at desc, id desc
+          limit $4::integer offset $5::integer`,
+    params: (p) => [p.firmId, p.clientId, p.runType, p.limit, p.offset],
+  },
+  run_log_recent_for_firm: {
+    table: "run_log",
+    sql: `select ${RUN_LOG_COLUMNS}
+          from ${SCHEMA}.run_log
+          where firm_id = $1
+          order by started_at desc, id desc
+          limit $2::integer`,
+    params: (p) => [p.firmId, p.limit],
+  },
+  transactions_page: {
+    table: "transactions",
+    sql: `select ${TXN_COLUMNS}
+          from ${SCHEMA}.transactions
+          where firm_id = $1
+            and client_id = $2
+            and ($3::date is null or posted_date >= $3::date)
+            and ($4::date is null or posted_date <= $4::date)
+            and ($5::text is null or bank_account_id = $5::text)
+            and ($6::text is null
+                 or position(lower($6::text) in lower(description)) > 0
+                 or position(lower($6::text) in lower(coalesce(vendor_normalized, ''))) > 0)
+            and (not $7::boolean or category_id is null)
+          order by posted_date desc, id desc
+          limit $8::integer offset $9::integer`,
+    params: (p) => [
+      p.firmId,
+      p.clientId,
+      p.from,
+      p.to,
+      p.bankAccountId,
+      p.search,
+      p.uncategorized,
+      p.limit,
+      p.offset,
+    ],
+  },
 };
 
 function translateError(err: unknown): unknown {
@@ -2455,8 +2552,22 @@ function sessionSettings(session: TxSession): [string, unknown[]] {
   ];
 }
 
+export interface PostgresRunDbOptions {
+  /**
+   * A role to `set local role` to at the start of every transaction, the same
+   * way server/db/with-actor.ts does for the API's own reads. Validated by
+   * resolveDbRole before it gets here, because a role name cannot be bound as
+   * a parameter. Without it the pool's login role is what RLS sees, and a
+   * login role that owns the tables is exempt from RLS. NOTES 220.
+   */
+  dbRole?: string;
+}
+
 export class PostgresRunDb implements RunDb {
-  constructor(private readonly pool: PgPoolLike) {}
+  constructor(
+    private readonly pool: PgPoolLike,
+    private readonly options: PostgresRunDbOptions = {},
+  ) {}
 
   async tx<T>(session: TxSession, fn: (tx: RunTx) => Promise<T>): Promise<T> {
     const client = await this.pool.connect();
@@ -2466,6 +2577,9 @@ export class PostgresRunDb implements RunDb {
       await client.query(
         `begin isolation level ${isolation}${session.readOnly ? " read only" : ""}`,
       );
+      if (this.options.dbRole) {
+        await client.query(`set local role ${this.options.dbRole}`);
+      }
       // Tenant context and actor kind, read by the guards and the RLS policies.
       // Every one of these is transaction local, the third argument to
       // set_config, so a pooled connection handed back with leftover state

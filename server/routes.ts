@@ -14,6 +14,11 @@ import {
   type InvitationDeps,
 } from "./auth/invitations";
 import { AuthAdminError } from "./auth/auth-admin";
+import type { Pool } from "pg";
+import { PostgresEntitlementSource } from "./entitlement";
+import { createApiRouter, RunDbEntitlementSource } from "./api/router";
+import { apiErrorHandler } from "./api/errors";
+import { buildDevActor, devActorEnabled, DEV_FIRM_ID, DEV_USER_ID, type DevActorRuntime } from "./api/dev-actor";
 
 /**
  * Routes.
@@ -34,6 +39,8 @@ export interface RouteDeps {
   runDb: ResolvedRunDb;
   /** Null when the server runs without auth (memory mode on a developer machine). */
   auth: AuthRuntime | null;
+  /** The development actor, when startup decided it is allowed. NOTES 221. */
+  devActor?: DevActorRuntime | null;
 }
 
 /** Tight limit for routes that do work on behalf of an unauthenticated caller. */
@@ -61,6 +68,12 @@ const noAuth: RequestHandler = (_req, res) => {
 export async function registerRoutes(httpServer: Server, app: Express, deps?: RouteDeps): Promise<Server> {
   const runDb = deps?.runDb ?? resolveRunDb();
   const auth = deps?.auth ?? null;
+  const devActor =
+    deps?.devActor !== undefined
+      ? deps.devActor
+      : !auth && devActorEnabled(process.env, runDb.kind)
+        ? buildDevActor(runDb.db)
+        : null;
 
   app.get("/healthz", (_req, res) => {
     res.json({ ok: true });
@@ -72,7 +85,13 @@ export async function registerRoutes(httpServer: Server, app: Express, deps?: Ro
   // PostgREST, so the anon key reaches no table here.
   app.get("/api/auth/config", publicLimiter, (_req, res) => {
     if (!auth) {
-      res.json({ configured: false, reason: "sign in is off, this server runs without Supabase auth" });
+      res.json({
+        configured: false,
+        reason: devActor
+          ? "sign in is off, the development actor answers as the firm owner"
+          : "sign in is off, this server runs without Supabase auth",
+        developmentActor: devActor !== null,
+      });
       return;
     }
     res.json({ configured: true, supabaseUrl: auth.browserConfig.supabaseUrl, anonKey: auth.browserConfig.anonKey });
@@ -80,13 +99,38 @@ export async function registerRoutes(httpServer: Server, app: Express, deps?: Ro
 
   app.use("/api", apiLimiter);
 
-  if (!auth) {
+  if (!auth && !devActor) {
     app.use("/api", (req, res, next) => {
       if (req.path === "/auth/config") return next();
       noAuth(req, res, next);
     });
     return httpServer;
   }
+
+  if (!auth && devActor) {
+    // Memory mode with the development actor. The same guards as production,
+    // fed by a token every request is assumed to carry.
+    app.use("/api", devActor.assumeToken);
+    app.get("/api/auth/me", devActor.middleware.requireUser, (req, res) => {
+      const a = req.actor!;
+      res.json({ userId: a.userId, email: a.email, displayName: a.displayName, memberships: a.memberships, development: true });
+    });
+    app.use(
+      "/api",
+      createApiRouter({
+        db: runDb.db,
+        guards: devActor.middleware,
+        entitlements: new RunDbEntitlementSource(runDb.db, DEV_USER_ID, DEV_FIRM_ID),
+      }),
+    );
+    app.use("/api", (_req, res) => {
+      res.status(404).json({ error: { code: "not_found", message: "No such route." } });
+    });
+    app.use(authErrorHandler);
+    app.use(apiErrorHandler);
+    return httpServer;
+  }
+  if (!auth) return httpServer;
 
   const { requireUser, requireFirm } = auth.middleware;
   const inv: InvitationDeps = { pool: auth.pool, authAdmin: auth.authAdmin, appOrigin: auth.appOrigin, actorOpts: auth.actorOpts };
@@ -100,6 +144,15 @@ export async function registerRoutes(httpServer: Server, app: Express, deps?: Ro
       memberships: a.memberships,
     });
   });
+
+  app.use(
+    "/api",
+    createApiRouter({
+      db: runDb.db,
+      guards: auth.middleware,
+      entitlements: new PostgresEntitlementSource(auth.pool as Pool),
+    }),
+  );
 
   app.get("/api/sched/status", requireFirm, async (req, res, next) => {
     try {
@@ -155,6 +208,7 @@ export async function registerRoutes(httpServer: Server, app: Express, deps?: Ro
     }
     next(err);
   });
+  app.use(apiErrorHandler);
 
   return httpServer;
 }

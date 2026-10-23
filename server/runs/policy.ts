@@ -52,6 +52,11 @@ export const RUN_POLICIES: Readonly<Record<string, RunPolicy>> = {
   // Module 1, intake and setup. All four run once, at the moment the firm
   // finishes the wizard, and there is no wizard for a clock to finish.
   // ---------------------------------------------------------------------
+  "INTAKE-CREATE-CLIENT": {
+    tier: "manual",
+    reason:
+      "the first intake step, run once when the firm starts a client from the interface, and a clock has no reason to create a client",
+  },
   "INTAKE-BUILD-CHART": {
     tier: "manual",
     reason:

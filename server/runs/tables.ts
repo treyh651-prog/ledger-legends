@@ -2334,7 +2334,53 @@ export interface SchedWindowRow {
   manualOverride: boolean;
 }
 
+/**
+ * Tenancy rows the interface reads and the intake run creates. These two live
+ * in the tenancy schema, which the run port never touched before the API
+ * layer. A client row is created by INTAKE-CREATE-CLIENT, never by a bare
+ * insert from a route, and read by the screen queries.
+ */
+export interface ClientRow {
+  id: Ulid;
+  firmId: Ulid;
+  name: string;
+  entityType: string;
+  isNonprofit: boolean;
+  fiscalYearEndMonth: number;
+  functionalCurrency: string;
+  capitalizeOverCents: Cents;
+  /** { keys: string[] } today. Drives the conditional close gates. */
+  engagementScope: unknown;
+  chartTemplateId: string | null;
+  inventoryMethod: "periodic_weighted_average" | "none";
+  onboardedAt: string | null;
+  archivedAt: string | null;
+}
+
+export interface EngagementRow {
+  id: Ulid;
+  firmId: Ulid;
+  clientId: Ulid;
+  name: string;
+  status: "draft" | "sent" | "signed" | "active" | "terminated";
+  /** A tenancy.service_tiers id. */
+  serviceLevel: string;
+  reportingBasis: "accrual" | "cash" | "both";
+  scope: unknown;
+  startDate: string;
+  endDate: string | null;
+  letterDocumentId: string | null;
+  signedAt: string | null;
+  terminatedAt: string | null;
+  terminationReason: string | null;
+  offboardingExportDays: number;
+  createdAt: string;
+  createdBy: Ulid;
+}
+
 export interface RowMap {
+  clients: ClientRow;
+  engagements: EngagementRow;
   bank_accounts: BankAccountRow;
   chart_accounts: ChartAccountRow;
   transactions: TransactionRow;
