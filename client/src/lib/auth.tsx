@@ -21,6 +21,7 @@
  */
 
 import { createClient, type Session, type SupabaseClient } from "@supabase/supabase-js";
+import { API_BASE } from "@/lib/queryClient";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { setAuthHeaderProvider } from "./queryClient";
 
@@ -129,7 +130,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const resolveMe = useCallback(async (s: Session) => {
     setStatus("resolving");
     try {
-      const res = await fetch("/api/auth/me", {
+      const res = await fetch(`${API_BASE}/api/auth/me`, {
         headers: { authorization: `Bearer ${s.access_token}` },
       });
       if (res.ok) {
@@ -160,7 +161,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     (async () => {
       let cfg: ConfigResponse;
       try {
-        const res = await fetch("/api/auth/config");
+        const res = await fetch(`${API_BASE}/api/auth/config`);
         cfg = (await res.json()) as ConfigResponse;
       } catch {
         if (!cancelled) {
@@ -175,7 +176,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           // The server supplies the actor (NOTES 221). Ask who that is so the
           // firm header and the memberships are real, then stay in "off".
           try {
-            const meRes = await fetch("/api/auth/me");
+            const meRes = await fetch(`${API_BASE}/api/auth/me`);
             if (meRes.ok && !cancelled) {
               const body = (await meRes.json()) as Me;
               setMe(body);
@@ -263,7 +264,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (token) headers.set("authorization", `Bearer ${token}`);
       if (firm) headers.set("x-firm", firm.firmId);
       if (init.body && !headers.has("content-type")) headers.set("content-type", "application/json");
-      return fetch(input, { ...init, headers });
+      return fetch(input.startsWith("/") ? `${API_BASE}${input}` : input, { ...init, headers });
     },
     [accessToken, firm],
   );

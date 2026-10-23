@@ -1,6 +1,6 @@
 import { QueryClient, QueryFunction } from "@tanstack/react-query";
 
-const API_BASE = "__PORT_5000__".startsWith("__") ? "" : "__PORT_5000__";
+export const API_BASE = "__PORT_5000__".startsWith("__") ? "" : "__PORT_5000__";
 
 /**
  * Headers every API call carries: the bearer token and the selected firm.

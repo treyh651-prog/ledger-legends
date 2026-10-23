@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { API_BASE } from "@/lib/queryClient";
 import { AlarmClock, CircleAlert, Clock3, Hourglass } from "lucide-react";
 import { EmptyState, Pill, SectionCard } from "@/components/kit";
 
@@ -75,7 +76,7 @@ export function SchedulerCard() {
 
   useEffect(() => {
     let live = true;
-    fetch("/api/sched/status")
+    fetch(`${API_BASE}/api/sched/status`)
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
       .then((j: StatusBody) => {
         if (live) setBody(j);
