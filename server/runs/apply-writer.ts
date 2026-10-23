@@ -52,6 +52,8 @@ import type {
   JournalEntryRow,
   JournalLineRow,
   PortalRequestRow,
+  PortalMessageRow,
+  SignatureEvidenceRow,
   RecBatchRow,
   SettlementRowRow,
   StagedRowRow,
@@ -300,6 +302,10 @@ async function writeField(
     case "portal_requests":
       await tx.update("portal_requests", rowId, after);
       return;
+    // ENG-SIGN-LETTER moves the engagement to signed, migration 0028.
+    case "engagements":
+      await tx.update("engagements", rowId, after);
+      return;
     // Doc 02 module 4. Each of the six period end runs marks the subledger row
     // it consumed. That mark is what makes a rerun report the work as already
     // done instead of posting the same amount a second time.
@@ -476,6 +482,13 @@ async function insertRow(
     // Doc 02 TXN-SWEEP-SUSPENSE step 4 creates one request per client owned code.
     case "portal_requests":
       await tx.insert("portal_requests", [withId as unknown as PortalRequestRow]);
+      return;
+    // Migration 0028. PORTAL-POST-MESSAGE and ENG-SIGN-LETTER.
+    case "portal_messages":
+      await tx.insert("portal_messages", [withId as unknown as PortalMessageRow]);
+      return;
+    case "signature_evidence":
+      await tx.insert("signature_evidence", [withId as unknown as SignatureEvidenceRow]);
       return;
     // REC-MATCH-TIERED opens the reconciliation batch for the statement.
     case "rec_batches":

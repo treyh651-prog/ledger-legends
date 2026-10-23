@@ -94,6 +94,10 @@ import {
   type TransactionRow,
   type ClientRow,
   type EngagementRow,
+  type PortalRequestRow,
+  type PortalMessageRow,
+  type DocumentRow,
+  type SignatureEvidenceRow,
 } from "./tables";
 
 type AnyRow = Record<string, unknown> & { id: string };
@@ -126,6 +130,9 @@ const TABLES: TableName[] = [
   "client_policies",
   "document_links",
   "portal_requests",
+  "portal_messages",
+  "documents",
+  "signature_evidence",
   "documentation_exceptions",
   "fixed_assets",
   "depreciation_schedule",
@@ -1821,6 +1828,55 @@ class MemoryTx implements RunTx {
           .filter((r) => r.firmId === p.firmId && r.clientId === p.clientId)
           .sort((a, b) =>
             a.createdAt !== b.createdAt ? (a.createdAt > b.createdAt ? -1 : 1) : byId(a, b),
+          )
+          .map((r) => clone(r as unknown as AnyRow));
+      }
+      case "portal_requests_for_client": {
+        const p = rawParams as QueryCatalog["portal_requests_for_client"]["params"];
+        return this.view("portal_requests")
+          .map((r) => r as unknown as PortalRequestRow)
+          .filter((r) => r.firmId === p.firmId && r.clientId === p.clientId)
+          .sort((a, b) =>
+            a.openedOn !== b.openedOn ? (a.openedOn > b.openedOn ? -1 : 1) : byId(a, b),
+          )
+          .map((r) => clone(r as unknown as AnyRow));
+      }
+      case "portal_messages_for_client": {
+        const p = rawParams as QueryCatalog["portal_messages_for_client"]["params"];
+        return this.view("portal_messages")
+          .map((r) => r as unknown as PortalMessageRow)
+          .filter((r) => r.firmId === p.firmId && r.clientId === p.clientId)
+          .sort((a, b) =>
+            a.createdAt !== b.createdAt ? (a.createdAt < b.createdAt ? -1 : 1) : byId(a, b),
+          )
+          .map((r) => clone(r as unknown as AnyRow));
+      }
+      case "documents_for_client": {
+        const p = rawParams as QueryCatalog["documents_for_client"]["params"];
+        return this.view("documents")
+          .map((r) => r as unknown as DocumentRow)
+          .filter((r) => r.firmId === p.firmId && r.clientId === p.clientId && r.status !== "deleted")
+          .sort((a, b) =>
+            a.createdAt !== b.createdAt ? (a.createdAt > b.createdAt ? -1 : 1) : byId(a, b),
+          )
+          .map((r) => clone(r as unknown as AnyRow));
+      }
+      case "document_by_id": {
+        const p = rawParams as QueryCatalog["document_by_id"]["params"];
+        return this.view("documents")
+          .map((r) => r as unknown as DocumentRow)
+          .filter((r) => r.firmId === p.firmId && r.clientId === p.clientId && r.id === p.documentId)
+          .map((r) => clone(r as unknown as AnyRow));
+      }
+      case "signature_evidence_for_engagement": {
+        const p = rawParams as QueryCatalog["signature_evidence_for_engagement"]["params"];
+        return this.view("signature_evidence")
+          .map((r) => r as unknown as SignatureEvidenceRow)
+          .filter(
+            (r) => r.firmId === p.firmId && r.clientId === p.clientId && r.engagementId === p.engagementId,
+          )
+          .sort((a, b) =>
+            a.signedAt !== b.signedAt ? (a.signedAt > b.signedAt ? -1 : 1) : byId(a, b),
           )
           .map((r) => clone(r as unknown as AnyRow));
       }

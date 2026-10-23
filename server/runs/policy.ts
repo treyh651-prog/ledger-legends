@@ -57,6 +57,19 @@ export const RUN_POLICIES: Readonly<Record<string, RunPolicy>> = {
     reason:
       "the first intake step, run once when the firm starts a client from the interface, and a clock has no reason to create a client",
   },
+  "PORTAL-ANSWER-REQUEST": {
+    tier: "manual",
+    reason:
+      "a person at the client answers an open request from the portal, and nothing else can answer for them",
+  },
+  "PORTAL-POST-MESSAGE": {
+    tier: "manual",
+    reason: "a person at the client or the firm writes a message, and a clock has nothing to say",
+  },
+  "ENG-SIGN-LETTER": {
+    tier: "manual",
+    reason: "the client signs the engagement letter from the portal, the signature record is theirs alone",
+  },
   "INTAKE-BUILD-CHART": {
     tier: "manual",
     reason:

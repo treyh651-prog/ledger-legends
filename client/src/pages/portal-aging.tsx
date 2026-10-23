@@ -1,148 +1,88 @@
-import { useMemo } from "react";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useState } from "react";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { DataGrid, EmptyState, Kpi, Money, SectionCard } from "@/components/kit";
-import { LockedFeature, PortalHero, PortalNote } from "@/components/portal/portal-kit";
-import { usePortal } from "@/lib/use-portal";
-import { agingByParty, openBills, openInvoices, totalBuckets, type AgingBucketSet } from "@/data/derive";
-import { agingFact } from "@/data/portal-facts";
-import { TODAY } from "@/data/seed";
-import { fmtShortDate, usd } from "@/lib/money";
+import { PortalNote } from "@/components/portal/portal-kit";
+import { PortalScreen, QueryBody } from "@/components/portal/portal-screen";
+import { usePortalAging } from "@/api";
+import { fmtDate, fmtShortDate } from "@/lib/money";
+import type { PortalAging as PortalAgingData } from "@shared/api";
 
-const BUCKETS: { key: keyof Omit<AgingBucketSet, "total">; label: string }[] = [
-  { key: "current", label: "Current" },
-  { key: "b1", label: "1 to 30" },
-  { key: "b31", label: "31 to 60" },
-  { key: "b61", label: "61 to 90" },
-  { key: "b90", label: "Over 90" },
-];
+type Side = "receivable" | "payable";
+type Row = PortalAgingData["items"][number];
 
-interface PartyRow {
-  party: string;
-  buckets: AgingBucketSet;
+/**
+ * Ledger+ feature. Who owes the client and who the client owes, read from
+ * GET /api/portal/:clientId/aging?side=. Rows are the newest aging snapshot
+ * the engine produced. No snapshot is an empty table, not a table of zeros.
+ */
+export default function PortalAging() {
+  const [side, setSide] = useState<Side>("receivable");
+  return (
+    <PortalScreen
+      title="Receivables and payables"
+      subtitle="Who owes you, who you owe, and how late each one is."
+      testId="hero-portal-aging"
+      actions={
+        <Tabs value={side} onValueChange={(v) => setSide(v as Side)}>
+          <TabsList>
+            <TabsTrigger value="receivable" data-testid="tab-aging-ar">Owed to you</TabsTrigger>
+            <TabsTrigger value="payable" data-testid="tab-aging-ap">You owe</TabsTrigger>
+          </TabsList>
+        </Tabs>
+      }
+    >
+      {({ clientId }) => <Body clientId={clientId} side={side} />}
+    </PortalScreen>
+  );
 }
 
-/** Ledger+ feature. Collections and payables detail. */
-export default function PortalAging() {
-  const p = usePortal();
-
-  const fact = useMemo(() => agingFact(p.ds, p.clientId), [p.ds, p.clientId]);
-  const invoices = useMemo(() => openInvoices(p.ds, p.clientId), [p.ds, p.clientId]);
-  const bills = useMemo(() => openBills(p.ds, p.clientId), [p.ds, p.clientId]);
-
-  if (!p.can("aging")) {
-    return (
-      <>
-        <PortalHero
-          title="Receivables and payables"
-          subtitle="Who owes you, who you owe, and how late each one is."
-          tier={p.tier}
-          testId="hero-portal-aging"
-        />
-        <LockedFeature feature="aging" fact={fact} currentTier={p.tier} />
-      </>
-    );
-  }
-
-  const ar: PartyRow[] = agingByParty(
-    invoices.map((i) => ({ party: i.customer, dueDate: i.dueDate, open: i.amountCents - i.paidCents })),
-  );
-  const ap: PartyRow[] = agingByParty(bills.map((b) => ({ party: b.vendor, dueDate: b.dueDate, open: b.amountCents - b.paidCents })));
-  const arTotal = totalBuckets(ar.map((r) => r.buckets));
-  const apTotal = totalBuckets(ap.map((r) => r.buckets));
-  const overdueAr = arTotal.total - arTotal.current;
-  const overdueAp = apTotal.total - apTotal.current;
-
-  const grid = (rows: PartyRow[], totals: AgingBucketSet, kind: string) => (
-    <DataGrid<PartyRow>
-      rows={rows}
-      rowKey={(r) => r.party}
-      cols={[
-        { key: "party", label: kind, mobile: "title", render: (r) => <span className="font-medium">{r.party}</span> },
-        ...BUCKETS.map((b) => ({
-          key: b.key,
-          label: b.label,
-          align: "right" as const,
-          mobile: "row" as const,
-          render: (r: PartyRow) => <Money cents={r.buckets[b.key]} dim />,
-        })),
-        {
-          key: "total",
-          label: "Open",
-          align: "right" as const,
-          mobile: "value" as const,
-          render: (r: PartyRow) => <Money cents={r.buckets.total} className="font-semibold" />,
-        },
-      ]}
-      empty={<EmptyState title={`No open ${kind.toLowerCase()} balances`} body="Nothing is outstanding on this side right now." />}
-      footer={
-        rows.length > 0 ? (
-          <tr>
-            <td className="px-3 py-2 text-sm font-semibold">Total</td>
-            {BUCKETS.map((b) => (
-              <td key={b.key} className="tnum hidden px-3 py-2 text-right text-sm font-semibold sm:table-cell">
-                {usd(totals[b.key])}
-              </td>
-            ))}
-            <td className="tnum px-3 py-2 text-right text-sm font-semibold">{usd(totals.total)}</td>
-          </tr>
-        ) : undefined
-      }
-      testId={`grid-portal-aging-${kind.toLowerCase()}`}
-    />
-  );
-
+function Body({ clientId, side }: { clientId: string; side: Side }) {
+  const q = usePortalAging(clientId, side);
   return (
-    <>
-      <PortalHero
-        title="Receivables and payables"
-        subtitle={`Open items for ${p.client.dba} as of ${fmtShortDate(TODAY)}. Buckets are counted from the due date on each document.`}
-        tier={p.tier}
-        testId="hero-portal-aging"
-      />
-
-      {invoices.length === 0 && bills.length === 0 ? (
-        <SectionCard title="Aging" testId="card-portal-aging-empty">
-          <EmptyState
-            title="Nothing outstanding"
-            body="You have no open invoices and no open bills, so there is no aging to read. This fills in as documents post."
-          />
-        </SectionCard>
-      ) : (
-        <>
-          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-            <Kpi label="Owed to you" value={usd(arTotal.total)} hint={`${invoices.length} open invoices`} testId="kpi-portal-ar" />
-            <Kpi label="Past due to you" value={usd(overdueAr)} tone={overdueAr > 0 ? "risk" : "good"} testId="kpi-portal-ar-late" />
-            <Kpi label="You owe" value={usd(apTotal.total)} hint={`${bills.length} open bills`} testId="kpi-portal-ap" />
-            <Kpi label="Past due from you" value={usd(overdueAp)} tone={overdueAp > 0 ? "watch" : "good"} testId="kpi-portal-ap-late" />
-          </div>
-
-          <SectionCard title="Aging detail" testId="card-portal-aging">
-            <Tabs defaultValue="ar">
-              <div className="border-b border-border px-3 pt-3">
-                <TabsList>
-                  <TabsTrigger value="ar" data-testid="tab-portal-ar">
-                    Money in
-                  </TabsTrigger>
-                  <TabsTrigger value="ap" data-testid="tab-portal-ap">
-                    Money out
-                  </TabsTrigger>
-                </TabsList>
-              </div>
-              <TabsContent value="ar" className="m-0">
-                {grid(ar, arTotal, "Customer")}
-              </TabsContent>
-              <TabsContent value="ap" className="m-0">
-                {grid(ap, apTotal, "Vendor")}
-              </TabsContent>
-            </Tabs>
-          </SectionCard>
-
-          <PortalNote testId="note-portal-aging-basis">
-            These totals tie to the receivable and payable balances on your balance sheet. If a customer says they paid and it is still
-            listed here, send us the remittance and we will chase it.
-          </PortalNote>
-        </>
-      )}
-    </>
+    <QueryBody q={q} title="Receivables and payables" testId="card-portal-aging">
+      {(data) => {
+        const late = data.items.filter((r) => (r.ageDays ?? 0) > 0);
+        return (
+          <>
+            <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+              <Kpi label={side === "receivable" ? "Open receivables" : "Open payables"} value={<Money cents={data.totalCents} />} testId="kpi-aging-total" />
+              <Kpi label="Open items" value={data.items.length} testId="kpi-aging-count" />
+              <Kpi label="Past due" value={late.length} tone={late.length ? "watch" : "good"} testId="kpi-aging-late" />
+              <Kpi label="As of" value={data.asOfDate ? fmtShortDate(data.asOfDate) : "No snapshot"} testId="kpi-aging-asof" />
+            </div>
+            {data.subledgerOutOfTie ? (
+              <PortalNote tone="watch" testId="note-aging-tie">
+                The detail below does not tie to the control account for this date. Your accountant has been told. The rows are shown as they stand.
+              </PortalNote>
+            ) : null}
+            <SectionCard title={side === "receivable" ? "Open invoices" : "Open bills"} bodyClassName="p-0" testId="card-portal-aging-rows">
+              <DataGrid<Row>
+                rows={data.items}
+                rowKey={(r, i) => `${r.partyName}-${r.documentNumber ?? i}`}
+                testId="grid-portal-aging"
+                empty={
+                  <EmptyState
+                    title={data.asOfDate ? "Nothing open" : "No aging has been produced yet"}
+                    body={
+                      data.asOfDate
+                        ? `Every ${side === "receivable" ? "invoice" : "bill"} on file as of ${fmtDate(data.asOfDate)} is settled.`
+                        : "Aging is built when a month is closed. There is no closed month on your books yet, so there is nothing to age."
+                    }
+                  />
+                }
+                cols={[
+                  { key: "party", label: side === "receivable" ? "Customer" : "Vendor", render: (r) => <span className="font-medium">{r.partyName}</span> },
+                  { key: "doc", label: "Document", render: (r) => r.documentNumber ?? "Not numbered" },
+                  { key: "date", label: "Date", render: (r) => (r.documentDate ? fmtShortDate(r.documentDate) : "Not dated") },
+                  { key: "age", label: "Days", align: "right", render: (r) => (r.ageDays === null ? "Not due" : r.ageDays) },
+                  { key: "bucket", label: "Bucket", render: (r) => r.bucket.replace(/_/g, " ") },
+                  { key: "open", label: "Open", align: "right", render: (r) => <Money cents={r.openBalanceCents} /> },
+                ]}
+              />
+            </SectionCard>
+          </>
+        );
+      }}
+    </QueryBody>
   );
 }

@@ -59,11 +59,24 @@ routes add `requireClient` and, where marked, `requireFeature`.
 | GET | `/api/portal/:clientId/home` | client | `PortalHome` | Tier, features, closed periods, open requests. Never 403 on feature: the home page is how a person learns what they have. |
 | GET | `/api/portal/:clientId/statements` | client, feature `statements` | `PortalStatements` | `period=YYYY-MM-01`, else the latest visible period. |
 | GET | `/api/portal/:clientId/transactions` | client, feature `transactions` | `TransactionPage` | Same query as the firm route. |
-| GET | `/api/portal/:clientId/requests` | client, feature `requests` | `{ items: PortalRequest[] }` | Open document requests. |
+| GET | `/api/portal/:clientId/requests` | client, feature `requests` | `PortalRequests` | Every request for the client, open and satisfied, newest first. |
+| POST | `/api/portal/:clientId/requests/:requestId/answer` | client, feature `requests` | `PortalActionResult` | Body `{ answer }`. Runs `PORTAL-ANSWER-REQUEST`, preview then apply. Always `200`; `done: false` with the engine's text when the run refused. |
+| GET | `/api/portal/:clientId/messages` | client, feature `messages` | `PortalMessages` | The thread between the client and the firm, oldest first. |
+| POST | `/api/portal/:clientId/messages` | client, feature `messages` | `PortalActionResult` | Body `{ body }`. Runs `PORTAL-POST-MESSAGE`. |
+| GET | `/api/portal/:clientId/documents` | client, feature `documents` | `PortalDocuments` | Rows from `docvault.documents`. `storageConfigured` is false until storage exists, so no download link is offered. |
 | POST | `/api/portal/:clientId/upload` | client, feature `documents` | `501 not_configured` | Needs document storage. |
-| GET | `/api/portal/:clientId/documents` | client, feature `documents` | `501 not_configured` | Needs document storage. |
-| GET | `/api/portal/:clientId/messages` | client, feature `messages` | `501 not_configured` | Needs mail. |
-| POST | `/api/portal/:clientId/messages` | client, feature `messages` | `501 not_configured` | Needs mail. |
+| GET | `/api/portal/:clientId/sign` | client | `PortalSign` | The engagement, its letter document, and any signature evidence. Not feature gated: signing is how a client gets features. |
+| POST | `/api/portal/:clientId/sign` | client | `PortalActionResult` | Body `{ consent: true }`. Runs `ENG-SIGN-LETTER`, which records signature evidence and moves the engagement to `signed`. |
+| GET | `/api/portal/:clientId/aging` | client, feature `aging` | `PortalAging` | `side=receivable` or `payable`. Buckets from open ledger items. |
+| GET | `/api/portal/:clientId/budget` | client, feature `budget` | `PortalBudget` | `period=YYYY-MM-01`. Budget lines against actuals; `budgetLineCount: 0` and an empty `items` when no budget exists. |
+| GET | `/api/portal/:clientId/forecast` | client, feature `forecast` | `PortalForecast` | `run=` a forecast run id, else the latest. `run` is null when no forecast run has been applied. |
+| GET | `/api/portal/:clientId/scenarios` | client, feature `scenarios` | `PortalForecast` | The latest forecast with every scenario it carries. |
+| GET | `/api/portal/:clientId/narrative` | client, feature `narrative` | `PortalNarrative` | The narrative stored with the latest close, or none. |
+| GET | `/api/portal/:clientId/reports` | client, feature `custom_reports` | `PortalReports` | Report packages built at close. `storageConfigured` as for documents. |
+| GET | `/api/portal/:clientId/periods` | client, feature `open_period` | `PortalPeriods` | Every period with its status, newest first. The open period screen reads statements for the open one. |
+| GET | `/api/firm/clients/:clientId/messages` | firm, client | `PortalMessages` | The same thread from the firm side. |
+| POST | `/api/firm/clients/:clientId/messages` | firm, client | `PortalActionResult` | Body `{ body }`. Runs `PORTAL-POST-MESSAGE` with `authorScope: firm`. |
+| GET | `/api/firm/clients/:clientId/requests` | firm, client | `PortalRequests` | The client's requests and their answers. |
 
 Anything else under `/api` is `404 not_found` in the envelope.
 
@@ -171,7 +184,20 @@ see. A client scoped person's memberships are the whole list.
    scope enforced, the happy path.
 8. Run the gates in `docs/RUNNING.md` section 9: `npx tsc --noEmit`, the test harness, `check-style`, `check-books`, `check-schema`, `check-queries`, `npm run build`.
 
-## 8. Known limits
+## 8. Client side runs
+
+`CLIENT_SIDE_RUNS` in `server/api/runs.ts` names the three runs a client
+scoped actor may trigger, each from one portal route and never from the
+generic run route: `PORTAL-ANSWER-REQUEST`, `PORTAL-POST-MESSAGE`, and
+`ENG-SIGN-LETTER` (migration 0028). The portal route previews and applies
+in one request (`previewThenApply` in `server/api/portal-router.ts`) and
+answers `200` with `PortalActionResult { preview, applied, done }`. A
+refused or failed run is `done: false` with the engine's own text, not a
+4xx, because the request itself was well formed and the browser shows the
+text as the outcome. A `deduplicated` apply counts as done: the same
+message or answer already exists.
+
+## 9. Known limits
 
 - A client's draft engagement grants no features. Statements and
   transactions answer `403 feature_not_included` until a person activates
@@ -182,5 +208,9 @@ see. A client scoped person's memberships are the whole list.
   `207` and names the run. The fix is a migration that moves the key to
   `(client_id, id)`, which every referencing foreign key already uses, plus
   the matching change in the memory port. Recorded in api-report.md.
-- Document storage and mail are not configured, so four portal routes
-  answer `501`.
+- Document storage is not configured, so `POST .../upload` answers `501`
+  and the documents and reports payloads carry `storageConfigured: false`.
+  Messages no longer need mail: they are rows in `ledger.portal_messages`
+  written by a run.
+- No consolidation run exists, so the entities screen lists the companies
+  the person belongs to and shows no combined figures.

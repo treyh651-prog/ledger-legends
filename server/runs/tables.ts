@@ -655,6 +655,74 @@ export interface PortalRequestRow {
   dueOn: string;
   createdByRunId: string;
   requestedAt: string;
+  /** Migration 0028. The client's answer in words, set by PORTAL-ANSWER-REQUEST. */
+  answer: string | null;
+  answeredAt: string | null;
+  answeredBy: string | null;
+}
+
+/**
+ * Migration 0028. One message between the client and the firm, written by
+ * PORTAL-POST-MESSAGE from either plane. No email leaves the product.
+ */
+export interface PortalMessageRow {
+  id: Ulid;
+  firmId: Ulid;
+  clientId: Ulid;
+  authorUserId: string;
+  authorScope: "client" | "firm";
+  body: string;
+  createdByRunId: string;
+  createdAt: string;
+}
+
+/**
+ * docvault.documents, migration 0008, the columns the portal reads. The storage
+ * coordinates (bucket, object key, kms alias) stay out of the row map, since no
+ * run writes a document and no screen shows them.
+ */
+export interface DocumentRow {
+  id: Ulid;
+  firmId: Ulid;
+  clientId: Ulid;
+  docType: string;
+  title: string;
+  periodStart: string | null;
+  periodEnd: string | null;
+  status: "pending" | "uploaded" | "verified" | "archived" | "deleted";
+  byteSize: number | null;
+  contentType: string | null;
+  sha256Hex: string | null;
+  requestId: string | null;
+  uploadedAt: string | null;
+  createdAt: string;
+}
+
+/**
+ * docvault.signature_evidence, migration 0008. ENG-SIGN-LETTER inserts one row
+ * per signing, with the letter's hash and size copied from the document so the
+ * record stands on its own.
+ */
+export interface SignatureEvidenceRow {
+  id: Ulid;
+  firmId: Ulid;
+  clientId: Ulid;
+  documentId: Ulid;
+  engagementId: Ulid;
+  documentSha256Hex: string;
+  documentByteSize: number;
+  signerName: string;
+  signerEmail: string;
+  signerUserId: string | null;
+  signerTitle: string | null;
+  signedAt: string;
+  signerIp: string;
+  userAgent: string;
+  consentGivenAt: string;
+  consentText: string;
+  signatureMethod: "click_to_sign" | "typed_name" | "drawn";
+  status: "signed" | "voided";
+  createdAt: string;
 }
 
 /**
@@ -2406,6 +2474,9 @@ export interface RowMap {
   client_policies: ClientPolicyRow;
   document_links: DocumentLinkRow;
   portal_requests: PortalRequestRow;
+  portal_messages: PortalMessageRow;
+  documents: DocumentRow;
+  signature_evidence: SignatureEvidenceRow;
   documentation_exceptions: DocumentationExceptionRow;
   fixed_assets: FixedAssetRow;
   depreciation_schedule: DepreciationScheduleRow;

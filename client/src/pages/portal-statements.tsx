@@ -133,7 +133,7 @@ function sectionTotal(sections: StatementSection[], code: string): number {
   return sections.find((s) => s.code === code)?.totalCents ?? 0;
 }
 
-function StatementGrid({ sections, footer, testId }: { sections: StatementSection[]; footer: { label: string; amount: number }; testId: string }) {
+export function StatementGrid({ sections, footer, testId }: { sections: StatementSection[]; footer: { label: string; amount: number }; testId: string }) {
   const rows: { key: string; label: string; amount: number; strong: boolean; indent: boolean }[] = [];
   for (const s of sections) {
     for (const l of s.lines) rows.push({ key: `${s.code}:${l.accountNumber}`, label: `${l.accountNumber} ${l.name}`, amount: l.presentedCents, strong: false, indent: true });
