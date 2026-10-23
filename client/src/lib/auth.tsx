@@ -91,6 +91,8 @@ interface ConfigResponse {
   supabaseUrl?: string;
   anonKey?: string;
   reason?: string;
+  /** Memory port outside production: the server answers as one firm owner. */
+  developmentActor?: boolean;
 }
 
 /** Read and clear the Supabase link type from the hash before the router sees it. */
@@ -169,7 +171,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
       if (cancelled) return;
       if (!cfg.configured || !cfg.supabaseUrl || !cfg.anonKey) {
-        setStatus("off");
+        if (cfg.developmentActor) {
+          // The server supplies the actor (NOTES 221). Ask who that is so the
+          // firm header and the memberships are real, then stay in "off".
+          try {
+            const meRes = await fetch("/api/auth/me");
+            if (meRes.ok && !cancelled) {
+              const body = (await meRes.json()) as Me;
+              setMe(body);
+              setFirmState((cur) => pickFirm(body, cur));
+            }
+          } catch {
+            // The screens show the API's own message when a read fails.
+          }
+        }
+        if (!cancelled) setStatus("off");
         return;
       }
       const captured = captureLinkType();

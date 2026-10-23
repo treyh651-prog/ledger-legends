@@ -1,94 +1,60 @@
 import { useMemo } from "react";
 import { useLocation } from "wouter";
 import { ArrowUpRight, CircleAlert, FileWarning, ListChecks } from "lucide-react";
-import { Bar, BarChart, CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { Button } from "@/components/ui/button";
-import { DataGrid, Kpi, Meter, Money, PageHeader, Pill, SectionCard, EmptyState } from "@/components/kit";
+import { DataGrid, EmptyState, Kpi, PageHeader, Pill, SectionCard } from "@/components/kit";
 import { SchedulerCard } from "@/components/scheduler-card";
 import { useApp } from "@/store";
-import { clientRollup, monthlyTrend, substantiationViews } from "@/data/derive";
-import { fmtPeriod, fmtPeriodShort, usd } from "@/lib/money";
-import type { Client } from "@/data/types";
+import { useFirmOverview, errorMessage } from "@/api";
+import { fmtPeriod, fmtTimestamp } from "@/lib/money";
+import type { ClientSummary } from "@shared/api";
 
+export const NO_CLIENTS_COPY = "No clients yet. Add the first one.";
+
+/**
+ * The firm's first screen, read from GET /api/firm/overview. Every number is
+ * a count the server took from the owning table. Nothing here is derived in
+ * the browser from the mock dataset any more.
+ */
 export default function FirmOverview() {
-  const { ds, period, loading, loadError, reload, setActiveClient, activeClientId } = useApp();
+  const { setActiveClient } = useApp();
   const [, navigate] = useLocation();
-
-  const rollups = useMemo(
-    () => ds.clients.map((c) => ({ client: c, roll: clientRollup(ds, c.id, period) })),
-    [ds, period],
-  );
-
-  const totals = rollups.reduce(
-    (s, r) => ({
-      revenue: s.revenue + r.roll.revenue,
-      needsReview: s.needsReview + r.roll.needsReview,
-      openItems: s.openItems + r.roll.openItems,
-      tieOut: s.tieOut + r.roll.tieOutIssues,
-      unreconciled: s.unreconciled + r.roll.unreconciled,
-      tasksOpen: s.tasksOpen + r.roll.tasksOpen,
-      overdue: s.overdue + r.roll.tasksOverdue,
-      progress: s.progress + r.roll.closeProgress,
-    }),
-    { revenue: 0, needsReview: 0, openItems: 0, tieOut: 0, unreconciled: 0, tasksOpen: 0, overdue: 0, progress: 0 },
-  );
-  const avgProgress = rollups.length ? Math.round(totals.progress / rollups.length) : 0;
-
-  const trend = useMemo(() => monthlyTrend(ds, activeClientId), [ds, activeClientId]);
-  const chartData = trend.map((t) => ({
-    name: fmtPeriodShort(t.period),
-    Revenue: t.revenue / 100,
-    Expenses: t.expenses / 100,
-    Net: t.netIncome / 100,
-  }));
+  const q = useFirmOverview();
+  const ov = q.data;
+  const clients = ov?.clients ?? [];
 
   const alerts = useMemo(() => {
-    const out: { client: Client; text: string; tone: "watch" | "risk"; href: string }[] = [];
-    for (const { client, roll } of rollups) {
-      if (roll.needsReview)
-        out.push({ client, text: `${roll.needsReview} transactions parked in 1990 suspense`, tone: "watch", href: "/transactions" });
-      if (roll.unreconciled)
-        out.push({ client, text: `${roll.unreconciled} bank account not reconciled for ${fmtPeriod(period)}`, tone: "risk", href: "/reconcile" });
-      const subs = substantiationViews(ds, client.id, period).filter((s) => s.status !== "tied");
-      for (const s of subs)
-        out.push({
-          client,
-          text:
-            s.status === "variance"
-              ? `${s.accountName} is off by ${usd(s.varianceCents)} against its support`
-              : `${s.accountName} has no support attached`,
-          tone: s.status === "variance" ? "risk" : "watch",
-          href: "/substantiation",
-        });
-      if (roll.tasksOverdue) out.push({ client, text: `${roll.tasksOverdue} close tasks are past due`, tone: "risk", href: "/board" });
+    const out: { client: ClientSummary; text: string; tone: "watch" | "risk"; href: string }[] = [];
+    for (const c of clients) {
+      if (c.openSuspense) out.push({ client: c, text: `${c.openSuspense} transactions parked in 1990 suspense`, tone: "watch", href: "/transactions" });
+      if (c.openRequests) out.push({ client: c, text: `${c.openRequests} document requests still open`, tone: "watch", href: "/requests" });
+      if (c.openTasks) out.push({ client: c, text: `${c.openTasks} close tasks open`, tone: c.openTasks > 10 ? "risk" : "watch", href: "/board" });
+      if (c.status === "onboarding") out.push({ client: c, text: "Intake is not finished, opening balances are missing", tone: "risk", href: "/clients" });
     }
     return out.slice(0, 9);
-  }, [rollups, ds, period]);
+  }, [clients]);
+
+  const errText = q.isError ? errorMessage(q.error) : null;
+  const totals = ov?.totals;
 
   return (
     <>
       <PageHeader
         title="Firm overview"
-        subtitle={`Every client, one screen. Figures are for ${fmtPeriod(period)} and update the moment you post something.`}
+        subtitle={ov ? `Every client, one screen. Counts as of ${ov.asOf}, read from the ledger tables.` : "Every client, one screen."}
         actions={
-          <Button size="sm" onClick={() => navigate("/intake")} data-testid="button-start-intake">
-            Start a client intake
+          <Button size="sm" onClick={() => navigate("/clients")} data-testid="button-start-intake">
+            Add a client
           </Button>
         }
       />
 
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
-        <Kpi label="Clients on the books" value={ds.clients.length} hint={`${ds.clients.filter((c) => c.onboardingStage === "Live").length} live, rest in onboarding`} testId="kpi-clients" />
-        <Kpi label="Billed revenue tracked" value={usd(totals.revenue)} hint="Combined client revenue this period" testId="kpi-revenue" />
-        <Kpi
-          label="Close progress"
-          value={`${avgProgress}%`}
-          hint={`${totals.tasksOpen} tasks open, ${totals.overdue} past due`}
-          tone={avgProgress > 80 ? "good" : avgProgress > 50 ? "watch" : "risk"}
-          testId="kpi-progress"
-        />
-        <Kpi label="Waiting in suspense" value={totals.needsReview} hint="Parked in 1990 with a reason code" tone={totals.needsReview ? "watch" : "good"} testId="kpi-review" />
-        <Kpi label="Tie out exceptions" value={totals.tieOut} hint={`${totals.openItems} document requests open`} tone={totals.tieOut ? "risk" : "good"} testId="kpi-tieout" />
+        <Kpi label="Clients on the books" value={totals ? totals.clients : "\u2026"} hint={totals ? `${totals.active} active, ${totals.onboarding} in onboarding` : "Loading"} testId="kpi-clients" />
+        <Kpi label="Periods awaiting close" value={totals ? totals.periodsAwaitingClose : "\u2026"} hint="Open periods across every client" testId="kpi-periods" />
+        <Kpi label="Open tasks" value={totals ? totals.openTasks : "\u2026"} hint="From the practice workload" tone={totals && totals.openTasks ? "watch" : "good"} testId="kpi-progress" />
+        <Kpi label="Waiting in suspense" value={totals ? totals.openSuspense : "\u2026"} hint="Parked in 1990 with a reason code" tone={totals && totals.openSuspense ? "watch" : "good"} testId="kpi-review" />
+        <Kpi label="Document requests open" value={totals ? totals.openRequests : "\u2026"} hint="Asked of clients, not yet satisfied" tone={totals && totals.openRequests ? "watch" : "good"} testId="kpi-tieout" />
       </div>
 
       <SectionCard
@@ -98,13 +64,24 @@ export default function FirmOverview() {
         testId="card-client-book"
       >
         <DataGrid
-          rows={rollups}
-          rowKey={(r) => r.client.id}
-          loading={loading}
-          error={loadError}
-          onRetry={reload}
-          onRowClick={(r) => {
-            setActiveClient(r.client.id);
+          rows={clients}
+          rowKey={(c) => c.id}
+          loading={q.isPending}
+          error={errText}
+          onRetry={() => void q.refetch()}
+          empty={
+            <EmptyState
+              title={NO_CLIENTS_COPY}
+              body="A client is four intake runs: the client row, its chart, its workload, and its opening document requests."
+              action={
+                <Button size="sm" onClick={() => navigate("/clients")} data-testid="button-empty-add-client">
+                  Add a client
+                </Button>
+              }
+            />
+          }
+          onRowClick={(c) => {
+            setActiveClient(c.id);
             navigate("/clients");
           }}
           cols={[
@@ -112,11 +89,11 @@ export default function FirmOverview() {
               key: "client",
               label: "Client",
               mobile: "title",
-              render: (r) => (
+              render: (c) => (
                 <div className="min-w-0">
-                  <p className="truncate font-medium">{r.client.dba}</p>
+                  <p className="truncate font-medium">{c.name}</p>
                   <p className="truncate text-xs text-muted-foreground">
-                    {r.client.entityType}, {r.client.industry}
+                    {c.entityType}, fiscal year ends month {c.fiscalYearEndMonth}
                   </p>
                 </div>
               ),
@@ -125,44 +102,45 @@ export default function FirmOverview() {
               key: "stage",
               label: "Stage",
               mobile: "sub",
-              render: (r) => (
-                <Pill tone={r.client.onboardingStage === "Live" ? "good" : r.client.onboardingStage === "Cleanup" ? "watch" : "info"}>
-                  {r.client.onboardingStage}
+              render: (c) => (
+                <Pill tone={c.status === "active" ? "good" : c.status === "archived" ? "neutral" : "info"}>
+                  {c.status === "active" ? "Live" : c.status === "archived" ? "Archived" : "Onboarding"}
                 </Pill>
               ),
             },
-            { key: "lead", label: "Lead", mobile: "row", render: (r) => <span className="text-sm">{r.client.lead}</span> },
-            { key: "revenue", label: "Revenue", align: "right", mobile: "value", render: (r) => <Money cents={r.roll.revenue} /> },
-            { key: "net", label: "Net income", align: "right", mobile: "row", render: (r) => <Money cents={r.roll.netIncome} signed /> },
-            { key: "cash", label: "Cash", align: "right", mobile: "row", render: (r) => <Money cents={r.roll.cash} /> },
             {
-              key: "close",
-              label: "Close",
-              align: "right",
+              key: "engagement",
+              label: "Engagement",
               mobile: "row",
-              width: "120px",
-              render: (r) => (
-                <div className="flex items-center justify-end gap-2">
-                  <span className="tnum text-xs text-muted-foreground">{r.roll.closeProgress}%</span>
-                  <div className="w-14">
-                    <Meter pct={r.roll.closeProgress} tone={r.roll.closeProgress > 80 ? "primary" : r.roll.closeProgress > 40 ? "warning" : "danger"} />
-                  </div>
-                </div>
+              render: (c) => (
+                <span className="text-sm">
+                  {c.engagement ? `${c.engagement.serviceLevel}, ${c.engagement.status}` : "none"}
+                </span>
               ),
+            },
+            { key: "chart", label: "Accounts", align: "right", mobile: "row", render: (c) => <span className="tnum text-sm">{c.chartAccounts}</span> },
+            {
+              key: "period",
+              label: "Open period",
+              mobile: "row",
+              render: (c) => <span className="text-sm">{c.openPeriod ? fmtPeriod(c.openPeriod.slice(0, 7)) : "none"}</span>,
+            },
+            {
+              key: "lastRun",
+              label: "Last run",
+              mobile: "row",
+              render: (c) => <span className="text-xs text-muted-foreground">{c.lastRunAt ? fmtTimestamp(c.lastRunAt) : "never"}</span>,
             },
             {
               key: "flags",
               label: "Exceptions",
               mobile: "row",
-              render: (r) => (
+              render: (c) => (
                 <div className="flex flex-wrap gap-1">
-                  {r.roll.needsReview ? <Pill tone="watch">{r.roll.needsReview} in suspense</Pill> : null}
-                  {r.roll.unreconciled ? <Pill tone="risk">{r.roll.unreconciled} rec open</Pill> : null}
-                  {r.roll.tieOutIssues ? <Pill tone="risk">{r.roll.tieOutIssues} tie out</Pill> : null}
-                  {r.roll.openItems ? <Pill tone="info">{r.roll.openItems} {r.roll.openItems === 1 ? "request" : "requests"}</Pill> : null}
-                  {!r.roll.needsReview && !r.roll.unreconciled && !r.roll.tieOutIssues && !r.roll.openItems ? (
-                    <Pill tone="good">Clean</Pill>
-                  ) : null}
+                  {c.openSuspense ? <Pill tone="watch">{c.openSuspense} in suspense</Pill> : null}
+                  {c.openTasks ? <Pill tone="info">{c.openTasks} tasks</Pill> : null}
+                  {c.openRequests ? <Pill tone="info">{c.openRequests} {c.openRequests === 1 ? "request" : "requests"}</Pill> : null}
+                  {!c.openSuspense && !c.openTasks && !c.openRequests ? <Pill tone="good">Clean</Pill> : null}
                 </div>
               ),
             },
@@ -173,63 +151,33 @@ export default function FirmOverview() {
       <div className="grid gap-4 xl:grid-cols-3">
         <SectionCard
           className="xl:col-span-2"
-          title={`Revenue and expense trend, ${ds.clients.find((c) => c.id === activeClientId)?.dba}`}
-          description="Seven months of posted activity for the active client."
-          testId="card-trend"
+          title="Recent runs"
+          description="The last runs across the firm, from the run log."
+          bodyClassName="p-0"
+          testId="card-recent-runs"
         >
-          <div className="h-[260px] w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={chartData} margin={{ top: 4, right: 8, left: -12, bottom: 0 }}>
-                <CartesianGrid stroke="hsl(var(--border))" vertical={false} />
-                <XAxis dataKey="name" tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} tickLine={false} axisLine={false} />
-                <YAxis
-                  tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }}
-                  tickLine={false}
-                  axisLine={false}
-                  tickFormatter={(v) => `${Math.round(Number(v) / 1000)}k`}
-                  width={44}
-                />
-                <Tooltip
-                  contentStyle={{
-                    background: "hsl(var(--popover))",
-                    border: "1px solid hsl(var(--border))",
-                    borderRadius: 4,
-                    fontSize: 12,
-                    color: "hsl(var(--popover-foreground))",
-                  }}
-                  formatter={(v: number, n) => [`$${Number(v).toLocaleString("en-US", { maximumFractionDigits: 0 })}`, n as string]}
-                />
-                <Bar dataKey="Revenue" fill="hsl(var(--chart-1))" radius={[2, 2, 0, 0]} />
-                <Bar dataKey="Expenses" fill="hsl(var(--chart-2))" radius={[2, 2, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-          <div className="mt-3 h-[110px] w-full border-t border-border pt-3">
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={chartData} margin={{ top: 4, right: 8, left: -12, bottom: 0 }}>
-                <CartesianGrid stroke="hsl(var(--border))" vertical={false} />
-                <XAxis dataKey="name" tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} tickLine={false} axisLine={false} />
-                <YAxis
-                  tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }}
-                  tickLine={false}
-                  axisLine={false}
-                  tickFormatter={(v) => `${Math.round(Number(v) / 1000)}k`}
-                  width={44}
-                />
-                <Tooltip
-                  contentStyle={{
-                    background: "hsl(var(--popover))",
-                    border: "1px solid hsl(var(--border))",
-                    borderRadius: 4,
-                    fontSize: 12,
-                    color: "hsl(var(--popover-foreground))",
-                  }}
-                  formatter={(v: number) => [`$${Number(v).toLocaleString("en-US", { maximumFractionDigits: 0 })}`, "Net income"]}
-                />
-                <Line type="monotone" dataKey="Net" stroke="hsl(var(--chart-4))" strokeWidth={2} dot={false} />
-              </LineChart>
-            </ResponsiveContainer>
-          </div>
+          <DataGrid
+            rows={ov?.recentRuns ?? []}
+            rowKey={(r) => r.executionId}
+            loading={q.isPending}
+            error={errText}
+            onRetry={() => void q.refetch()}
+            empty={<EmptyState title="No runs yet" body="The first intake posts the first run." />}
+            cols={[
+              { key: "client", label: "Client", mobile: "title", render: (r) => <span className="text-sm font-medium">{r.clientName}</span> },
+              { key: "run", label: "Run", mobile: "sub", render: (r) => <span className="font-mono text-xs">{r.runType}</span> },
+              { key: "mode", label: "Mode", mobile: "row", render: (r) => <span className="text-sm">{r.mode}</span> },
+              {
+                key: "status",
+                label: "Status",
+                mobile: "row",
+                render: (r) => (
+                  <Pill tone={r.status === "failed" || r.status === "refused" ? "risk" : r.status.startsWith("completed") ? "good" : "neutral"}>{r.status}</Pill>
+                ),
+              },
+              { key: "at", label: "Started", mobile: "row", render: (r) => <span className="text-xs text-muted-foreground">{fmtTimestamp(r.startedAt)}</span> },
+            ]}
+          />
         </SectionCard>
 
         <SectionCard title="Needs a person" description="Ranked by how much it blocks the close." bodyClassName="p-0" testId="card-alerts">
@@ -244,7 +192,7 @@ export default function FirmOverview() {
                   )}
                   <div className="min-w-0 flex-1">
                     <p className="text-sm leading-snug">{a.text}</p>
-                    <p className="mt-0.5 text-xs text-muted-foreground">{a.client.dba}</p>
+                    <p className="mt-0.5 text-xs text-muted-foreground">{a.client.name}</p>
                   </div>
                   <Button
                     size="sm"
@@ -265,7 +213,7 @@ export default function FirmOverview() {
           ) : (
             <EmptyState
               title="Nothing is blocking the close"
-              body="Every client is coded, reconciled, and supported for this period."
+              body={clients.length ? "Every client is coded, reconciled, and supported." : "Add a client and its work shows up here."}
               icon={<ListChecks className="h-4 w-4" />}
             />
           )}

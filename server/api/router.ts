@@ -26,10 +26,11 @@ import {
   featuresForTier,
   isTierId,
   tierRank,
+  type FeatureKey,
 } from "../../shared/tiers";
 import {
+  assertFeature,
   loadEntitlement,
-  requireFeature,
   type Entitlement,
   type EntitlementRow,
   type EntitlementSource,
@@ -247,6 +248,21 @@ export function createApiRouter(deps: ApiDeps): Router {
   api.use("/firm", firm);
 
   /* ---------------- Portal ---------------- */
+
+  /**
+   * The tiers brief's requireFeature answers in its own shape. Routing the
+   * same check through the translator keeps every error in the one envelope
+   * (docs/11-api.md), so the screens show one message format.
+   */
+  const requireFeature = (key: FeatureKey, resolve: (req: Request) => Promise<Entitlement>): RequestHandler => (req, res, next) => {
+    resolve(req)
+      .then((ent) => {
+        assertFeature(ent, key);
+        res.locals.entitlement = ent;
+        next();
+      })
+      .catch(next);
+  };
 
   const portal = Router({ mergeParams: true });
   portal.use(requireClient("clientId"));

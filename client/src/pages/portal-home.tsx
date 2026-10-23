@@ -1,79 +1,60 @@
-import { useMemo } from "react";
 import { useLocation } from "wouter";
 import { ArrowRight, CalendarClock, FileText, MessageSquare, PenLine, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { EmptyState, Kpi, Meter, Pill, SectionCard } from "@/components/kit";
-import { ClosePill, LockedFeature, PortalHero } from "@/components/portal/portal-kit";
-import { usePortal } from "@/lib/use-portal";
-import { useApp } from "@/store";
-import { balanceSheet, clientRollup, monthlyNarrative, profitAndLoss } from "@/data/derive";
-import { agingFact, budgetFact, compareFact, forecastFact, narrativeFact } from "@/data/portal-facts";
-import { fmtPeriod, fmtTimestamp, usd } from "@/lib/money";
-import { TODAY } from "@/data/seed";
-import type { FeatureId } from "@/data/entitlement";
-import type { TruthfulFact } from "@/data/portal-facts";
+import { EmptyState, ErrorState, Kpi, LoadingRows, Pill, SectionCard } from "@/components/kit";
+import { PortalHero } from "@/components/portal/portal-kit";
+import { usePortalClient } from "@/lib/use-portal-client";
+import { usePortalHome, errorMessage } from "@/api";
+import { fmtPeriod, fmtTimestamp } from "@/lib/money";
+import { NO_CLIENTS_COPY } from "./firm-overview";
+import type { TierId } from "@shared/tiers";
 
+/**
+ * The client's front door, read from GET /api/portal/:clientId/home. The
+ * server says what the engagement includes; this screen only shows it.
+ */
 export default function PortalHome() {
-  const p = usePortal();
-  const { period: headerPeriod } = useApp();
+  const sel = usePortalClient();
   const [, navigate] = useLocation();
-  const ds = p.ds;
-  const clientId = p.clientId;
-  const readPeriod = p.period;
+  const q = usePortalHome(sel.clientId);
+  const home = q.data;
 
-  const figures = useMemo(() => {
-    if (!readPeriod || !p.hasBooks) return null;
-    const pl = profitAndLoss(ds, clientId, readPeriod);
-    const bs = balanceSheet(ds, clientId, readPeriod);
-    const cash = bs.assetGroups[0].rows.filter((r) => r.account.cashLike).reduce((s, r) => s + r.amount, 0);
-    return { pl, cash, roll: clientRollup(ds, clientId, readPeriod) };
-  }, [ds, clientId, readPeriod, p.hasBooks]);
+  if (sel.loading || (sel.clientId && q.isPending)) return <LoadingRows rows={6} cols={3} />;
+  if (sel.error) return <ErrorState message={errorMessage(sel.error)} onRetry={sel.retry} />;
+  if (!sel.clientId) {
+    return (
+      <SectionCard title="Client portal" testId="card-portal-noclient">
+        <EmptyState title={NO_CLIENTS_COPY} body="The portal shows one client's books. There is no client to show yet." />
+      </SectionCard>
+    );
+  }
+  if (q.isError) return <ErrorState message={errorMessage(q.error)} onRetry={() => void q.refetch()} />;
+  if (!home) return <LoadingRows rows={6} cols={3} />;
 
-  const points = useMemo(
-    () => (readPeriod && p.hasBooks && p.can("narrative") ? monthlyNarrative(ds, clientId, readPeriod) : []),
-    [ds, clientId, readPeriod, p.hasBooks, p],
-  );
-
-  /** One teaser, and only when it can name a real number from this client's books. */
-  const teaser = useMemo((): { feature: FeatureId; fact: TruthfulFact } | null => {
-    if (!readPeriod) return null;
-    const order: { feature: FeatureId; fact: () => TruthfulFact }[] = [
-      { feature: "aging", fact: () => agingFact(ds, clientId) },
-      { feature: "forecast", fact: () => forecastFact(ds, clientId) },
-      { feature: "compare", fact: () => compareFact(ds, clientId, readPeriod) },
-      { feature: "budget", fact: () => budgetFact(ds, clientId, readPeriod) },
-      { feature: "narrative", fact: () => narrativeFact(ds, clientId, readPeriod) },
-    ];
-    for (const o of order) {
-      if (p.can(o.feature)) continue;
-      const f = o.fact();
-      if (f.hasData) return { feature: o.feature, fact: f };
-    }
-    return null;
-  }, [ds, clientId, readPeriod, p]);
-
-  const requests = ds.openItems.filter((o) => o.clientId === clientId && o.status !== "accepted");
-  const overdue = requests.filter((o) => o.dueDate < TODAY);
-  const signed = ds.signatures.filter((s) => s.clientId === clientId);
-  const messages = ds.comms.filter((c) => c.clientId === clientId).slice(-3).reverse();
-  const contact = p.client.contacts[0];
+  const readPeriod = home.latestClosedPeriod ?? home.openPeriod;
+  const requests = home.openRequests;
+  const todayIso = new Date().toISOString().slice(0, 10);
+  const overdue = requests.filter((r) => r.dueOn && r.dueOn < todayIso);
+  const can = (f: string) => home.features.includes(f);
 
   return (
     <>
       <PortalHero
-        title={`Welcome back, ${contact?.name.split(" ")[0] || "there"}`}
+        title={`Welcome to the ${home.client.name} portal`}
         subtitle={
-          readPeriod
-            ? p.close && p.close.state === "open"
-              ? `This is the ${p.client.dba} portal. ${fmtPeriod(readPeriod)} is still in progress, and your level lets you watch it as it fills in.`
-              : `This is the ${p.client.dba} portal. ${fmtPeriod(readPeriod)} is closed, so every number below is final.`
-            : `This is the ${p.client.dba} portal. Nothing is closed yet, so there are no statements to read.`
+          home.latestClosedPeriod
+            ? `${fmtPeriod(home.latestClosedPeriod.slice(0, 7))} is closed, so every number from that month is final.`
+            : home.openPeriod
+              ? `${fmtPeriod(home.openPeriod.slice(0, 7))} is in progress. Nothing is closed yet.`
+              : "Nothing is closed yet, so there are no statements to read."
         }
-        tier={p.tier}
+        tier={home.tier as TierId}
         meta={
           <>
-            <ClosePill close={p.close} />
-            {p.periodHeldBack ? <Pill tone="neutral">{fmtPeriod(headerPeriod)} is not closed yet</Pill> : null}
+            <Pill tone={home.latestClosedPeriod ? "good" : "neutral"}>{home.latestClosedPeriod ? "Closed month available" : "No closed month"}</Pill>
+            {home.engagementStatus && home.engagementStatus !== "active" ? (
+              <Pill tone="watch">Engagement {home.engagementStatus}</Pill>
+            ) : null}
           </>
         }
         actions={
@@ -105,16 +86,11 @@ export default function PortalHome() {
         </div>
       ) : null}
 
-      {figures ? (
+      {home.hasBooks && readPeriod ? (
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-          <Kpi label="Cash on hand" value={usd(figures.cash)} hint={`As of the end of ${fmtPeriod(readPeriod!)}`} testId="kpi-portal-cash" />
-          <Kpi
-            label="Revenue this month"
-            value={usd(figures.pl.revenue)}
-            tone={figures.pl.revenue >= figures.pl.priorRevenue ? "good" : "watch"}
-            testId="kpi-portal-revenue"
-          />
-          <Kpi label="Net income" value={usd(figures.pl.netIncome)} tone={figures.pl.netIncome >= 0 ? "good" : "risk"} testId="kpi-portal-net" />
+          <Kpi label="Closed months" value={home.closedPeriods.length} testId="kpi-portal-closed" />
+          <Kpi label="Latest closed" value={home.latestClosedPeriod ? fmtPeriod(home.latestClosedPeriod.slice(0, 7)) : "none"} testId="kpi-portal-latest" />
+          <Kpi label="Last run" value={home.lastRunAt ? fmtTimestamp(home.lastRunAt) : "never"} testId="kpi-portal-lastrun" />
           <Kpi label="Open with us" value={requests.length} tone={requests.length ? "watch" : "good"} hint="Documents or answers" testId="kpi-portal-open" />
         </div>
       ) : (
@@ -134,67 +110,43 @@ export default function PortalHome() {
 
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
         <div className="min-w-0 space-y-4">
-          {points.length > 0 && readPeriod ? (
+          {home.hasBooks && home.latestClosedPeriod ? (
             <SectionCard
-              title={`What happened in ${fmtPeriod(readPeriod)}`}
-              description="Written by your accountant from the closed books."
-              testId="card-portal-narrative"
-            >
-              <ul className="space-y-3">
-                {points.slice(0, 4).map((pt) => (
-                  <li key={pt.heading}>
-                    <p className="text-sm font-semibold">{pt.heading}</p>
-                    <p className="mt-0.5 text-sm leading-relaxed text-muted-foreground">{pt.body}</p>
-                  </li>
-                ))}
-              </ul>
-              <Button variant="outline" size="sm" className="mt-4" onClick={() => navigate("/portal/narrative")} data-testid="button-portal-reports">
-                <FileText className="mr-1 h-4 w-4" />
-                Read the whole write up
-              </Button>
-            </SectionCard>
-          ) : figures ? (
-            <SectionCard
-              title={`Your ${fmtPeriod(readPeriod!)} statements are ready`}
-              description="Profit and loss, balance sheet and cash flow, from the closed books."
+              title={`Your ${fmtPeriod(home.latestClosedPeriod.slice(0, 7))} statements are ready`}
+              description="Profit and loss and balance sheet, from the closed books."
               testId="card-portal-statements-link"
             >
-              <div className="p-4 pt-0">
-                <p className="text-sm leading-relaxed text-muted-foreground">
-                  Every figure on this page comes from the same posted entries you can open yourself. Nothing is summarized behind your back.
-                </p>
-                <div className="mt-3 flex flex-wrap gap-2">
-                  <Button size="sm" variant="outline" onClick={() => navigate("/portal/statements")} data-testid="button-portal-reports">
-                    <FileText className="mr-1 h-4 w-4" />
-                    Open my statements
-                  </Button>
-                  <Button size="sm" variant="ghost" onClick={() => navigate("/portal/transactions")} data-testid="button-portal-txns">
-                    See my transactions
-                  </Button>
-                </div>
+              <p className="text-sm leading-relaxed text-muted-foreground">
+                Every figure comes from the same posted entries you can open yourself. Nothing is summarized behind your back.
+              </p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <Button size="sm" variant="outline" onClick={() => navigate("/portal/statements")} data-testid="button-portal-reports" disabled={!can("statements")}>
+                  <FileText className="mr-1 h-4 w-4" />
+                  Open my statements
+                </Button>
+                <Button size="sm" variant="ghost" onClick={() => navigate("/portal/transactions")} data-testid="button-portal-txns" disabled={!can("transactions")}>
+                  See my transactions
+                </Button>
               </div>
             </SectionCard>
           ) : null}
 
-          {teaser ? <LockedFeature feature={teaser.feature} fact={teaser.fact} currentTier={p.tier} testId="locked-home-teaser" /> : null}
+          <SectionCard title="What your level includes" description={`${home.tierName} engagement.`} testId="card-portal-features">
+            {home.features.length ? (
+              <div className="flex flex-wrap gap-1.5">
+                {home.features.map((f) => (
+                  <Pill key={f} tone="info">{f.replace(/_/g, " ")}</Pill>
+                ))}
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground">
+                Nothing is switched on yet. Your engagement letter is {home.engagementStatus ?? "not on file"}; features open once it is signed and active.
+              </p>
+            )}
+          </SectionCard>
         </div>
 
         <div className="min-w-0 space-y-4">
-          {figures ? (
-            <SectionCard title="Close progress" testId="card-portal-progress">
-              <div className="space-y-3">
-                <div className="flex items-center justify-between text-sm">
-                  <span className="text-muted-foreground">{fmtPeriod(readPeriod!)} close</span>
-                  <span className="tnum font-semibold">{figures.roll.closeProgress}%</span>
-                </div>
-                <Meter pct={figures.roll.closeProgress} />
-                <p className="text-xs text-muted-foreground">
-                  Your accountant is {p.client.lead}, and the review happens before anything is sent to you.
-                </p>
-              </div>
-            </SectionCard>
-          ) : null}
-
           <SectionCard title="Quick actions" bodyClassName="p-0" testId="card-portal-actions">
             <ul className="divide-y divide-border">
               {[
@@ -219,45 +171,26 @@ export default function PortalHome() {
             </ul>
           </SectionCard>
 
-          <SectionCard title="Recent messages" bodyClassName="p-0" testId="card-portal-messages">
-            {messages.length === 0 ? (
+          <SectionCard title="Open requests" bodyClassName="p-0" testId="card-portal-requests">
+            {requests.length === 0 ? (
               <div className="p-4">
-                <p className="text-sm text-muted-foreground">
-                  Nothing has been sent either way yet. Messages you send here land with the person who closes your books.
-                </p>
-                <Button size="sm" variant="outline" className="mt-3" onClick={() => navigate("/portal/messages")} data-testid="button-portal-first-message">
-                  Start a message
-                </Button>
+                <p className="text-sm text-muted-foreground">Nothing is waiting on you.</p>
               </div>
             ) : (
               <ul className="divide-y divide-border">
-                {messages.map((m) => (
-                  <li key={m.id} className="px-4 py-3">
+                {requests.slice(0, 5).map((r) => (
+                  <li key={r.id} className="px-4 py-3">
                     <div className="flex items-center gap-2">
-                      <p className="min-w-0 flex-1 truncate text-sm font-medium">{m.subject}</p>
-                      <Pill tone={m.direction === "Outbound" ? "info" : "neutral"}>{m.direction === "Outbound" ? "From us" : "From you"}</Pill>
+                      <p className="min-w-0 flex-1 truncate text-sm font-medium">{r.subject}</p>
+                      <Pill tone={r.dueOn && r.dueOn < todayIso ? "risk" : "neutral"}>{r.kind}</Pill>
                     </div>
-                    <p className="tnum mt-1 text-xs text-muted-foreground">{fmtTimestamp(m.at)}</p>
+                    <p className="mt-1 text-xs text-muted-foreground">{r.detail}</p>
+                    <p className="tnum mt-1 text-xs text-muted-foreground">Opened {r.openedOn}{r.dueOn ? `, due ${r.dueOn}` : ""}</p>
                   </li>
                 ))}
               </ul>
             )}
           </SectionCard>
-
-          {signed.length ? (
-            <SectionCard title="Signed documents" bodyClassName="p-0" testId="card-portal-signed">
-              <ul className="divide-y divide-border">
-                {signed.slice(0, 3).map((s) => (
-                  <li key={s.id} className="px-4 py-2.5">
-                    <p className="truncate text-sm">{s.documentTitle}</p>
-                    <p className="tnum text-xs text-muted-foreground">
-                      {s.signerName}, {fmtTimestamp(s.signedAt)}
-                    </p>
-                  </li>
-                ))}
-              </ul>
-            </SectionCard>
-          ) : null}
         </div>
       </div>
     </>
