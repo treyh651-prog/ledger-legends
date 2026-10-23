@@ -49,7 +49,7 @@ import {
 } from "../contract";
 import { ACTOR_PLACEHOLDER, NOW_PLACEHOLDER, applyProposals, requireTx } from "../apply-writer";
 import { scopeHashFor } from "../ids";
-import type { EngagementRow, VaultDocumentRow } from "../tables";
+import type { EngagementRow, DocumentRow } from "../tables";
 
 export const activateEngagementScopeSchema = z.object({
   clientId: z.string().uuid(),
@@ -170,12 +170,19 @@ export const intakeActivateEngagement: Run<ActivateEngagementScope, Proposal> = 
       }
       letterDocumentId = letterDocumentIdOf(engagement.id);
       signedAt = `${scope.signedOutside.signedOn}T00:00:00.000Z`;
-      const document: VaultDocumentRow = {
+      const document: DocumentRow = {
         id: letterDocumentId,
         clientId: scope.clientId,
         firmId: ctx.firmId,
         docType: "engagement_letter",
         title: `Engagement letter, signed outside the system by ${scope.signedOutside.signerName} on ${scope.signedOutside.signedOn}`,
+        periodStart: null,
+        periodEnd: null,
+        byteSize: null,
+        contentType: null,
+        sha256Hex: null,
+        requestId: null,
+        uploadedAt: null,
         bucket: NOT_CONFIGURED,
         objectKey: `firm/${ctx.firmId}/client/${scope.clientId}/${letterDocumentId}/engagement-letter.pdf`,
         kmsKeyAlias: NOT_CONFIGURED,
@@ -186,7 +193,7 @@ export const intakeActivateEngagement: Run<ActivateEngagementScope, Proposal> = 
       };
       const insert: ProposedRowInsert = {
         kind: "row_insert",
-        table: "vault_documents",
+        table: "documents",
         rowId: document.id,
         row: document as unknown as Record<string, unknown>,
         provenance: { cascadeLevel: null },

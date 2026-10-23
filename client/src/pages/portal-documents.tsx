@@ -11,8 +11,8 @@ const STATUS: Record<PortalDocument["status"], { label: string; tone: "good" | "
   pending: { label: "Expected", tone: "watch" },
   uploaded: { label: "Received", tone: "good" },
   verified: { label: "Verified", tone: "good" },
-  archived: { label: "Archived", tone: "neutral" },
-  deleted: { label: "Removed", tone: "neutral" },
+  quarantined: { label: "Held for review", tone: "risk" },
+  failed: { label: "Upload failed", tone: "risk" },
 };
 
 /**

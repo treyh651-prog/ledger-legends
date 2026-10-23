@@ -31,7 +31,7 @@ import type {
   PracticeTaskCatalogRow,
   ClientRow,
   EngagementRow,
-  VaultDocumentRow,
+  DocumentRow,
   DeferralLineRow,
   DepreciationScheduleRow,
   InvoiceRow,
@@ -705,8 +705,8 @@ async function insertRow(
       await tx.insert("engagements", [withId as unknown as EngagementRow]);
       return;
     // INTAKE-ACTIVATE-ENGAGEMENT records a letter signed outside the system.
-    case "vault_documents":
-      await tx.insert("vault_documents", [withId as unknown as VaultDocumentRow]);
+    case "documents":
+      await tx.insert("documents", [withId as unknown as DocumentRow]);
       return;
     default:
       throw new ProposalWriteError(

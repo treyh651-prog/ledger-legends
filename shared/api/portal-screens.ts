@@ -74,7 +74,8 @@ export const portalDocumentSchema = z.object({
   title: z.string(),
   periodStart: daySchema.nullable(),
   periodEnd: daySchema.nullable(),
-  status: z.enum(["pending", "uploaded", "verified", "archived", "deleted"]),
+  /** The doc_status check in migration 0008. */
+  status: z.enum(["pending", "uploaded", "verified", "quarantined", "failed"]),
   byteSize: z.number().nullable(),
   contentType: z.string().nullable(),
   uploadedAt: z.string().nullable(),

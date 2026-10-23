@@ -62,7 +62,7 @@ test("activate engagement, a letter signed in the system flips status only", asy
   const row = db.all("engagements")[0];
   assertEqual(row.status, "active", "active");
   assertEqual(row.letterDocumentId, "01ARZ3NDEKTSV4RRFFQ69G5FAV", "the existing letter kept");
-  assertEqual(db.all("vault_documents").length, 0, "no document written");
+  assertEqual(db.all("documents").length, 0, "no document written");
 });
 
 test("activate engagement, signed outside the system records a pending letter document", async () => {
@@ -78,7 +78,7 @@ test("activate engagement, signed outside the system records a pending letter do
   assertEqual(row.status, "active", "active");
   assertEqual(row.letterDocumentId, letterDocumentIdOf(ENGAGEMENT), "points at the recorded letter");
   assertEqual(row.signedAt, "2026-07-03T00:00:00.000Z", "signed on the paper's day");
-  const doc = db.all("vault_documents")[0];
+  const doc = db.all("documents")[0];
   assertEqual(doc.id.length, 26, "a 26 character vault id");
   assertEqual(doc.docType, "engagement_letter", "an engagement letter");
   assertEqual(doc.status, "pending", "no object stored yet");

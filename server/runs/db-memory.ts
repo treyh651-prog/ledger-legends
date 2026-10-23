@@ -104,7 +104,6 @@ import {
 type AnyRow = Record<string, unknown> & { id: string };
 
 const TABLES: TableName[] = [
-  "vault_documents",
   "clients",
   "engagements",
   "bank_accounts",
@@ -1893,7 +1892,7 @@ class MemoryTx implements RunTx {
         const p = rawParams as QueryCatalog["documents_for_client"]["params"];
         return this.view("documents")
           .map((r) => r as unknown as DocumentRow)
-          .filter((r) => r.firmId === p.firmId && r.clientId === p.clientId && r.status !== "deleted")
+          .filter((r) => r.firmId === p.firmId && r.clientId === p.clientId)
           .sort((a, b) =>
             a.createdAt !== b.createdAt ? (a.createdAt > b.createdAt ? -1 : 1) : byId(a, b),
           )

@@ -689,13 +689,25 @@ export interface DocumentRow {
   title: string;
   periodStart: string | null;
   periodEnd: string | null;
-  status: "pending" | "uploaded" | "verified" | "archived" | "deleted";
+  /** The doc_status check in migration 0008. */
+  status: "pending" | "uploaded" | "verified" | "quarantined" | "failed";
   byteSize: number | null;
   contentType: string | null;
   sha256Hex: string | null;
   requestId: string | null;
   uploadedAt: string | null;
   createdAt: string;
+  /**
+   * Storage coordinates, written by INTAKE-ACTIVATE-ENGAGEMENT and by the
+   * upload path once storage exists. The read queries leave them out, so a
+   * row read back from the catalog carries them as undefined. No URLs, no
+   * credentials, no bytes.
+   */
+  bucket?: string;
+  objectKey?: string;
+  kmsKeyAlias?: string;
+  objectLockMode?: "GOVERNANCE" | "COMPLIANCE" | null;
+  uploadedBy?: Ulid | null;
 }
 
 /**
@@ -2446,33 +2458,10 @@ export interface EngagementRow {
   createdBy: Ulid;
 }
 
-/**
- * docvault.documents, migration 0008. The engine writes one row of this table
- * today: the engagement letter record INTAKE-ACTIVATE-ENGAGEMENT creates when
- * a firm records that the letter was signed outside the system. Status
- * pending means no object has been stored yet; the paper letter is scanned in
- * later through the vault, which also fills the bucket and key alias. The two
- * are not null columns, so until then they carry the literal not_configured.
- */
-export interface VaultDocumentRow {
-  id: string;
-  clientId: Ulid;
-  firmId: Ulid;
-  docType: string;
-  title: string;
-  bucket: string;
-  objectKey: string;
-  kmsKeyAlias: string;
-  objectLockMode: "GOVERNANCE" | "COMPLIANCE" | null;
-  status: "pending" | "scanning" | "ready" | "quarantined" | "deleted";
-  uploadedBy: Ulid;
-  createdAt: string;
-}
 
 export interface RowMap {
   clients: ClientRow;
   engagements: EngagementRow;
-  vault_documents: VaultDocumentRow;
   bank_accounts: BankAccountRow;
   chart_accounts: ChartAccountRow;
   transactions: TransactionRow;

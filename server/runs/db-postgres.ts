@@ -69,7 +69,6 @@ const SCHEMA = "ledger";
 export const PHYSICAL_TABLES: Partial<Record<TableName, string>> = {
   clients: "tenancy.clients",
   engagements: "tenancy.engagements",
-  vault_documents: "docvault.documents",
   documents: "docvault.documents",
   signature_evidence: "docvault.signature_evidence",
   mapping_profiles: "import.mapping_profiles",
@@ -1759,7 +1758,7 @@ export const QUERIES: Record<QueryName, SqlSpec> = {
     table: "documents",
     sql: `select ${DOCUMENT_COLUMNS}
           from docvault.documents
-          where firm_id = $1 and client_id = $2 and status <> 'deleted'
+          where firm_id = $1 and client_id = $2 and archived_at is null
           order by created_at desc, id asc`,
     params: (p) => [p.firmId, p.clientId],
   },
