@@ -387,6 +387,9 @@ test("api: the screen read models answer for a new client with honest zeros", as
   const na = await call(world, "GET", `${base}/narratives?period=2026-10-01`);
   assertEqual(na.status, 200, "narratives");
   assertEqual(na.body.items.length, 0, "no narrative");
+  const msg = await call(world, "GET", `${base}/messages`);
+  assertEqual(msg.status, 501, "messages are not configured");
+  assertEqual(msg.body.error.code, "not_configured", "messages code");
   const bad = await call(world, "GET", `${base}/close?period=2026-10-15`);
   assertEqual(bad.status, 400, "a mid month period is refused");
 });

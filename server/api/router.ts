@@ -376,6 +376,13 @@ export function createApiRouter(deps: ApiDeps): Router {
     }),
   );
 
+  // The firm side of the communication log. Mail is not configured in this
+  // deployment, so the route says so with the same envelope the portal uses
+  // and the screen shows that message instead of a made up thread.
+  firmClient.get("/messages", (_req, _res, next) => {
+    next(notConfigured("Messages are not set up yet. The communication log opens once mail is configured."));
+  });
+
   firmClient.get(
     "/runs",
     route(async (req) => {

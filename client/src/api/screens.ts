@@ -142,3 +142,13 @@ export function useNarratives(clientId: string | null, period: string) {
     enabled: !!clientId,
   });
 }
+
+/** GET /api/firm/clients/:id/messages. Answers 501 not_configured until mail exists. */
+export function useFirmMessages(clientId: string | null) {
+  return useQuery({
+    queryKey: ["api", "firm", "clients", clientId ?? "none", "messages"],
+    queryFn: () => api<{ items: unknown[] }>("GET", `/api/firm/clients/${clientId}/messages`),
+    enabled: !!clientId,
+    retry: false,
+  });
+}

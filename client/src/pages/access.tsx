@@ -13,7 +13,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { useApp } from "@/store";
+import { useClients } from "@/api";
 import { useAuth, type MembershipRole, type MembershipScope } from "@/lib/auth";
 
 interface InvitationRow {
@@ -55,7 +55,7 @@ function roleLabel(role: MembershipRole): string {
 
 export default function Access() {
   const auth = useAuth();
-  const { ds } = useApp();
+  const clientsQ = useClients();
   const { toast } = useToast();
   const [rows, setRows] = useState<InvitationRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -167,7 +167,7 @@ export default function Access() {
           <DataGrid rows={rows} cols={cols} rowKey={(r) => r.membershipId} loading={loading} error={error} onRetry={load} testId="grid-access" />
         </SectionCard>
         {auth.canManageAccess ? (
-          <InviteForm onInvited={load} clients={ds.clients.map((c) => ({ id: c.id, name: c.dba || c.legalName || c.id }))} />
+          <InviteForm onInvited={load} clients={(clientsQ.data?.items ?? []).map((c) => ({ id: c.id, name: c.name }))} />
         ) : (
           <SectionCard title="Invite" testId="card-invite-locked">
             <p className="text-sm text-muted-foreground">Only an owner or manager can invite or revoke people.</p>
