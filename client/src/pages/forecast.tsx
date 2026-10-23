@@ -1,151 +1,80 @@
-import { useMemo, useState } from "react";
-import { Area, AreaChart, CartesianGrid, Line, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { DataGrid, Kpi, Money, PageHeader, Pill, SectionCard } from "@/components/kit";
-import { useApp } from "@/store";
-import { cashForecast } from "@/data/derive";
-import { fmtShortDate, usd } from "@/lib/money";
+import { useState } from "react";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { DataGrid, EmptyState, ErrorState, Kpi, Money, PageHeader, Pill, SectionCard } from "@/components/kit";
+import { useActiveClient } from "@/lib/active-client";
+import { useForecast, errorMessage } from "@/api";
+import { fmtShortDate, fmtTimestamp } from "@/lib/money";
+import type { ForecastWeek } from "@shared/api";
 
+const SCENARIO: Record<string, string> = { base: "Base", slow_collections: "Slow collections", revenue_shortfall: "Revenue shortfall" };
+
+/**
+ * Thirteen week cash forecast, read from GET /api/firm/clients/:id/forecast.
+ * Every figure is a row RPT-REBUILD-FORECAST wrote; the screen picks a run
+ * and shows its weeks.
+ */
 export default function Forecast() {
-  const { ds, activeClient, activeClientId, loading, loadError, reload } = useApp();
-  const [stress, setStress] = useState<"base" | "slow" | "tight">("base");
-
-  const weeks = useMemo(() => {
-    const base = cashForecast(ds, activeClientId, 13);
-    if (stress === "base") return base;
-    const inMult = stress === "slow" ? 0.85 : 1;
-    const outMult = stress === "tight" ? 1.12 : 1;
-    let cash = base[0].endingCash - base[0].net;
-    return base.map((w) => {
-      const inflow = Math.round(w.inflow * inMult);
-      const outflow = Math.round(w.outflow * outMult);
-      cash = cash + inflow - outflow;
-      return { ...w, inflow, outflow, net: inflow - outflow, endingCash: cash };
-    });
-  }, [ds, activeClientId, stress]);
-
-  const chart = weeks.map((w) => ({
-    name: w.label,
-    Cash: Math.round(w.endingCash / 100),
-    In: Math.round(w.inflow / 100),
-    Out: Math.round(w.outflow / 100),
-  }));
-  const low = weeks.reduce((m, w) => (w.endingCash < m.endingCash ? w : m), weeks[0]);
-  const negative = weeks.filter((w) => w.endingCash < 0);
+  const { client, clientId } = useActiveClient();
+  const [runId, setRunId] = useState<string | null>(null);
+  const q = useForecast(clientId, runId);
+  const d = q.data;
+  if (q.isError) return <ErrorState message={errorMessage(q.error)} onRetry={() => void q.refetch()} />;
+  const run = d?.runs.find((r) => r.id === d.selectedRunId) ?? null;
 
   return (
-    <>
+    <div className="space-y-4" data-testid="page-forecast">
       <PageHeader
-        title="Thirteen week cash forecast"
-        subtitle={`${activeClient.dba}, starting from the cash on the books today and adding the invoices and bills that are already scheduled.`}
+        title="Cash forecast"
+        subtitle={`${client?.name ?? ""}. ${run ? `${SCENARIO[run.scenario] ?? run.scenario} scenario, ${run.horizonWeeks} weeks from ${fmtShortDate(run.startDate)}, built ${fmtTimestamp(run.builtAt)}.` : d ? "No forecast built yet." : ""}`}
         actions={
-          <div className="flex rounded-sm border border-border bg-muted p-0.5">
-            {([
-              ["base", "As scheduled"],
-              ["slow", "Collections slip"],
-              ["tight", "Costs climb"],
-            ] as const).map(([k, label]) => (
-              <button
-                key={k}
-                type="button"
-                onClick={() => setStress(k)}
-                className={`rounded-sm px-2.5 py-1 text-xs transition-colors ${stress === k ? "bg-card font-medium" : "text-muted-foreground"}`}
-                data-testid={`button-stress-${k}`}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
+          d && d.runs.length > 1 ? (
+            <Select value={d.selectedRunId ?? ""} onValueChange={setRunId}>
+              <SelectTrigger className="w-72" data-testid="select-forecast-run">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {d.runs.map((r) => (
+                  <SelectItem key={r.id} value={r.id}>
+                    {SCENARIO[r.scenario] ?? r.scenario}, built {fmtTimestamp(r.builtAt)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          ) : null
         }
       />
-
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <Kpi label="Cash today" value={usd(weeks[0].endingCash - weeks[0].net)} testId="kpi-cash-today" />
-        <Kpi label="Cash in thirteen weeks" value={usd(weeks[weeks.length - 1].endingCash)} tone={weeks[weeks.length - 1].endingCash > 0 ? "good" : "risk"} testId="kpi-cash-end" />
-        <Kpi label="Lowest point" value={usd(low.endingCash)} hint={`Week of ${fmtShortDate(low.weekStart)}`} tone={low.endingCash < 0 ? "risk" : low.endingCash < 500000 ? "watch" : "good"} testId="kpi-low" />
-        <Kpi label="Weeks below zero" value={negative.length} tone={negative.length ? "risk" : "good"} testId="kpi-negative" />
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <Kpi label="Opening cash" value={run ? <Money cents={run.openingCashCents} /> : "None"} />
+        <Kpi label="Inflows" value={run ? <Money cents={run.totalInflowCents} /> : "None"} />
+        <Kpi label="Outflows" value={run ? <Money cents={run.totalOutflowCents} /> : "None"} />
+        <Kpi
+          label="Closing cash"
+          value={run ? <Money cents={run.closingCashCents} signed /> : "None"}
+          tone={run ? (run.shortfallWeekCount > 0 ? "risk" : "good") : "neutral"}
+          hint={run ? (run.firstShortfallWeek === null ? "No shortfall week" : `First shortfall in week ${run.firstShortfallWeek}`) : undefined}
+          testId="kpi-closing-cash"
+        />
       </div>
-
-      {negative.length ? (
-        <div className="rounded-md border border-destructive/40 bg-danger-soft p-3 text-sm" data-testid="banner-cash-warning">
-          <span className="font-medium text-destructive">Cash goes negative in week {negative[0].label.replace("Wk ", "")}.</span>{" "}
-          <span className="text-muted-foreground">
-            Pulling forward {usd(Math.abs(negative[0].endingCash))} of collections or pushing a payables run would clear it.
-          </span>
-        </div>
-      ) : (
-        <div className="rounded-md border border-positive/40 bg-positive-soft p-3 text-sm text-muted-foreground" data-testid="banner-cash-ok">
-          Cash stays positive across all thirteen weeks under this scenario, with the tightest week landing at {usd(low.endingCash)}.
-        </div>
-      )}
-
-      <SectionCard title="Projected cash balance" description="Bars are weekly movement, the line is the closing balance. Amounts in dollars." testId="card-forecast-chart">
-        <div className="h-[280px] w-full">
-          <ResponsiveContainer width="100%" height="100%">
-            <AreaChart data={chart} margin={{ top: 4, right: 8, left: -4, bottom: 0 }}>
-              <defs>
-                <linearGradient id="cashFill" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="hsl(var(--chart-1))" stopOpacity={0.28} />
-                  <stop offset="100%" stopColor="hsl(var(--chart-1))" stopOpacity={0.02} />
-                </linearGradient>
-              </defs>
-              <CartesianGrid stroke="hsl(var(--border))" vertical={false} />
-              <XAxis dataKey="name" tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }} tickLine={false} axisLine={false} interval={0} />
-              <YAxis tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} tickLine={false} axisLine={false} width={58} />
-              <Tooltip
-                contentStyle={{
-                  background: "hsl(var(--popover))",
-                  border: "1px solid hsl(var(--border))",
-                  borderRadius: 4,
-                  fontSize: 12,
-                  color: "hsl(var(--popover-foreground))",
-                }}
-                formatter={(v: number, n) => [`${v.toLocaleString()} dollars`, n as string]}
-              />
-              <Area type="monotone" dataKey="Cash" stroke="hsl(var(--chart-1))" strokeWidth={2} fill="url(#cashFill)" />
-              <Line type="monotone" dataKey="In" stroke="hsl(var(--chart-2))" strokeWidth={1.5} dot={false} />
-              <Line type="monotone" dataKey="Out" stroke="hsl(var(--chart-4))" strokeWidth={1.5} dot={false} />
-            </AreaChart>
-          </ResponsiveContainer>
-        </div>
-      </SectionCard>
-
-      <SectionCard title="Week by week" bodyClassName="p-0" testId="card-forecast-table">
-        <DataGrid
-          rows={weeks}
-          rowKey={(w) => w.weekStart}
-          loading={loading}
-          error={loadError}
-          onRetry={reload}
-          dense
-          rowClassName={(w) => (w.endingCash < 0 ? "bg-danger-soft" : "")}
+      <SectionCard title="Weeks" description="Opening, inflows by source, outflows by source, closing.">
+        <DataGrid<ForecastWeek>
+          rows={d?.weeks ?? []}
+          loading={q.isPending}
+          rowKey={(w) => String(w.weekNumber)}
+          testId="grid-forecast-weeks"
+          rowClassName={(w) => (w.shortfall ? "bg-danger-soft/40" : "")}
+          empty={<EmptyState title="No forecast" body="RPT-REBUILD-FORECAST writes the weeks when it runs for this client." />}
           cols={[
-            {
-              key: "week",
-              label: "Week",
-              mobile: "title",
-              render: (w) => (
-                <div className="min-w-0">
-                  <p>
-                    {w.label}, {fmtShortDate(w.weekStart)}
-                  </p>
-                  {w.scheduled.length ? <p className="truncate text-xs text-muted-foreground">{w.scheduled.slice(0, 2).join(", ")}</p> : null}
-                </div>
-              ),
-            },
-            { key: "in", label: "Money in", align: "right", mobile: "row", render: (w) => <Money cents={w.inflow} /> },
-            { key: "out", label: "Money out", align: "right", mobile: "row", render: (w) => <Money cents={w.outflow} /> },
-            { key: "net", label: "Net", align: "right", mobile: "row", render: (w) => <Money cents={w.net} signed /> },
-            { key: "cash", label: "Ending cash", align: "right", mobile: "value", render: (w) => <Money cents={w.endingCash} /> },
-            {
-              key: "flag",
-              label: "Read",
-              align: "right",
-              mobile: "row",
-              render: (w) => <Pill tone={w.endingCash < 0 ? "risk" : w.endingCash < 500000 ? "watch" : "good"}>{w.endingCash < 0 ? "Short" : w.endingCash < 500000 ? "Tight" : "Fine"}</Pill>,
-            },
+            { key: "wk", label: "Week", mobile: "title", render: (w) => <span className="font-medium">Week {w.weekNumber}, {fmtShortDate(w.weekStart)}</span> },
+            { key: "open", label: "Opening", align: "right", mobile: "row", render: (w) => <Money cents={w.openingCents} dim /> },
+            { key: "ar", label: "AR in", align: "right", mobile: "row", render: (w) => <Money cents={w.arInflowCents} dim /> },
+            { key: "ap", label: "AP out", align: "right", mobile: "row", render: (w) => <Money cents={w.apOutflowCents} dim /> },
+            { key: "pay", label: "Payroll", align: "right", mobile: "row", render: (w) => <Money cents={w.payrollOutflowCents} dim /> },
+            { key: "other", label: "Other out", align: "right", mobile: "row", render: (w) => <Money cents={w.recurringOutflowCents + w.loanOutflowCents} dim /> },
+            { key: "close", label: "Closing", align: "right", mobile: "value", render: (w) => <Money cents={w.closingCents} signed className="font-semibold" /> },
+            { key: "flag", label: "", mobile: "row", render: (w) => (w.shortfall ? <Pill tone="risk">Shortfall</Pill> : null) },
           ]}
         />
       </SectionCard>
-    </>
+    </div>
   );
 }

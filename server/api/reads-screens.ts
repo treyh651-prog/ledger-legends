@@ -5,7 +5,14 @@
  */
 
 import type {
+  Aging,
+  AgingParty,
+  Budget,
   CloseChecklist,
+  Forecast,
+  Journal,
+  JournalEntry,
+  Rules,
   FirmRequest,
   FirmRequests,
   RecBatch,
@@ -249,4 +256,264 @@ export async function trialBalance(tx: RunTx, firmId: string, clientId: string, 
     totalCreditCents: Number(credit),
     foots: debit === credit,
   };
+}
+
+/* ---------------- Aging ---------------- */
+
+type Bucketed = { currentCents: number; b1To30Cents: number; b31To60Cents: number; b61To90Cents: number; over90Cents: number; totalCents: number };
+
+function emptyBuckets(): Bucketed {
+  return { currentCents: 0, b1To30Cents: 0, b31To60Cents: 0, b61To90Cents: 0, over90Cents: 0, totalCents: 0 };
+}
+
+function daysBetween(from: string, to: string): number {
+  return Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86_400_000);
+}
+
+function addToBucket(b: Bucketed, dueDate: string, asOf: string, open: number): void {
+  const late = daysBetween(dueDate, asOf);
+  if (late <= 0) b.currentCents += open;
+  else if (late <= 30) b.b1To30Cents += open;
+  else if (late <= 60) b.b31To60Cents += open;
+  else if (late <= 90) b.b61To90Cents += open;
+  else b.over90Cents += open;
+  b.totalCents += open;
+}
+
+function sumBuckets(parts: Bucketed[]): Bucketed {
+  const out = emptyBuckets();
+  for (const p of parts) {
+    out.currentCents += p.currentCents;
+    out.b1To30Cents += p.b1To30Cents;
+    out.b31To60Cents += p.b31To60Cents;
+    out.b61To90Cents += p.b61To90Cents;
+    out.over90Cents += p.over90Cents;
+    out.totalCents += p.totalCents;
+  }
+  return out;
+}
+
+export async function aging(tx: RunTx, firmId: string, clientId: string, asOfDate: string): Promise<Aging> {
+  const [invoices, bills, customers, vendors, snapshots] = await Promise.all([
+    tx.query("invoices_for_client", { firmId, clientId }),
+    tx.query("bills_for_client", { firmId, clientId }),
+    tx.query("customers_for_client", { firmId, clientId }),
+    tx.query("vendors_for_client", { firmId, clientId }),
+    tx.query("aging_snapshots_for_date", { firmId, clientId, asOfDate }),
+  ]);
+  const customerName = new Map(customers.map((c) => [c.id, c.name]));
+  const vendorName = new Map(vendors.map((v) => [v.id, v.legalName]));
+
+  const byParty = (
+    docs: { partyId: string; dueDate: string; openCents: number }[],
+    names: Map<string, string>,
+  ): AgingParty[] => {
+    const parties = new Map<string, { buckets: Bucketed; count: number }>();
+    for (const d of docs) {
+      if (d.openCents <= 0) continue;
+      const slot = parties.get(d.partyId) ?? { buckets: emptyBuckets(), count: 0 };
+      addToBucket(slot.buckets, d.dueDate, asOfDate, d.openCents);
+      slot.count += 1;
+      parties.set(d.partyId, slot);
+    }
+    return Array.from(parties.entries())
+      .map(([partyId, v]) => ({ partyId, partyName: names.get(partyId) ?? partyId, documentCount: v.count, buckets: v.buckets }))
+      .sort((a, b) => (a.buckets.totalCents !== b.buckets.totalCents ? b.buckets.totalCents - a.buckets.totalCents : a.partyName < b.partyName ? -1 : 1));
+  };
+
+  const receivable = byParty(
+    invoices
+      .filter((i) => i.status === "posted")
+      .map((i) => ({
+        partyId: i.customerId,
+        dueDate: i.dueDate,
+        openCents: cents(i.originalAmountCents) - cents(i.appliedPaymentsCents) - cents(i.appliedCreditsCents) - cents(i.writtenOffCents),
+      })),
+    customerName,
+  );
+  const payable = byParty(
+    bills
+      .filter((b) => b.status === "posted")
+      .map((b) => ({
+        partyId: b.vendorId,
+        dueDate: b.dueDate,
+        openCents: cents(b.originalAmountCents) - cents(b.paidCents) - cents(b.discountTakenCents) - cents(b.creditsCents),
+      })),
+    vendorName,
+  );
+  const snapshotDates = snapshots.map((s) => s.asOfDate).sort();
+  return {
+    clientId,
+    asOfDate,
+    receivable,
+    receivableTotals: sumBuckets(receivable.map((p) => p.buckets)),
+    payable,
+    payableTotals: sumBuckets(payable.map((p) => p.buckets)),
+    lastSnapshotDate: snapshotDates.length > 0 ? snapshotDates[snapshotDates.length - 1] : null,
+  };
+}
+
+/* ---------------- Budget ---------------- */
+
+export async function budget(tx: RunTx, firmId: string, clientId: string, period: string): Promise<Budget> {
+  const periodStart = periodWindow(period).periodStart;
+  const [budgets, variances, thresholds] = await Promise.all([
+    tx.query("budgets_for_period", { firmId, clientId, periodStart }),
+    tx.query("report_variances_for_period", { firmId, clientId, periodStart }),
+    tx.query("budget_thresholds_for_client", { firmId, clientId }),
+  ]);
+  const lines = variances
+    .sort((a, b) => (a.accountNumber < b.accountNumber ? -1 : 1))
+    .map((v) => ({
+      accountNumber: v.accountNumber,
+      accountName: v.accountName,
+      budgetCents: cents(v.budgetCents),
+      actualCents: cents(v.actualCents),
+      varianceCents: cents(v.varianceCents),
+      varianceBp: v.varianceBp,
+      direction: v.direction,
+      flagged: v.flagged,
+      flagCode: v.flagCode,
+      detail: v.detail,
+    }));
+  return {
+    clientId,
+    period: periodStart,
+    budgetedAccounts: new Set(budgets.map((b) => b.accountNumber)).size,
+    budgetTotalCents: budgets.reduce((n, b) => n + cents(b.budgetCents), 0),
+    lines,
+    flaggedCount: lines.filter((l) => l.flagged).length,
+    thresholds: thresholds.map((t) => ({
+      accountNumber: t.accountNumber,
+      varianceFloorCents: cents(t.varianceFloorCents),
+      varianceThresholdBp: t.varianceThresholdBp,
+      note: t.note,
+    })),
+  };
+}
+
+/* ---------------- Forecast ---------------- */
+
+export async function forecast(tx: RunTx, firmId: string, clientId: string, runId: string | null): Promise<Forecast> {
+  const rows = await tx.query("cash_forecast_runs_for_client", { firmId, clientId });
+  const runs = [...rows]
+    .sort((a, b) => (a.builtAt !== b.builtAt ? (a.builtAt < b.builtAt ? 1 : -1) : a.id < b.id ? -1 : 1))
+    .map((r) => ({
+      id: r.id,
+      scenario: r.scenario,
+      startDate: r.startDate,
+      endDate: r.endDate,
+      horizonWeeks: r.horizonWeeks,
+      openingCashCents: cents(r.openingCashCents),
+      totalInflowCents: cents(r.totalInflowCents),
+      totalOutflowCents: cents(r.totalOutflowCents),
+      closingCashCents: cents(r.closingCashCents),
+      firstShortfallWeek: r.firstShortfallWeek,
+      shortfallWeekCount: r.shortfallWeekCount,
+      builtAt: r.builtAt,
+    }));
+  const selected = (runId ? runs.find((r) => r.id === runId) : runs[0]) ?? null;
+  const weekRows = selected ? await tx.query("cash_forecast_weeks_for_run", { firmId, clientId, forecastRunId: selected.id }) : [];
+  return {
+    clientId,
+    runs,
+    selectedRunId: selected?.id ?? null,
+    weeks: weekRows
+      .sort((a, b) => a.weekNumber - b.weekNumber)
+      .map((w) => ({
+        weekNumber: w.weekNumber,
+        weekStart: w.weekStart,
+        weekEnd: w.weekEnd,
+        openingCents: cents(w.openingCents),
+        arInflowCents: cents(w.arInflowCents),
+        otherInflowCents: cents(w.otherInflowCents),
+        apOutflowCents: cents(w.apOutflowCents),
+        recurringOutflowCents: cents(w.recurringOutflowCents),
+        loanOutflowCents: cents(w.loanOutflowCents),
+        payrollOutflowCents: cents(w.payrollOutflowCents),
+        inflowCents: cents(w.inflowCents),
+        outflowCents: cents(w.outflowCents),
+        closingCents: cents(w.closingCents),
+        shortfall: w.shortfall,
+      })),
+  };
+}
+
+/* ---------------- Journal ---------------- */
+
+export async function journal(tx: RunTx, firmId: string, clientId: string, period: string): Promise<Journal> {
+  const window = periodWindow(period);
+  const [entries, chart] = await Promise.all([
+    tx.query("journal_entries_in_window", { firmId, clientId, from: window.periodStart, to: window.periodEnd }),
+    tx.query("chart_accounts_for_client", { firmId, clientId }),
+  ]);
+  const names = new Map(chart.map((a) => [a.accountNumber, a.name]));
+  const lines = entries.length > 0 ? await tx.query("journal_lines_for_entries", { firmId, clientId, entryIds: entries.map((e) => e.id) }) : [];
+  const byEntry = new Map<string, typeof lines>();
+  for (const l of lines) {
+    const slot = byEntry.get(l.entryId) ?? [];
+    slot.push(l);
+    byEntry.set(l.entryId, slot);
+  }
+  let totalDebit = 0;
+  const out: JournalEntry[] = [...entries]
+    .sort((a, b) => (a.entryDate !== b.entryDate ? (a.entryDate < b.entryDate ? -1 : 1) : a.id < b.id ? -1 : 1))
+    .map((e) => {
+      const ls = (byEntry.get(e.id) ?? []).sort((a, b) => (a.accountNumber < b.accountNumber ? -1 : 1));
+      const debit = ls.reduce((n, l) => (l.amountCents > BigInt(0) ? n + Number(l.amountCents) : n), 0);
+      if (e.posted) totalDebit += debit;
+      return {
+        id: e.id,
+        entryDate: e.entryDate,
+        memo: e.memo,
+        posted: e.posted,
+        reversalOf: e.reversalOf,
+        reversedByEntryId: e.reversedByEntryId,
+        runType: e.runType,
+        createdByRunId: e.createdByRunId,
+        sourceTable: e.sourceTable,
+        debitCents: debit,
+        lines: ls.map((l) => ({
+          id: l.id,
+          accountNumber: l.accountNumber,
+          accountName: names.get(l.accountNumber) ?? l.accountNumber,
+          amountCents: Number(l.amountCents),
+          memo: l.memo,
+        })),
+      };
+    });
+  return {
+    clientId,
+    period: window.periodStart,
+    entries: out,
+    postedCount: out.filter((e) => e.posted).length,
+    totalDebitCents: totalDebit,
+  };
+}
+
+/* ---------------- Rules ---------------- */
+
+export async function rules(tx: RunTx, firmId: string, clientId: string): Promise<Rules> {
+  const [ruleRows, categories] = await Promise.all([
+    tx.query("active_rules_for_client", { firmId, clientId }),
+    tx.query("categories_for_client", { firmId, clientId }),
+  ]);
+  const categoryName = new Map(categories.map((c) => [c.id, c.name]));
+  const items = ruleRows.map((r) => ({
+    id: r.id,
+    name: r.name,
+    priority: r.priority,
+    conditionCount: r.conditionCount,
+    conditions: r.conditions as unknown[],
+    targetCategoryId: r.targetCategoryId,
+    targetCategoryName: categoryName.get(r.targetCategoryId) ?? null,
+    scopeKind: r.scopeKind,
+    isActive: r.isActive,
+    acceptedCount: r.acceptedCount,
+    rejectedCount: r.rejectedCount,
+    autoPostEnabled: r.autoPostEnabled,
+    autoPostCeilingCents: cents(r.autoPostCeilingCents),
+    version: r.version,
+  }));
+  return { clientId, items, autoPostCount: items.filter((r) => r.autoPostEnabled).length };
 }

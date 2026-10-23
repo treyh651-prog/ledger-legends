@@ -1,117 +1,52 @@
-import { Switch } from "@/components/ui/switch";
-import { DataGrid, EmptyState, Kpi, PageHeader, Pill, SectionCard } from "@/components/kit";
-import { useApp } from "@/store";
-import { acct } from "@/data/coa";
-import { fmtDate } from "@/lib/money";
+import { DataGrid, EmptyState, ErrorState, Kpi, PageHeader, Pill, SectionCard } from "@/components/kit";
+import { useActiveClient } from "@/lib/active-client";
+import { useRules, errorMessage } from "@/api";
+import { usd } from "@/lib/money";
+import type { Rule } from "@shared/api";
 
+/**
+ * Coding rules, read from GET /api/firm/clients/:id/rules. The order shown is
+ * the tie break order the cascade applies: priority descending, condition
+ * count descending, id ascending. Rules are written by the rule runs, so this
+ * screen has no editor.
+ */
 export default function Rules() {
-  const { ds, activeClient, activeClientId, loading, loadError, reload, toggleRule } = useApp();
-  const rules = ds.rules.filter((r) => r.clientId === activeClientId);
-  const hits = rules.reduce((s, r) => s + r.hits, 0);
-  const active = rules.filter((r) => r.active).length;
+  const { client, clientId } = useActiveClient();
+  const q = useRules(clientId);
+  const d = q.data;
+  if (q.isError) return <ErrorState message={errorMessage(q.error)} onRetry={() => void q.refetch()} />;
 
   return (
-    <>
-      <PageHeader
-        title="Categorization rules"
-        subtitle={`Rules do the repetitive coding for ${activeClient.dba}. Each one shows how many transactions it has caught so you can retire the ones that stopped earning their keep.`}
-      />
-
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <Kpi label="Rules on file" value={rules.length} testId="kpi-rules" />
-        <Kpi label="Currently active" value={active} tone={active === rules.length ? "good" : "watch"} testId="kpi-active" />
-        <Kpi label="Transactions matched" value={hits} hint="Since the rule was created" testId="kpi-hits" />
-        <Kpi
-          label="Coding handled by rules"
-          value={`${Math.min(99, Math.round((hits / Math.max(1, ds.txns.filter((t) => t.clientId === activeClientId).length)) * 100))}%`}
-          hint="Share of this client's feed"
-          testId="kpi-coverage"
-        />
+    <div className="space-y-4" data-testid="page-rules">
+      <PageHeader title="Rules" subtitle={`${client?.name ?? ""}. ${d ? `${d.items.length} active rules, ${d.autoPostCount} with auto post on.` : ""}`} />
+      <div className="grid gap-3 sm:grid-cols-3">
+        <Kpi label="Active rules" value={d ? d.items.length : "…"} testId="kpi-rules" />
+        <Kpi label="Auto post enabled" value={d ? d.autoPostCount : "…"} />
+        <Kpi label="Accepted codings" value={d ? d.items.reduce((n, r) => n + r.acceptedCount, 0) : "…"} />
       </div>
-
-      <SectionCard bodyClassName="p-0" testId="card-rules">
-        <DataGrid
-          rows={rules}
+      <SectionCard title="Rules in cascade order" description="The first rule whose conditions match wins.">
+        <DataGrid<Rule>
+          rows={d?.items ?? []}
+          loading={q.isPending}
           rowKey={(r) => r.id}
-          loading={loading}
-          error={loadError}
-          onRetry={reload}
-          empty={
-            <EmptyState
-              title="No rules yet for this client"
-              body="Open the transaction feed, pick a repeat vendor, and choose Make a rule. It will show up here."
-            />
-          }
+          testId="grid-rules"
+          empty={<EmptyState title="No rules yet" body="Rules come from the firm library and from accepted codings; none has been written for this client." />}
           cols={[
+            { key: "pri", label: "Priority", align: "right", mobile: "row", render: (r) => <span className="tnum">{r.priority}</span> },
+            { key: "name", label: "Rule", mobile: "title", render: (r) => <span className="font-medium">{r.name}</span> },
+            { key: "cond", label: "Conditions", align: "right", mobile: "row", render: (r) => <span className="tnum">{r.conditionCount}</span> },
+            { key: "target", label: "Codes to", mobile: "row", render: (r) => <span>{r.targetCategoryName ?? r.targetCategoryId}</span> },
+            { key: "scope", label: "Scope", mobile: "row", render: (r) => <Pill tone={r.scopeKind === "firm_library" ? "info" : "neutral"}>{r.scopeKind === "firm_library" ? "Firm library" : "Client"}</Pill> },
+            { key: "acc", label: "Accepted / rejected", align: "right", mobile: "row", render: (r) => <span className="tnum text-xs">{r.acceptedCount} / {r.rejectedCount}</span> },
             {
-              key: "name",
-              label: "Rule",
-              mobile: "title",
-              render: (r) => (
-                <div className="min-w-0">
-                  <p className="truncate font-medium">{r.name}</p>
-                  <p className="truncate text-xs text-muted-foreground">
-                    {r.matchType} {'"'}
-                    {r.matchValue}
-                    {'"'}
-                  </p>
-                </div>
-              ),
-            },
-            {
-              key: "account",
-              label: "Posts to",
-              mobile: "row",
-              render: (r) => (
-                <span className="text-sm">
-                  {acct(r.accountId).code} {acct(r.accountId).name}
-                </span>
-              ),
-            },
-            { key: "class", label: "Class", mobile: "row", render: (r) => <span className="text-sm">{r.klass || "Not set"}</span> },
-            { key: "hits", label: "Matches", align: "right", mobile: "value", render: (r) => <span className="tnum">{r.hits}</span> },
-            {
-              key: "created",
-              label: "Created",
-              mobile: "row",
-              render: (r) => (
-                <div className="text-xs text-muted-foreground">
-                  <p>{fmtDate(r.createdAt)}</p>
-                  <p>{r.createdBy}</p>
-                </div>
-              ),
-            },
-            {
-              key: "active",
-              label: "Active",
-              align: "right",
-              mobile: "row",
-              render: (r) => (
-                <div className="flex items-center justify-end gap-2">
-                  {r.active ? <Pill tone="good">On</Pill> : <Pill>Off</Pill>}
-                  <Switch checked={r.active} onCheckedChange={() => toggleRule(r.id)} aria-label="Toggle rule" data-testid={`switch-rule-${r.id}`} />
-                </div>
-              ),
+              key: "auto",
+              label: "Auto post",
+              mobile: "value",
+              render: (r) => (r.autoPostEnabled ? <Pill tone="good">Up to {usd(r.autoPostCeilingCents)}</Pill> : <Pill tone="neutral">Off</Pill>),
             },
           ]}
         />
       </SectionCard>
-
-      <SectionCard title="How the engine decides" description="Plain rules, no black box.">
-        <ol className="space-y-2 text-sm">
-          {[
-            "An exact vendor match on an active rule wins first and posts with full confidence.",
-            "A description match on an active rule comes next and carries the rule name into the audit trail.",
-            "If no rule fires, the engine looks at how the same vendor was coded in the last six months and offers that as a suggestion.",
-            "Anything still unmatched is parked in 1990 Suspense on the balance sheet with a reason code, so it shows up on the review list and blocks the close instead of quietly reducing profit.",
-          ].map((t, i) => (
-            <li key={i} className="flex gap-3">
-              <span className="tnum mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-sm bg-muted text-xs font-medium">{i + 1}</span>
-              <span className="text-muted-foreground">{t}</span>
-            </li>
-          ))}
-        </ol>
-      </SectionCard>
-    </>
+    </div>
   );
 }

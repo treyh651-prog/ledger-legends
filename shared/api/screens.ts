@@ -152,3 +152,180 @@ export const trialBalanceSchema = z.object({
   foots: z.boolean(),
 });
 export type TrialBalance = z.infer<typeof trialBalanceSchema>;
+
+/* ------------------------------------------------------------------------ */
+/* Aging, from open invoices and bills                                       */
+/* ------------------------------------------------------------------------ */
+
+export const agingBucketsSchema = z.object({
+  currentCents: centsSchema,
+  b1To30Cents: centsSchema,
+  b31To60Cents: centsSchema,
+  b61To90Cents: centsSchema,
+  over90Cents: centsSchema,
+  totalCents: centsSchema,
+});
+export type AgingBuckets = z.infer<typeof agingBucketsSchema>;
+
+export const agingPartySchema = z.object({
+  partyId: idSchema,
+  partyName: z.string(),
+  documentCount: z.number().int(),
+  buckets: agingBucketsSchema,
+});
+export type AgingParty = z.infer<typeof agingPartySchema>;
+
+export const agingSchema = z.object({
+  clientId: idSchema,
+  asOfDate: daySchema,
+  receivable: z.array(agingPartySchema),
+  receivableTotals: agingBucketsSchema,
+  payable: z.array(agingPartySchema),
+  payableTotals: agingBucketsSchema,
+  /** The last AR-REFRESH-AGING snapshot date, when one exists. */
+  lastSnapshotDate: daySchema.nullable(),
+});
+export type Aging = z.infer<typeof agingSchema>;
+
+/* ------------------------------------------------------------------------ */
+/* Budget versus actual                                                      */
+/* ------------------------------------------------------------------------ */
+
+export const budgetLineSchema = z.object({
+  accountNumber: z.string(),
+  accountName: z.string(),
+  budgetCents: centsSchema,
+  actualCents: centsSchema,
+  varianceCents: centsSchema,
+  varianceBp: z.number().nullable(),
+  direction: z.enum(["favorable", "unfavorable", "neutral"]),
+  flagged: z.boolean(),
+  flagCode: z.string(),
+  detail: z.string(),
+});
+export type BudgetLine = z.infer<typeof budgetLineSchema>;
+
+export const budgetSchema = z.object({
+  clientId: idSchema,
+  period: daySchema,
+  /** Budget rows entered for the period, before any variance run. */
+  budgetedAccounts: z.number().int(),
+  budgetTotalCents: centsSchema,
+  /** Variance rows RPT-COMPUTE-VARIANCES wrote; empty until it has run. */
+  lines: z.array(budgetLineSchema),
+  flaggedCount: z.number().int(),
+  thresholds: z.array(
+    z.object({ accountNumber: z.string().nullable(), varianceFloorCents: centsSchema, varianceThresholdBp: z.number().int(), note: z.string() }),
+  ),
+});
+export type Budget = z.infer<typeof budgetSchema>;
+
+/* ------------------------------------------------------------------------ */
+/* Cash forecast                                                             */
+/* ------------------------------------------------------------------------ */
+
+export const forecastWeekSchema = z.object({
+  weekNumber: z.number().int(),
+  weekStart: daySchema,
+  weekEnd: daySchema,
+  openingCents: centsSchema,
+  arInflowCents: centsSchema,
+  otherInflowCents: centsSchema,
+  apOutflowCents: centsSchema,
+  recurringOutflowCents: centsSchema,
+  loanOutflowCents: centsSchema,
+  payrollOutflowCents: centsSchema,
+  inflowCents: centsSchema,
+  outflowCents: centsSchema,
+  closingCents: centsSchema,
+  shortfall: z.boolean(),
+});
+export type ForecastWeek = z.infer<typeof forecastWeekSchema>;
+
+export const forecastRunSchema = z.object({
+  id: idSchema,
+  scenario: z.enum(["base", "slow_collections", "revenue_shortfall"]),
+  startDate: daySchema,
+  endDate: daySchema,
+  horizonWeeks: z.number().int(),
+  openingCashCents: centsSchema,
+  totalInflowCents: centsSchema,
+  totalOutflowCents: centsSchema,
+  closingCashCents: centsSchema,
+  firstShortfallWeek: z.number().int().nullable(),
+  shortfallWeekCount: z.number().int(),
+  builtAt: instantSchema,
+});
+export type ForecastRun = z.infer<typeof forecastRunSchema>;
+
+export const forecastSchema = z.object({
+  clientId: idSchema,
+  runs: z.array(forecastRunSchema),
+  selectedRunId: idSchema.nullable(),
+  weeks: z.array(forecastWeekSchema),
+});
+export type Forecast = z.infer<typeof forecastSchema>;
+
+/* ------------------------------------------------------------------------ */
+/* Journal                                                                   */
+/* ------------------------------------------------------------------------ */
+
+export const journalLineSchema = z.object({
+  id: idSchema,
+  accountNumber: z.string(),
+  accountName: z.string(),
+  amountCents: centsSchema,
+  memo: z.string(),
+});
+export const journalEntrySchema = z.object({
+  id: idSchema,
+  entryDate: daySchema,
+  memo: z.string(),
+  posted: z.boolean(),
+  reversalOf: idSchema.nullable(),
+  reversedByEntryId: idSchema.nullable(),
+  runType: z.string(),
+  createdByRunId: z.string(),
+  sourceTable: z.string(),
+  debitCents: centsSchema,
+  lines: z.array(journalLineSchema),
+});
+export type JournalEntry = z.infer<typeof journalEntrySchema>;
+
+export const journalSchema = z.object({
+  clientId: idSchema,
+  period: daySchema,
+  entries: z.array(journalEntrySchema),
+  postedCount: z.number().int(),
+  totalDebitCents: centsSchema,
+});
+export type Journal = z.infer<typeof journalSchema>;
+
+/* ------------------------------------------------------------------------ */
+/* Rules                                                                     */
+/* ------------------------------------------------------------------------ */
+
+export const ruleSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  priority: z.number().int(),
+  conditionCount: z.number().int(),
+  conditions: z.array(z.unknown()),
+  targetCategoryId: z.string(),
+  targetCategoryName: z.string().nullable(),
+  scopeKind: z.enum(["client", "firm_library"]),
+  isActive: z.boolean(),
+  acceptedCount: z.number().int(),
+  rejectedCount: z.number().int(),
+  autoPostEnabled: z.boolean(),
+  autoPostCeilingCents: centsSchema,
+  version: z.number().int(),
+});
+export type Rule = z.infer<typeof ruleSchema>;
+
+export const rulesSchema = z.object({
+  clientId: idSchema,
+  items: z.array(ruleSchema),
+  autoPostCount: z.number().int(),
+});
+export type Rules = z.infer<typeof rulesSchema>;
