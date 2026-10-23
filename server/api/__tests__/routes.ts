@@ -24,7 +24,7 @@ import { assert, assertEqual, test } from "../../runs/__tests__/harness";
 const CLIENT_USER_ID = "00000000-0000-4000-8000-0000000000c1";
 const OTHER_FIRM_ID = "00000000-0000-4000-8000-00000000f1b0";
 
-interface World {
+export interface World {
   db: MemoryRunDb;
   base: string;
   close: () => Promise<void>;
@@ -61,7 +61,7 @@ function buildActors(): { actors: Map<string, Actor>; setClientFor: (id: string)
   return { actors, setClientFor };
 }
 
-async function startWorld(): Promise<World> {
+export async function startWorld(): Promise<World> {
   const db = new MemoryRunDb();
   const { actors, setClientFor } = buildActors();
   const verifier: TokenVerifier = {
@@ -115,7 +115,7 @@ async function startWorld(): Promise<World> {
   };
 }
 
-async function call(
+export async function call(
   w: World,
   method: "GET" | "POST",
   path: string,
@@ -135,7 +135,7 @@ async function call(
   return { status: res.status, body };
 }
 
-const NEW_CLIENT = {
+export const NEW_CLIENT = {
   name: "Acme Studio LLC",
   entityType: "LLC",
   industry: "services",
@@ -388,8 +388,8 @@ test("api: the screen read models answer for a new client with honest zeros", as
   assertEqual(na.status, 200, "narratives");
   assertEqual(na.body.items.length, 0, "no narrative");
   const msg = await call(world, "GET", `${base}/messages`);
-  assertEqual(msg.status, 501, "messages are not configured");
-  assertEqual(msg.body.error.code, "not_configured", "messages code");
+  assertEqual(msg.status, 200, "messages answer for a new client");
+  assertEqual(msg.body.items.length, 0, "no messages yet");
   const bad = await call(world, "GET", `${base}/close?period=2026-10-15`);
   assertEqual(bad.status, 400, "a mid month period is refused");
 });
@@ -400,13 +400,8 @@ test("api: a period that is not a first of month is 400", async () => {
   assertEqual(r.body.error.code, "validation_failed", "code");
 });
 
-test("api: document and message routes answer 501 not_configured", async () => {
-  for (const [m, p] of [
-    ["POST", "upload"],
-    ["GET", "documents"],
-    ["GET", "messages"],
-    ["POST", "messages"],
-  ] as const) {
+test("api: the upload route answers 501 not_configured", async () => {
+  for (const [m, p] of [["POST", "upload"]] as const) {
     const r = await call(world, m, `/api/portal/${createdClientId}/${p}`, { token: "client", body: {} });
     assert(r.status === 501 || r.status === 403, `${m} ${p} is 501 or feature gated, got ${r.status}`);
     if (r.status === 501) assertEqual(r.body.error.code, "not_configured", `${p} code`);
@@ -416,7 +411,7 @@ test("api: document and message routes answer 501 not_configured", async () => {
 test("api: the run catalog lists every registered run with its tier", async () => {
   const r = await call(world, "GET", "/api/firm/runs/catalog");
   assertEqual(r.status, 200, "status");
-  assertEqual(r.body.items.length, 51, "fifty one runs");
+  assertEqual(r.body.items.length, 54, "fifty four runs");
   const create = r.body.items.find((x: any) => x.runType === "INTAKE-CREATE-CLIENT");
   assertEqual(create?.tier, "manual", "the intake run is manual");
 });

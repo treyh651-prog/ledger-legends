@@ -25,12 +25,17 @@ import { readSession, runActor } from "./session";
 /**
  * Runs a client scoped actor may trigger. Doc 08 says nothing a client does
  * posts a journal entry: a client uploads, answers, escalates, messages, and
- * signs. None of those is a registered run today. Uploads and messages wait on
- * document storage and outbound email, which are outside this brief, so the
- * list is empty and a client scoped actor gets 403 on every run route. When a
- * client side run is registered, add its type here and nowhere else.
+ * signs. Three of those are registered runs since migration 0028: answering a
+ * request, posting a message, and signing the engagement letter. Uploads wait
+ * on document storage, which is outside this brief. A client scoped actor gets
+ * 403 on every other run route. When a client side run is registered, add its
+ * type here and nowhere else.
  */
-export const CLIENT_SIDE_RUNS: readonly string[] = [];
+export const CLIENT_SIDE_RUNS: readonly string[] = [
+  "PORTAL-ANSWER-REQUEST",
+  "PORTAL-POST-MESSAGE",
+  "ENG-SIGN-LETTER",
+];
 
 /** What a person may do on demand, by tier. Every tier allows a preview. */
 export function modeAllowed(tier: RunTier | null, mode: "preview" | "apply"): boolean {

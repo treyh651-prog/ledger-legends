@@ -43,7 +43,6 @@ import {
   firmOverview,
   getClient,
   listClients,
-  openRequests,
   portalHome,
   portalStatements,
   runHistory,
@@ -51,6 +50,7 @@ import {
 } from "./reads";
 import { applyPreview, createClient, runCatalog, triggerRun, undoApplied } from "./runs";
 import { readSession } from "./session";
+import { createFirmMessagesRouter, createPortalScreensRouter } from "./portal-router";
 
 export interface ApiDeps {
   db: RunDb;
@@ -376,13 +376,6 @@ export function createApiRouter(deps: ApiDeps): Router {
     }),
   );
 
-  // The firm side of the communication log. Mail is not configured in this
-  // deployment, so the route says so with the same envelope the portal uses
-  // and the screen shows that message instead of a made up thread.
-  firmClient.get("/messages", (_req, _res, next) => {
-    next(notConfigured("Messages are not set up yet. The communication log opens once mail is configured."));
-  });
-
   firmClient.get(
     "/runs",
     route(async (req) => {
@@ -415,6 +408,7 @@ export function createApiRouter(deps: ApiDeps): Router {
     }),
   );
 
+  firm.use("/clients/:clientId", createFirmMessagesRouter({ deps, entitlementFor }));
   firm.use("/clients/:clientId", firmClient);
   api.use("/firm", firm);
 
@@ -478,29 +472,15 @@ export function createApiRouter(deps: ApiDeps): Router {
     }),
   );
 
-  portal.get(
-    "/requests",
-    requireFeature("requests", entitlementFor),
-    route(async (req) => {
-      const { clientId } = parse(clientParamsSchema, req.params);
-      const firmId = req.client!.firmId;
-      const items = await deps.db.tx(readSession(req.actor!, firmId, clientId), (tx) => openRequests(tx, firmId, clientId));
-      return { body: { items } };
-    }),
-  );
-
-  // Not in this brief. Each answers 501 with a message a screen can show.
+  // Uploads wait on object storage. 501 with a message a screen can show.
   const needsStorage: RequestHandler = (_req, _res, next) => {
     next(notConfigured("Document storage is not set up yet. Uploads will open once it is."));
   };
-  const needsMail: RequestHandler = (_req, _res, next) => {
-    next(notConfigured("Messages are not set up yet. Reach the firm by email until they are."));
-  };
   portal.post("/upload", requireFeature("documents", entitlementFor), needsStorage);
-  portal.get("/documents", requireFeature("documents", entitlementFor), needsStorage);
-  portal.get("/messages", requireFeature("messages", entitlementFor), needsMail);
-  portal.post("/messages", requireFeature("messages", entitlementFor), needsMail);
 
+  // Requests, messages, documents, signing and the Legend screens live in
+  // portal-router.ts, docs/11-api.md and NOTES 240 onward.
+  api.use("/portal/:clientId", createPortalScreensRouter({ deps, entitlementFor }));
   api.use("/portal/:clientId", portal);
 
   return api;

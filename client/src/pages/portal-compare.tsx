@@ -1,175 +1,129 @@
-import { useMemo } from "react";
-import { DataGrid, EmptyState, Kpi, Money, Pill, SectionCard } from "@/components/kit";
-import { ClosePill, LockedFeature, PortalHero, PortalNote } from "@/components/portal/portal-kit";
-import { usePortal } from "@/lib/use-portal";
-import { priorPeriod, profitAndLoss } from "@/data/derive";
-import { compareFact } from "@/data/portal-facts";
-import { fmtPeriod, pct, usd } from "@/lib/money";
-import type { Account } from "@/data/types";
+import { useState } from "react";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { DataGrid, EmptyState, Kpi, Money, SectionCard } from "@/components/kit";
+import { PortalScreen, QueryBody } from "@/components/portal/portal-screen";
+import { usePortalStatements } from "@/api";
+import { fmtPeriod } from "@/lib/money";
+import type { PortalStatements, StatementSection } from "@shared/api";
 
-interface Row {
-  account: Account;
-  amount: number;
-  prior: number;
-  delta: number;
-  section: string;
+interface CompareRow {
+  key: string;
+  label: string;
+  thisCents: number;
+  priorCents: number;
+  strong: boolean;
 }
 
-/** Ledger+ feature. Month over month, line by line. */
+/**
+ * Ledger+ feature. This month against the one before, line by line, from two
+ * reads of GET /api/portal/:clientId/statements?period=. The server lists the
+ * periods the tier may open; when fewer than two exist the screen says so.
+ */
 export default function PortalCompare() {
-  const p = usePortal();
-  const readPeriod = p.period;
-  const prior = readPeriod ? priorPeriod(readPeriod) : null;
-  const fact = useMemo(
-    () => (readPeriod ? compareFact(p.ds, p.clientId, readPeriod) : null),
-    [p.ds, p.clientId, readPeriod],
-  );
-  const pl = useMemo(
-    () => (readPeriod ? profitAndLoss(p.ds, p.clientId, readPeriod, prior) : null),
-    [p.ds, p.clientId, readPeriod, prior],
-  );
-
-  if (!p.can("compare")) {
-    return (
-      <>
-        <PortalHero
-          title="Month over month"
-          subtitle="See this month against last month, line by line, so you know what actually changed."
-          tier={p.tier}
-          testId="hero-portal-compare"
-        />
-        {fact ? <LockedFeature feature="compare" fact={fact} currentTier={p.tier} /> : null}
-      </>
-    );
-  }
-
-  const rows: Row[] = pl
-    ? pl.sections.flatMap((s) =>
-        s.rows.map((r) => ({ account: r.account, amount: r.amount, prior: r.prior, delta: r.amount - r.prior, section: s.label })),
-      )
-    : [];
-  const movers = rows.slice().sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta)).slice(0, 5);
-
+  const [period, setPeriod] = useState<string | null>(null);
   return (
-    <>
-      <PortalHero
-        title="Month over month"
-        subtitle={
-          readPeriod && prior
-            ? `${fmtPeriod(readPeriod)} against ${fmtPeriod(prior)} for ${p.client.dba}. Both columns come from your posted books.`
-            : `Comparison for ${p.client.dba}.`
-        }
-        tier={p.tier}
-        meta={<ClosePill close={p.close} />}
-        testId="hero-portal-compare"
-      />
-
-      {!pl || !prior || !readPeriod ? (
-        <SectionCard title="Comparison" testId="card-portal-compare-empty">
-          <EmptyState
-            title="Not enough closed months yet"
-            body="A comparison needs two months of closed books. It turns on by itself as soon as the second month closes."
-          />
-        </SectionCard>
-      ) : (
-        <>
-          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-            <Kpi
-              label="Revenue change"
-              value={usd(pl.revenue - pl.priorRevenue)}
-              hint={pl.priorRevenue !== 0 ? pct(pl.revenue - pl.priorRevenue, pl.priorRevenue) : "No prior revenue to compare"}
-              tone={pl.revenue >= pl.priorRevenue ? "good" : "watch"}
-              testId="kpi-portal-cmp-revenue"
-            />
-            <Kpi
-              label="Gross profit change"
-              value={usd(pl.grossProfit - pl.priorGrossProfit)}
-              tone={pl.grossProfit >= pl.priorGrossProfit ? "good" : "watch"}
-              testId="kpi-portal-cmp-gross"
-            />
-            <Kpi
-              label="Operating spend change"
-              value={usd(pl.operatingExpenses - pl.priorOperatingExpenses)}
-              tone={pl.operatingExpenses <= pl.priorOperatingExpenses ? "good" : "watch"}
-              testId="kpi-portal-cmp-opex"
-            />
-            <Kpi
-              label="Net income change"
-              value={usd(pl.netIncome - pl.priorNetIncome)}
-              tone={pl.netIncome >= pl.priorNetIncome ? "good" : "watch"}
-              testId="kpi-portal-cmp-net"
-            />
-          </div>
-
-          {movers.length > 0 ? (
-            <SectionCard title="What moved the most" description="The five accounts with the largest change in either direction." testId="card-portal-movers">
-              <div className="grid gap-3 p-4 sm:grid-cols-2 lg:grid-cols-3">
-                {movers.map((r) => (
-                  <div key={r.account.id} className="rounded-md border border-border p-3" data-testid={`mover-${r.account.id}`}>
-                    <p className="truncate text-sm font-medium">{r.account.name}</p>
-                    <p className="mt-0.5 text-xs text-muted-foreground">{r.section}</p>
-                    <p className="mt-2 text-lg font-semibold">
-                      <Money cents={r.delta} signed />
-                    </p>
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      {usd(r.prior)} to {usd(r.amount)}
-                    </p>
-                  </div>
-                ))}
-              </div>
-            </SectionCard>
-          ) : null}
-
-          <SectionCard title="Line by line" description="Every account with activity in either month." testId="card-portal-compare">
-            <DataGrid<Row>
-              rows={rows}
-              rowKey={(r) => r.section + r.account.id}
-              maxHeight="60vh"
-              cols={[
-                {
-                  key: "account",
-                  label: "Account",
-                  mobile: "title",
-                  render: (r) => (
-                    <div className="min-w-0">
-                      <p className="truncate font-medium">{r.account.name}</p>
-                      <p className="text-xs text-muted-foreground">{r.section}</p>
-                    </div>
-                  ),
-                },
-                { key: "prior", label: fmtPeriod(prior), align: "right", mobile: "row", render: (r) => <Money cents={r.prior} dim /> },
-                { key: "amount", label: fmtPeriod(readPeriod), align: "right", mobile: "row", render: (r) => <Money cents={r.amount} /> },
-                {
-                  key: "delta",
-                  label: "Change",
-                  align: "right",
-                  mobile: "value",
-                  render: (r) => <Money cents={r.delta} signed className="font-medium" />,
-                },
-                {
-                  key: "pctChange",
-                  label: "Percent",
-                  align: "right",
-                  width: "110px",
-                  mobile: "row",
-                  render: (r) =>
-                    r.prior === 0 ? (
-                      <Pill tone="neutral">New this month</Pill>
-                    ) : (
-                      <span className="tnum text-sm">{pct(r.delta, Math.abs(r.prior))}</span>
-                    ),
-                },
-              ]}
-              testId="grid-portal-compare"
-            />
-          </SectionCard>
-
-          <PortalNote testId="note-portal-compare-basis">
-            Percent change is left out when an account had no balance in the prior month, because dividing by zero would print a number
-            that means nothing. Those lines read as new this month instead.
-          </PortalNote>
-        </>
-      )}
-    </>
+    <PortalScreen title="Month over month" subtitle="This month against last month, line by line." testId="hero-portal-compare">
+      {({ clientId }) => <Body clientId={clientId} period={period} setPeriod={setPeriod} />}
+    </PortalScreen>
   );
+}
+
+function Body({ clientId, period, setPeriod }: { clientId: string; period: string | null; setPeriod: (p: string) => void }) {
+  const current = usePortalStatements(clientId, period);
+  return (
+    <QueryBody q={current} title="Month over month" testId="card-portal-compare">
+      {(st) => {
+        const idx = st.visiblePeriods.indexOf(st.period);
+        const prior = idx >= 0 ? st.visiblePeriods.slice(0, idx).sort().reverse()[0] ?? null : null;
+        const earlier = st.visiblePeriods.filter((p) => p < st.period).sort().reverse()[0] ?? prior;
+        return (
+          <>
+            {st.visiblePeriods.length > 1 ? (
+              <div className="flex justify-end">
+                <Select value={st.period} onValueChange={setPeriod}>
+                  <SelectTrigger className="h-8 w-[170px] text-xs" data-testid="select-compare-period">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {st.visiblePeriods.map((v) => (
+                      <SelectItem key={v} value={v}>
+                        {fmtPeriod(v.slice(0, 7))}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            ) : null}
+            {st.periodStatus === "none" || !earlier ? (
+              <SectionCard title="Month over month" testId="card-portal-compare-empty">
+                <EmptyState
+                  title={st.periodStatus === "none" ? "No closed month yet" : "Only one month to show"}
+                  body={
+                    st.periodStatus === "none"
+                      ? "A comparison needs two closed months. There is no closed month on your books yet."
+                      : `${fmtPeriod(st.period.slice(0, 7))} is the only month available, so there is nothing yet to set beside it.`
+                  }
+                />
+              </SectionCard>
+            ) : (
+              <Prior clientId={clientId} current={st} priorPeriod={earlier} />
+            )}
+          </>
+        );
+      }}
+    </QueryBody>
+  );
+}
+
+function Prior({ clientId, current, priorPeriod }: { clientId: string; current: PortalStatements; priorPeriod: string }) {
+  const q = usePortalStatements(clientId, priorPeriod);
+  return (
+    <QueryBody q={q} title="Prior month" testId="card-portal-compare-prior">
+      {(prior) => {
+        const rows = compareRows(current.incomeStatement, prior.incomeStatement);
+        return (
+          <>
+            <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+              <Kpi label={fmtPeriod(current.period.slice(0, 7))} value={<Money cents={current.netIncomeCents} />} hint="Net income" testId="kpi-compare-this" />
+              <Kpi label={fmtPeriod(prior.period.slice(0, 7))} value={<Money cents={prior.netIncomeCents} />} hint="Net income" testId="kpi-compare-prior" />
+              <Kpi label="Change" value={<Money cents={current.netIncomeCents - prior.netIncomeCents} />} tone={current.netIncomeCents - prior.netIncomeCents >= 0 ? "good" : "risk"} testId="kpi-compare-change" />
+              <Kpi label="Lines" value={rows.filter((r) => !r.strong).length} testId="kpi-compare-lines" />
+            </div>
+            <SectionCard title="Income statement, line by line" bodyClassName="p-0" testId="card-portal-compare-rows">
+              <DataGrid<CompareRow>
+                rows={rows}
+                rowKey={(r) => r.key}
+                testId="grid-portal-compare"
+                dense
+                rowClassName={(r) => (r.strong ? "font-semibold" : "")}
+                cols={[
+                  { key: "label", label: "Line", render: (r) => r.label },
+                  { key: "this", label: fmtPeriod(current.period.slice(0, 7)), align: "right", render: (r) => <Money cents={r.thisCents} /> },
+                  { key: "prior", label: fmtPeriod(prior.period.slice(0, 7)), align: "right", render: (r) => <Money cents={r.priorCents} /> },
+                  { key: "diff", label: "Change", align: "right", render: (r) => <Money cents={r.thisCents - r.priorCents} /> },
+                ]}
+              />
+            </SectionCard>
+          </>
+        );
+      }}
+    </QueryBody>
+  );
+}
+
+function compareRows(a: StatementSection[], b: StatementSection[]): CompareRow[] {
+  const out: CompareRow[] = [];
+  const codes = Array.from(new Set([...a.map((s) => s.code), ...b.map((s) => s.code)]));
+  for (const code of codes) {
+    const sa = a.find((s) => s.code === code);
+    const sb = b.find((s) => s.code === code);
+    const accounts = Array.from(new Set([...(sa?.lines ?? []).map((l) => l.accountNumber), ...(sb?.lines ?? []).map((l) => l.accountNumber)])).sort();
+    for (const acct of accounts) {
+      const la = sa?.lines.find((l) => l.accountNumber === acct);
+      const lb = sb?.lines.find((l) => l.accountNumber === acct);
+      out.push({ key: `${code}-${acct}`, label: `${acct} ${(la ?? lb)!.name}`, thisCents: la?.presentedCents ?? 0, priorCents: lb?.presentedCents ?? 0, strong: false });
+    }
+    out.push({ key: `${code}-total`, label: `Total ${(sa ?? sb)!.title.toLowerCase()}`, thisCents: sa?.totalCents ?? 0, priorCents: sb?.totalCents ?? 0, strong: true });
+  }
+  return out;
 }

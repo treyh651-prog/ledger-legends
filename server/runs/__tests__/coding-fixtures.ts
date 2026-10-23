@@ -344,6 +344,9 @@ export function portalRequestRow(
     dueOn: "2026-01-12",
     createdByRunId: "RUNX-SEED",
     requestedAt: NOW.toISOString(),
+    answer: null,
+    answeredAt: null,
+    answeredBy: null,
     ...extra,
   };
 }

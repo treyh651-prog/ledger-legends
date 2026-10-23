@@ -1,157 +1,78 @@
-import { useMemo } from "react";
-import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { DataGrid, EmptyState, Kpi, Money, Pill, SectionCard } from "@/components/kit";
-import { LockedFeature, PortalHero, PortalNote } from "@/components/portal/portal-kit";
-import { usePortal } from "@/lib/use-portal";
-import { cashForecast, netBalances, type ForecastWeek } from "@/data/derive";
-import { forecastFact } from "@/data/portal-facts";
-import { ACCOUNTS } from "@/data/coa";
-import { fmtShortDate, usd } from "@/lib/money";
+import { PortalNote } from "@/components/portal/portal-kit";
+import { PortalScreen, QueryBody } from "@/components/portal/portal-screen";
+import { usePortalForecast } from "@/api";
+import { fmtShortDate, fmtTimestamp } from "@/lib/money";
+import type { PortalForecast as PortalForecastData } from "@shared/api";
 
-/** Legend feature. Thirteen weeks of projected cash with the schedule behind each week. */
+type Week = PortalForecastData["weeks"][number];
+
+export const SCENARIO_LABEL = { base: "Base case", slow_collections: "Slower collections", revenue_shortfall: "Revenue shortfall" } as const;
+
+/**
+ * Legend feature. The thirteen week cash forecast, read from
+ * GET /api/portal/:clientId/forecast. The run shown is the newest base case
+ * the engine built. No run is said plainly, with no sample weeks drawn.
+ */
 export default function PortalForecast() {
-  const p = usePortal();
+  return (
+    <PortalScreen title="Thirteen week cash forecast" subtitle="Cash in and cash out by week, built from your open invoices, bills and recurring payments." testId="hero-portal-forecast">
+      {({ clientId }) => <Body clientId={clientId} />}
+    </PortalScreen>
+  );
+}
 
-  const fact = useMemo(() => forecastFact(p.ds, p.clientId), [p.ds, p.clientId]);
-  const weeks = useMemo(() => (p.hasBooks ? cashForecast(p.ds, p.clientId, 13) : []), [p.ds, p.clientId, p.hasBooks]);
-  const startCash = useMemo(() => {
-    const through = p.openPeriod || p.closedPeriods[0];
-    if (!through) return 0;
-    const nets = netBalances(p.ds, p.clientId, { through });
-    return ACCOUNTS.filter((a) => a.cashLike).reduce((s, a) => s + (nets[a.id] || 0), 0);
-  }, [p.ds, p.clientId, p.openPeriod, p.closedPeriods]);
+function Body({ clientId }: { clientId: string }) {
+  const q = usePortalForecast(clientId);
+  return (
+    <QueryBody q={q} title="Cash forecast" testId="card-portal-forecast">
+      {(data) => <ForecastTable data={data} />}
+    </QueryBody>
+  );
+}
 
-  if (!p.can("forecast")) {
+export function ForecastTable({ data }: { data: PortalForecastData }) {
+  const run = data.run;
+  if (!run) {
     return (
-      <>
-        <PortalHero
-          title="Thirteen week cash forecast"
-          subtitle="Cash in and cash out by week, so a slow month is visible before it arrives."
-          tier={p.tier}
-          testId="hero-portal-forecast"
+      <SectionCard title="Cash forecast" testId="card-portal-forecast-empty">
+        <EmptyState
+          title="No forecast has been built yet"
+          body="The forecast is built from closed books and open invoices and bills. Once your accountant runs it, the weeks appear here."
         />
-        <LockedFeature feature="forecast" fact={fact} currentTier={p.tier} />
-      </>
+      </SectionCard>
     );
   }
-
-  const ending = weeks.length > 0 ? weeks[weeks.length - 1].endingCash : startCash;
-  const low = weeks.slice().sort((a, b) => a.endingCash - b.endingCash)[0];
-  const chart = weeks.map((w) => ({ name: w.label, Cash: Math.round(w.endingCash / 100) }));
-
   return (
     <>
-      <PortalHero
-        title="Thirteen week cash forecast"
-        subtitle={`Built for ${p.client.dba} from your cash on hand, your open invoices and bills by due date, and the run rate from your last three months.`}
-        tier={p.tier}
-        meta={<Pill tone="info">Projection, not a closed number</Pill>}
-        testId="hero-portal-forecast"
-      />
-
-      {weeks.length === 0 ? (
-        <SectionCard title="Forecast" testId="card-portal-forecast-empty">
-          <EmptyState
-            title="No cash history to project from"
-            body="A forecast reads your posted cash activity. There is none yet, so there is nothing honest to draw. This turns on once transactions land."
-          />
-        </SectionCard>
-      ) : (
-        <>
-          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-            <Kpi label="Cash today" value={usd(startCash)} testId="kpi-portal-fc-start" />
-            <Kpi
-              label="Projected in thirteen weeks"
-              value={usd(ending)}
-              tone={ending >= startCash ? "good" : "watch"}
-              testId="kpi-portal-fc-end"
-            />
-            <Kpi
-              label="Tightest week"
-              value={low ? usd(low.endingCash) : usd(startCash)}
-              hint={low ? `${low.label}, starting ${fmtShortDate(low.weekStart)}` : "No week to flag"}
-              tone={low && low.endingCash < startCash ? "watch" : "good"}
-              testId="kpi-portal-fc-low"
-            />
-            <Kpi
-              label="Weeks that spend more than they collect"
-              value={String(weeks.filter((w) => w.net < 0).length)}
-              hint={`of ${weeks.length}`}
-              testId="kpi-portal-fc-negative"
-            />
-          </div>
-
-          <SectionCard title="Projected cash balance" description="Dollars at the end of each week." testId="card-portal-fc-chart">
-            <div className="h-56 p-2 sm:h-64">
-              <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={chart} margin={{ top: 8, right: 12, bottom: 0, left: 4 }}>
-                  <CartesianGrid stroke="hsl(var(--border))" vertical={false} />
-                  <XAxis dataKey="name" tick={{ fontSize: 11 }} stroke="hsl(var(--muted-foreground))" />
-                  <YAxis tick={{ fontSize: 11 }} width={68} stroke="hsl(var(--muted-foreground))" />
-                  <Tooltip
-                    contentStyle={{
-                      background: "hsl(var(--card))",
-                      border: "1px solid hsl(var(--border))",
-                      borderRadius: 4,
-                      fontSize: 12,
-                    }}
-                  />
-                  <Area type="monotone" dataKey="Cash" stroke="hsl(var(--primary))" fill="hsl(var(--primary) / 0.18)" strokeWidth={2} />
-                </AreaChart>
-              </ResponsiveContainer>
-            </div>
-          </SectionCard>
-
-          <SectionCard title="Week by week" description="Every invoice and bill with a due date inside a week is named on that week." testId="card-portal-fc-table">
-            <DataGrid<ForecastWeek>
-              rows={weeks}
-              rowKey={(w) => w.weekStart}
-              maxHeight="60vh"
-              cols={[
-                {
-                  key: "week",
-                  label: "Week",
-                  width: "132px",
-                  mobile: "title",
-                  render: (w) => (
-                    <div>
-                      <p className="font-medium">{w.label}</p>
-                      <p className="text-xs text-muted-foreground">{fmtShortDate(w.weekStart)}</p>
-                    </div>
-                  ),
-                },
-                { key: "inflow", label: "In", align: "right", mobile: "row", render: (w) => <Money cents={w.inflow} /> },
-                { key: "outflow", label: "Out", align: "right", mobile: "row", render: (w) => <Money cents={w.outflow} /> },
-                { key: "net", label: "Net", align: "right", mobile: "row", render: (w) => <Money cents={w.net} signed /> },
-                {
-                  key: "endingCash",
-                  label: "Ending cash",
-                  align: "right",
-                  mobile: "value",
-                  render: (w) => <Money cents={w.endingCash} className="font-semibold" />,
-                },
-                {
-                  key: "scheduled",
-                  label: "Scheduled items",
-                  mobile: "row",
-                  render: (w) =>
-                    w.scheduled.length === 0 ? (
-                      <span className="text-xs text-muted-foreground">Run rate only</span>
-                    ) : (
-                      <span className="text-xs">{w.scheduled.join(", ")}</span>
-                    ),
-                },
-              ]}
-              testId="grid-portal-forecast"
-            />
-          </SectionCard>
-
-          <PortalNote testId="note-portal-fc-basis">
-            Weeks with no scheduled document use your recent run rate, which is why they are labeled run rate only. Nothing here is a
-            promise, it is your own history and your own open documents projected forward.
-          </PortalNote>
-        </>
-      )}
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <Kpi label="Opening cash" value={<Money cents={run.openingCashCents} />} testId="kpi-forecast-open" />
+        <Kpi label={`Closing, week ${run.horizonWeeks}`} value={<Money cents={run.closingCashCents} />} tone={run.closingCashCents < 0 ? "risk" : "good"} testId="kpi-forecast-close" />
+        <Kpi label="First shortfall" value={run.firstShortfallWeek === null ? "None" : `Week ${run.firstShortfallWeek}`} tone={run.firstShortfallWeek === null ? "good" : "risk"} testId="kpi-forecast-shortfall" />
+        <Kpi label="Scenario" value={SCENARIO_LABEL[run.scenario]} hint={`Built ${fmtTimestamp(run.builtAt)}`} testId="kpi-forecast-scenario" />
+      </div>
+      {run.firstShortfallWeek !== null ? (
+        <PortalNote tone="watch" testId="note-forecast-shortfall">
+          Cash goes below zero in week {run.firstShortfallWeek} on this run. Your accountant sees the same figure.
+        </PortalNote>
+      ) : null}
+      <SectionCard title={`${fmtShortDate(run.startDate)} to ${fmtShortDate(run.endDate)}`} bodyClassName="p-0" testId="card-portal-forecast-weeks">
+        <DataGrid<Week>
+          rows={data.weeks}
+          rowKey={(w) => String(w.weekNumber)}
+          testId="grid-portal-forecast"
+          dense
+          cols={[
+            { key: "wk", label: "Week", render: (w) => <span className="font-medium">{w.weekNumber}</span> },
+            { key: "start", label: "Starting", render: (w) => fmtShortDate(w.weekStart) },
+            { key: "open", label: "Opening", align: "right", render: (w) => <Money cents={w.openingCents} /> },
+            { key: "in", label: "In", align: "right", render: (w) => <Money cents={w.inflowCents} /> },
+            { key: "out", label: "Out", align: "right", render: (w) => <Money cents={w.outflowCents} /> },
+            { key: "close", label: "Closing", align: "right", render: (w) => <Money cents={w.closingCents} /> },
+            { key: "flag", label: "", render: (w) => (w.shortfall ? <Pill tone="risk">Short</Pill> : null) },
+          ]}
+        />
+      </SectionCard>
     </>
   );
 }

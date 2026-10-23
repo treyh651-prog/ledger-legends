@@ -53,6 +53,9 @@ import type {
   MappingProfileRow,
   PeriodLockRow,
   PortalRequestRow,
+  PortalMessageRow,
+  DocumentRow,
+  SignatureEvidenceRow,
   RecBatchRow,
   StatementLineRow,
   RecurringSplitRow,
@@ -792,6 +795,31 @@ export interface QueryCatalog {
   engagements_for_client: {
     params: { firmId: Ulid; clientId: Ulid };
     row: EngagementRow;
+  };
+  /** Every portal request for one client, open or not, newest opened first. */
+  portal_requests_for_client: {
+    params: { firmId: Ulid; clientId: Ulid };
+    row: PortalRequestRow;
+  };
+  /** The client and firm thread, oldest first. Migration 0028. */
+  portal_messages_for_client: {
+    params: { firmId: Ulid; clientId: Ulid };
+    row: PortalMessageRow;
+  };
+  /** docvault documents for one client that are not deleted, newest first. */
+  documents_for_client: {
+    params: { firmId: Ulid; clientId: Ulid };
+    row: DocumentRow;
+  };
+  /** One docvault document by id, scoped to the client. Zero or one row. */
+  document_by_id: {
+    params: { firmId: Ulid; clientId: Ulid; documentId: Ulid };
+    row: DocumentRow;
+  };
+  /** Signature records for one engagement, newest first. */
+  signature_evidence_for_engagement: {
+    params: { firmId: Ulid; clientId: Ulid; engagementId: Ulid };
+    row: SignatureEvidenceRow;
   };
   /** Run history for one client, newest first, paged. */
   run_log_for_client: {

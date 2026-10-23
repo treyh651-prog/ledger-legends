@@ -6,3 +6,4 @@ export * from "./portal";
 export * from "./transactions";
 export * from "./me";
 export * from "./screens";
+export * from "./portal-screens";

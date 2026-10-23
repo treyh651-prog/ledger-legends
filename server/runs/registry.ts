@@ -46,6 +46,9 @@ import { importParseFeed } from "./runs/import-parse-feed";
 import { intakeBuildChart } from "./runs/intake-build-chart";
 import { intakeCreateClient } from "./runs/intake-create-client";
 import { intakeActivateEngagement } from "./runs/intake-activate-engagement";
+import { engSignLetter } from "./runs/eng-sign-letter";
+import { portalAnswerRequest } from "./runs/portal-answer-request";
+import { portalPostMessage } from "./runs/portal-post-message";
 import { intakeSeedTasks } from "./runs/intake-seed-tasks";
 import { intakeOpenRequests } from "./runs/intake-open-requests";
 import { setupImportBalances } from "./runs/setup-import-balances";
@@ -90,6 +93,11 @@ export const registry: readonly RegistryEntry[] = [
   entry(intakeBuildChart),
   entry(intakeSeedTasks),
   entry(intakeOpenRequests),
+  // Portal screens, docs/11-api.md and migration 0028. Three runs a person
+  // starts from the client plane, or from the firm plane for a reply.
+  entry(portalAnswerRequest),
+  entry(portalPostMessage),
+  entry(engSignLetter),
   entry(setupImportBalances),
   entry(importParseFeed),
   entry(importCommitBatch),

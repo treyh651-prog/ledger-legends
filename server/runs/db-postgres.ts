@@ -70,6 +70,8 @@ export const PHYSICAL_TABLES: Partial<Record<TableName, string>> = {
   clients: "tenancy.clients",
   engagements: "tenancy.engagements",
   vault_documents: "docvault.documents",
+  documents: "docvault.documents",
+  signature_evidence: "docvault.signature_evidence",
   mapping_profiles: "import.mapping_profiles",
   mapping_profile_columns: "import.mapping_profile_columns",
   wizard_sessions: "intake.wizard_sessions",
@@ -411,6 +413,22 @@ export interface SqlSpec {
   sql: string;
   params: (p: Record<string, unknown>) => unknown[];
 }
+
+/** ledger.portal_requests, migration 0019 plus the 0028 answer columns. */
+const PORTAL_REQUEST_COLUMNS = `id, firm_id as "firmId", client_id as "clientId",
+            transaction_id as "transactionId", reason_code as "reasonCode",
+            detail, status, opened_on::text as "openedOn",
+            due_on::text as "dueOn", created_by_run_id as "createdByRunId",
+            requested_at::text as "requestedAt",
+            answer, answered_at::text as "answeredAt", answered_by as "answeredBy"`;
+
+/** docvault.documents, the columns in DocumentRow. Storage coordinates stay out. */
+const DOCUMENT_COLUMNS = `id, firm_id as "firmId", client_id as "clientId",
+            doc_type as "docType", title, period_start::text as "periodStart",
+            period_end::text as "periodEnd", status, byte_size::float8 as "byteSize",
+            content_type as "contentType", sha256_hex as "sha256Hex",
+            request_id as "requestId", uploaded_at::text as "uploadedAt",
+            created_at::text as "createdAt"`;
 
 const TXN_COLUMNS = `
   id, firm_id as "firmId", client_id as "clientId",
@@ -1689,15 +1707,61 @@ export const QUERIES: Record<QueryName, SqlSpec> = {
   },
   open_portal_requests_for_client: {
     table: "portal_requests",
-    sql: `select id, firm_id as "firmId", client_id as "clientId",
-            transaction_id as "transactionId", reason_code as "reasonCode",
-            detail, status, opened_on::text as "openedOn",
-            due_on::text as "dueOn", created_by_run_id as "createdByRunId",
-            requested_at::text as "requestedAt"
+    sql: `select ${PORTAL_REQUEST_COLUMNS}
           from ${SCHEMA}.portal_requests
           where firm_id = $1 and client_id = $2 and status = 'open'
           order by id asc`,
     params: (p) => [p.firmId, p.clientId],
+  },
+  portal_requests_for_client: {
+    table: "portal_requests",
+    sql: `select ${PORTAL_REQUEST_COLUMNS}
+          from ${SCHEMA}.portal_requests
+          where firm_id = $1 and client_id = $2
+          order by opened_on desc, id asc`,
+    params: (p) => [p.firmId, p.clientId],
+  },
+  portal_messages_for_client: {
+    table: "portal_messages",
+    sql: `select id, firm_id as "firmId", client_id as "clientId",
+            author_user_id as "authorUserId", author_scope as "authorScope",
+            body, created_by_run_id as "createdByRunId", created_at::text as "createdAt"
+          from ${SCHEMA}.portal_messages
+          where firm_id = $1 and client_id = $2
+          order by created_at asc, id asc`,
+    params: (p) => [p.firmId, p.clientId],
+  },
+  documents_for_client: {
+    table: "documents",
+    sql: `select ${DOCUMENT_COLUMNS}
+          from docvault.documents
+          where firm_id = $1 and client_id = $2 and status <> 'deleted'
+          order by created_at desc, id asc`,
+    params: (p) => [p.firmId, p.clientId],
+  },
+  document_by_id: {
+    table: "documents",
+    sql: `select ${DOCUMENT_COLUMNS}
+          from docvault.documents
+          where firm_id = $1 and client_id = $2 and id = $3`,
+    params: (p) => [p.firmId, p.clientId, p.documentId],
+  },
+  signature_evidence_for_engagement: {
+    table: "signature_evidence",
+    sql: `select id, firm_id as "firmId", client_id as "clientId",
+            document_id as "documentId", engagement_id as "engagementId",
+            document_sha256_hex as "documentSha256Hex",
+            document_byte_size::float8 as "documentByteSize",
+            signer_name as "signerName", signer_email as "signerEmail",
+            signer_user_id as "signerUserId", signer_title as "signerTitle",
+            signed_at::text as "signedAt", signer_ip::text as "signerIp",
+            user_agent as "userAgent", consent_given_at::text as "consentGivenAt",
+            consent_text as "consentText", signature_method as "signatureMethod",
+            status, created_at::text as "createdAt"
+          from docvault.signature_evidence
+          where firm_id = $1 and client_id = $2 and engagement_id = $3
+          order by signed_at desc, id asc`,
+    params: (p) => [p.firmId, p.clientId, p.engagementId],
   },
   statement_lines_for_statement: {
     table: "statement_lines",

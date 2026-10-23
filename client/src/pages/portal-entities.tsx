@@ -1,127 +1,72 @@
-import { useMemo } from "react";
-import { DataGrid, EmptyState, Kpi, Money, Pill, SectionCard } from "@/components/kit";
-import { LockedFeature, PortalHero, PortalNote } from "@/components/portal/portal-kit";
-import { usePortal } from "@/lib/use-portal";
-import { consolidatedView, consolidationFact, type EntityLine } from "@/data/portal-facts";
-import { fmtPeriod, usd } from "@/lib/money";
+import { useQueries } from "@tanstack/react-query";
+import { EmptyState, Kpi, Pill, SectionCard } from "@/components/kit";
+import { PortalNote } from "@/components/portal/portal-kit";
+import { PortalScreen } from "@/components/portal/portal-screen";
+import { useAuth } from "@/lib/auth";
+import { api, portalKeys, usePortalHome } from "@/api";
+import { fmtPeriod } from "@/lib/money";
+import type { PortalHome } from "@shared/api";
 
-/** Legend feature. Two or more entities combined for one period. */
+/**
+ * Legend feature. The companies the signed in person can see, from the
+ * memberships on GET /api/auth/me and each company's GET /api/portal/:id/home.
+ * No consolidation run exists in the engine yet, so no combined figures are
+ * shown. The screen lists the entities and says that plainly.
+ */
 export default function PortalEntities() {
-  const p = usePortal();
-  const readPeriod = p.period;
-
-  const fact = useMemo(
-    () => (readPeriod ? consolidationFact(p.ds, p.clientId, p.memberIds, readPeriod) : null),
-    [p.ds, p.clientId, p.memberIds, readPeriod],
+  return (
+    <PortalScreen title="Your group" subtitle="If you own more than one company, this is where they come together." testId="hero-portal-entities">
+      {({ clientId }) => <Body clientId={clientId} />}
+    </PortalScreen>
   );
-  const view = useMemo(
-    () => (readPeriod && p.memberIds.length > 1 ? consolidatedView(p.ds, p.memberIds, readPeriod) : null),
-    [p.ds, p.memberIds, readPeriod],
-  );
+}
 
-  if (!p.can("consolidation")) {
+function Body({ clientId }: { clientId: string }) {
+  const auth = useAuth();
+  const home = usePortalHome(clientId);
+  const ids = Array.from(
+    new Set([clientId, ...(auth.me?.memberships ?? []).filter((m) => m.scope === "client" && m.clientId).map((m) => m.clientId as string)]),
+  );
+  const homes = useQueries({
+    queries: ids.map((id) => ({
+      queryKey: portalKeys.home(id),
+      queryFn: () => api<PortalHome>("GET", `/api/portal/${id}/home`),
+    })),
+  });
+  const entitled = home.data?.features.includes("consolidation") ?? false;
+  if (home.isPending) return null;
+  if (!entitled) {
     return (
-      <>
-        <PortalHero
-          title="Your group"
-          subtitle="If you own more than one company, this combines them into one set of statements."
-          tier={p.tier}
-          testId="hero-portal-entities"
-        />
-        {fact ? <LockedFeature feature="consolidation" fact={fact} currentTier={p.tier} /> : null}
-      </>
+      <SectionCard title="Group consolidation" testId="card-portal-entities-locked">
+        <EmptyState title="Group consolidation is not part of this engagement yet" body="Combining two or more companies into one set of statements is a Legend feature. Your service level is set on your engagement." />
+      </SectionCard>
     );
   }
-
-  const single = p.memberIds.length <= 1;
-
   return (
     <>
-      <PortalHero
-        title="Your group"
-        subtitle={
-          single
-            ? `Your engagement lists one entity, ${p.client.dba}. A consolidation would just repeat the statements you already have.`
-            : `${p.group ? p.group.name : "Your group"} combined for ${readPeriod ? fmtPeriod(readPeriod) : "the current period"}. Each entity total comes from its own posted books.`
-        }
-        tier={p.tier}
-        meta={<Pill tone="info">{p.memberIds.length} entity on file{p.memberIds.length === 1 ? "" : "s"}</Pill>}
-        testId="hero-portal-entities"
-      />
-
-      {single || !view || !readPeriod ? (
-        <SectionCard title="Group reporting" testId="card-portal-entities-single">
-          <EmptyState
-            title="One entity, nothing to combine"
-            body="Group reporting starts to matter at two entities or more. Tell us when a second company opens and we will set the group up, and this page fills in on its own."
-          />
-        </SectionCard>
-      ) : (
-        <>
-          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-            <Kpi label="Combined revenue" value={usd(view.combined.revenue)} hint={fmtPeriod(readPeriod)} testId="kpi-portal-cons-revenue" />
-            <Kpi
-              label="Combined net income"
-              value={usd(view.combined.netIncome)}
-              tone={view.combined.netIncome >= 0 ? "good" : "watch"}
-              testId="kpi-portal-cons-net"
-            />
-            <Kpi label="Combined cash" value={usd(view.combined.cash)} testId="kpi-portal-cons-cash" />
-            <Kpi label="Combined assets" value={usd(view.combined.totalAssets)} testId="kpi-portal-cons-assets" />
-          </div>
-
-          <SectionCard
-            title={`By entity, ${fmtPeriod(readPeriod)}`}
-            description="One row per company, then the combined total."
-            testId="card-portal-entities"
-          >
-            <DataGrid<EntityLine>
-              rows={view.entities}
-              rowKey={(e) => e.clientId}
-              cols={[
-                {
-                  key: "name",
-                  label: "Entity",
-                  mobile: "title",
-                  render: (e) => (
-                    <div className="min-w-0">
-                      <p className="truncate font-medium">{e.name}</p>
-                      <p className="text-xs text-muted-foreground">{e.closed ? "Month closed" : "Month still open"}</p>
-                    </div>
-                  ),
-                },
-                { key: "revenue", label: "Revenue", align: "right", mobile: "row", render: (e) => <Money cents={e.revenue} /> },
-                { key: "net", label: "Net income", align: "right", mobile: "value", render: (e) => <Money cents={e.netIncome} signed /> },
-                { key: "cash", label: "Cash", align: "right", mobile: "row", render: (e) => <Money cents={e.cash} /> },
-                { key: "assets", label: "Assets", align: "right", mobile: "row", render: (e) => <Money cents={e.totalAssets} /> },
-                { key: "liabilities", label: "Liabilities", align: "right", mobile: "row", render: (e) => <Money cents={e.totalLiabilities} /> },
-              ]}
-              footer={
-                <tr>
-                  <td className="px-3 py-2 text-sm font-semibold">Combined</td>
-                  <td className="tnum hidden px-3 py-2 text-right text-sm font-semibold sm:table-cell">{usd(view.combined.revenue)}</td>
-                  <td className="tnum px-3 py-2 text-right text-sm font-semibold">{usd(view.combined.netIncome)}</td>
-                  <td className="tnum hidden px-3 py-2 text-right text-sm font-semibold sm:table-cell">{usd(view.combined.cash)}</td>
-                  <td className="tnum hidden px-3 py-2 text-right text-sm font-semibold sm:table-cell">{usd(view.combined.totalAssets)}</td>
-                  <td className="tnum hidden px-3 py-2 text-right text-sm font-semibold sm:table-cell">{usd(view.combined.totalLiabilities)}</td>
-                </tr>
-              }
-              testId="grid-portal-entities"
-            />
-          </SectionCard>
-
-          {view.relatedPartyNote ? (
-            <PortalNote tone="watch" testId="note-portal-cons-related">
-              {view.relatedPartyNote}
-            </PortalNote>
-          ) : (
-            <PortalNote testId="note-portal-cons-basis">
-              The combined column is the sum of each entity as posted. No intercompany eliminations are recorded on this engagement, and we
-              say that plainly rather than implying a consolidation that was never done.
-            </PortalNote>
-          )}
-        </>
-      )}
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <Kpi label="Companies you can see" value={ids.length} testId="kpi-entities-count" />
+        <Kpi label="Combined statements" value="Not yet" tone="neutral" testId="kpi-entities-combined" />
+      </div>
+      <PortalNote tone="watch" testId="note-entities-consolidation">
+        A consolidation run does not exist in the engine yet, so no combined figures are shown here. Each company's own statements are open on its
+        statements screen. When the run exists, the combined view appears here with eliminations shown.
+      </PortalNote>
+      <SectionCard title="Companies" bodyClassName="p-0" testId="card-portal-entities-list">
+        <ul className="divide-y divide-border">
+          {homes.map((h, i) => (
+            <li key={ids[i]} className="flex flex-wrap items-center justify-between gap-2 px-4 py-3 text-sm" data-testid={`entity-${ids[i]}`}>
+              <div className="min-w-0">
+                <p className="font-medium">{h.data?.client.name ?? (h.isError ? "Not readable by you" : "Loading")}</p>
+                <p className="text-xs text-muted-foreground">
+                  {h.data ? `${h.data.tierName}${h.data.latestClosedPeriod ? `, last closed ${fmtPeriod(h.data.latestClosedPeriod.slice(0, 7))}` : ", no closed month yet"}` : ""}
+                </p>
+              </div>
+              {h.data ? <Pill tone={h.data.engagementStatus === "active" ? "good" : "watch"}>{h.data.engagementStatus ?? "no engagement"}</Pill> : null}
+            </li>
+          ))}
+        </ul>
+      </SectionCard>
     </>
   );
 }

@@ -2712,3 +2712,33 @@ Entries 193 to 210 belong to the login work above.
     `(client_id, id)`, which every referencing foreign key already uses,
     plus the memory port keying categories by client. Not done under this
     brief.
+
+240. **Three client side runs, and why a refusal is a 200.** The portal's
+    two writes and the engagement signature are runs like every other
+    write: `PORTAL-ANSWER-REQUEST` (field write on `portal_requests`,
+    undoable), `PORTAL-POST-MESSAGE` (row insert into the new
+    `ledger.portal_messages`, id derived from client, author, minute, and
+    body so a double click deduplicates), and `ENG-SIGN-LETTER` (signature
+    evidence row plus the engagement moving to `signed`, which needs a
+    letter document in the vault with a hash). All three are manual tier,
+    migration 0028, and listed in `CLIENT_SIDE_RUNS`. The portal route runs
+    preview then apply in one request and answers `200` with
+    `{ preview, applied, done }`. A refused run is `done: false` with the
+    engine's text: the HTTP request was fine, the engine said no, and the
+    client shows the text. The generic run route still refuses a client
+    actor with 403; the only way a client posts is through its own route.
+
+241. **Portal reads come from the tables that exist.** Aging from open
+    ledger items, budget from the budget tables, forecast and scenarios from
+    the latest forecast run, narrative from the close, reports from the
+    report packages, periods from the period table, documents from
+    `docvault.documents`. Where nothing exists the payload says so with a
+    flag (`storageConfigured`), a null `run`, or an empty list, and the screen
+    shows that state. No screen computes a figure the server did not send.
+    Consolidation has no run yet, so the entities screen lists the companies
+    the person belongs to and shows no combined numbers.
+
+242. **The portal tier is read, not assumed.** `portal-tiers.tsx` takes
+    `tier`, `tierName`, and `features` from `GET /api/portal/:id/home`; the
+    static tier tables in `@/data/entitlement` remain only as names and
+    descriptions of what each tier includes.

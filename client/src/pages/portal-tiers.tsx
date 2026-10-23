@@ -1,7 +1,9 @@
 import { Check, Lock } from "lucide-react";
 import { Pill, SectionCard } from "@/components/kit";
 import { IncludedRow, PortalHero, PortalNote, TierBadge } from "@/components/portal/portal-kit";
-import { usePortal } from "@/lib/use-portal";
+import { usePortalClient } from "@/lib/use-portal-client";
+import { usePortalHome } from "@/api";
+import type { TierId } from "@shared/tiers";
 import { ADDON_ORDER, ADDONS, FEATURES, TIER_ORDER, TIERS, featuresAtTier, hasFeature, tierRank } from "@/data/entitlement";
 import { cn } from "@/lib/utils";
 import { fmtDate } from "@/lib/money";
@@ -15,8 +17,12 @@ import { fmtDate } from "@/lib/money";
  * page's promises and is the same map the server and migration 0024 use.
  */
 export default function PortalTiers() {
-  const p = usePortal();
-  const current = p.hasClients ? p.tier : null;
+  // The tier comes from GET /api/portal/:clientId/home, which reads the
+  // entitlement view. No local fixture decides what the client is entitled to.
+  const sel = usePortalClient();
+  const home = usePortalHome(sel.clientId);
+  const current: TierId | null = home.data ? (home.data.tier as TierId) : null;
+  const engagementStatus = home.data?.engagementStatus ?? null;
 
   return (
     <>
@@ -147,33 +153,25 @@ export default function PortalTiers() {
         </ul>
       </SectionCard>
 
-      {p.hasClients ? (
-        <SectionCard title="Your service level history" description="Kept with an effective date so a past month reads the way it read then." testId="card-tier-history">
-          {p.history.length === 0 ? (
-            <div className="p-4">
+      {sel.clientId ? (
+        <SectionCard title="Your service level today" description="Read from your engagement each time this page opens." testId="card-tier-history">
+          <div className="p-4">
+            {home.isPending ? (
+              <p className="text-sm text-muted-foreground">Loading your engagement.</p>
+            ) : current ? (
+              <div className="flex flex-wrap items-center gap-2">
+                <TierBadge tier={current} />
+                <span className="text-sm">
+                  {home.data?.client.name}, engagement {engagementStatus ?? "not on file"}
+                  {home.data?.latestClosedPeriod ? `, last closed month ${fmtDate(home.data.latestClosedPeriod)}` : ", no closed month yet"}
+                </span>
+              </div>
+            ) : (
               <p className="text-sm text-muted-foreground">
-                No grant is recorded for this engagement, so the base level applies until one is written.
+                No active engagement is on record, so the base level applies until one is.
               </p>
-            </div>
-          ) : (
-            <ol className="divide-y divide-border">
-              {p.history.map((g) => (
-                <li key={g.id} className="flex flex-col gap-1 p-4 sm:flex-row sm:items-center sm:justify-between" data-testid={`history-${g.id}`}>
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2">
-                      <TierBadge tier={g.tierId} />
-                      <span className="text-sm font-medium">
-                        {fmtDate(g.effectiveFrom)}
-                        {g.effectiveTo ? " to " + fmtDate(g.effectiveTo) : " to today"}
-                      </span>
-                    </div>
-                    <p className="mt-1 text-sm leading-relaxed text-muted-foreground">{g.reason}</p>
-                  </div>
-                  <span className="shrink-0 text-xs text-muted-foreground">Set by {g.setBy}</span>
-                </li>
-              ))}
-            </ol>
-          )}
+            )}
+          </div>
         </SectionCard>
       ) : null}
 
