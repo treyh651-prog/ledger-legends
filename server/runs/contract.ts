@@ -18,6 +18,7 @@ export type Ulid = string;
 export type RunTypeId =
   // Intake and setup
   | "INTAKE-CREATE-CLIENT"
+  | "INTAKE-ACTIVATE-ENGAGEMENT"
   | "INTAKE-BUILD-CHART"
   | "INTAKE-SEED-TASKS"
   | "INTAKE-OPEN-REQUESTS"

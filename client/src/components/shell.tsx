@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { Link, useLocation } from "wouter";
 import {
@@ -10,7 +10,6 @@ import {
   ClipboardList,
   FileSignature,
   FileText,
-  FlaskConical,
   Gauge,
   GitCompareArrows,
   Inbox,
@@ -45,11 +44,13 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { cn } from "@/lib/utils";
 import { Logo } from "./logo";
 import { useApp } from "@/store";
-import { PERIODS } from "@/data/seed";
-import type { DataMode } from "@/data/seed";
-import { entitlementFor, hasFeature, tierMeta, type FeatureId } from "@/data/entitlement";
+import { hasFeature, tierMeta, type FeatureId } from "@/data/entitlement";
 import { fmtPeriod } from "@/lib/money";
 import { useAuth } from "@/lib/auth";
+import { defaultPeriodFor, periodsFor, useActiveClient } from "@/lib/active-client";
+import { usePortalClient } from "@/lib/use-portal-client";
+import { usePortalHome } from "@/api";
+import { isTierId } from "@shared/tiers";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 
 interface NavItem {
@@ -152,14 +153,18 @@ const PORTAL_NAV: NavGroup[] = [
 ];
 
 function NavList({ onNavigate }: { onNavigate?: () => void }) {
-  const { plane, ds, activeClientId, period, hasClients } = useApp();
+  const { plane } = useApp();
   const [location] = useLocation();
   const groups = plane === "firm" ? FIRM_NAV : PORTAL_NAV;
-  const tier = entitlementFor(ds, activeClientId).tier;
+  const { client } = useActiveClient();
+  const portal = usePortalClient();
+  const home = usePortalHome(plane === "portal" ? portal.clientId : null);
+  const tier = home.data && isTierId(home.data.tier) ? home.data.tier : null;
+  const hasClients = plane === "portal" ? portal.hasClients : client !== null;
   const ctx = {
-    needsReview: ds.txns.filter((t) => t.clientId === activeClientId && t.status === "needs_review").length,
-    openItems: ds.openItems.filter((o) => o.clientId === activeClientId && (o.status === "not_started" || o.status === "rejected")).length,
-    overdue: ds.tasks.filter((t) => t.period === period && t.status !== "Done").length,
+    needsReview: client?.openSuspense ?? 0,
+    openItems: plane === "portal" ? home.data?.openRequests.length ?? 0 : client?.openRequests ?? 0,
+    overdue: client?.openTasks ?? 0,
   };
   return (
     <nav className="flex flex-col gap-5 px-3 py-4" data-testid="nav-main">
@@ -171,7 +176,7 @@ function NavList({ onNavigate }: { onNavigate?: () => void }) {
               const active = location === it.href;
               const badge = it.badge?.(ctx);
               const Icon = it.icon;
-              const gated = plane === "portal" && hasClients && it.feature ? !hasFeature(tier, it.feature) : false;
+              const gated = plane === "portal" && hasClients && it.feature && tier ? !hasFeature(tier, it.feature) : false;
               return (
                 <li key={it.href}>
                   <Link
@@ -280,45 +285,11 @@ function UserMenu() {
   );
 }
 
-const DATA_MODES: { id: DataMode; short: string; full: string }[] = [
-  { id: "demo", short: "Demo", full: "Demo data, every client" },
-  { id: "test", short: "Test", full: "Test company only" },
-  { id: "empty", short: "Empty", full: "Empty workspace, no data" },
-];
-
-/** Three way data mode control. Small on purpose, and present on both planes. */
-function DataModeSwitch({ testId }: { testId: string }) {
-  const { dataMode, setDataMode } = useApp();
-  return (
-    <div className="flex items-center gap-1.5" data-testid={testId}>
-      <span className="hidden text-[10px] uppercase tracking-[0.12em] text-muted-foreground xl:inline">Data</span>
-      <div className="flex items-center rounded-sm border border-border bg-muted p-0.5">
-        {DATA_MODES.map((m) => (
-          <button
-            key={m.id}
-            type="button"
-            title={m.full}
-            aria-label={m.full}
-            aria-pressed={dataMode === m.id}
-            onClick={() => setDataMode(m.id)}
-            className={cn(
-              "rounded-sm px-2 py-1 text-[11px] font-medium transition-colors",
-              dataMode === m.id ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground",
-            )}
-            data-testid={`button-data-${m.id}`}
-          >
-            {m.short}
-          </button>
-        ))}
-      </div>
-    </div>
-  );
-}
-
 /** Portal sidebar band. Same tokens as the firm side, different surface, so the plane is obvious. */
 function PortalTierBand() {
-  const { ds, activeClientId, hasClients } = useApp();
-  if (!hasClients) {
+  const portal = usePortalClient();
+  const home = usePortalHome(portal.clientId);
+  if (!portal.hasClients || !home.data) {
     return (
       <div className="shrink-0 border-b border-border bg-primary/5 px-4 py-2.5">
         <p className="text-[11px] uppercase tracking-[0.12em] text-muted-foreground">Client portal</p>
@@ -326,20 +297,29 @@ function PortalTierBand() {
       </div>
     );
   }
-  const client = ds.clients.find((c) => c.id === activeClientId);
-  const ent = entitlementFor(ds, activeClientId);
+  const tier = isTierId(home.data.tier) ? home.data.tier : null;
   return (
     <div className="shrink-0 border-b border-border bg-primary/5 px-4 py-2.5" data-testid="band-portal-tier">
       <p className="text-[11px] uppercase tracking-[0.12em] text-muted-foreground">Client portal</p>
-      <p className="mt-0.5 truncate text-sm font-medium">{client?.dba}</p>
-      <p className="mt-0.5 text-xs text-muted-foreground">{tierMeta(ent.tier).name} service level</p>
+      <p className="mt-0.5 truncate text-sm font-medium">{home.data.client.name}</p>
+      <p className="mt-0.5 text-xs text-muted-foreground">{tier ? `${tierMeta(tier).name} service level` : "No active engagement"}</p>
     </div>
   );
 }
 
 export function AppShell({ children }: { children: ReactNode }) {
-  const { ds, activeClientId, setActiveClient, period, setPeriod, theme, setTheme, plane, setPlane, loadMode, setLoadMode, dataMode, hasClients } =
-    useApp();
+  const { setActiveClient, period, setPeriod, theme, setTheme, plane, setPlane } = useApp();
+  const { clients, client, clientId, hasClients } = useActiveClient();
+  const periods = useMemo(() => periodsFor(client), [client]);
+  // The period follows the client: its open period, or the current month when
+  // none is open yet. A person can still pick another month from the list.
+  const lastClientId = useRef<string | null>(null);
+  useEffect(() => {
+    if (clientId !== lastClientId.current) {
+      lastClientId.current = clientId;
+      setPeriod(defaultPeriodFor(client));
+    }
+  }, [clientId, client, setPeriod]);
   const [mobileNav, setMobileNav] = useState(false);
   const [routePath] = useLocation();
   // Three screens live under /portal and are firm side work all the same: the
@@ -352,7 +332,6 @@ export function AppShell({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (plane !== routePlane) setPlane(routePlane);
   }, [routePlane, plane, setPlane]);
-  const client = ds.clients.find((c) => c.id === activeClientId);
 
   return (
     <div className="flex h-screen w-full overflow-hidden bg-background">
@@ -363,19 +342,6 @@ export function AppShell({ children }: { children: ReactNode }) {
         {plane === "portal" ? <PortalTierBand /> : null}
         <div className="min-h-0 flex-1 overflow-y-auto" style={{ overscrollBehavior: "contain" }}>
           <NavList />
-        </div>
-        <div className="shrink-0 border-t border-border px-3 py-3">
-          <p className="px-1 pb-1.5 text-[10px] uppercase tracking-[0.12em] text-muted-foreground">Data source</p>
-          <Select value={loadMode} onValueChange={(v) => setLoadMode(v as typeof loadMode)}>
-            <SelectTrigger className="h-8 text-xs" data-testid="select-loadmode">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="normal">Mock data, normal</SelectItem>
-              <SelectItem value="slow">Mock data, slow network</SelectItem>
-              <SelectItem value="error">Mock data, failing</SelectItem>
-            </SelectContent>
-          </Select>
         </div>
       </aside>
 
@@ -388,19 +354,6 @@ export function AppShell({ children }: { children: ReactNode }) {
           {plane === "portal" ? <PortalTierBand /> : null}
           <div className="min-h-0 flex-1 overflow-y-auto" style={{ overscrollBehavior: "contain" }}>
             <NavList onNavigate={() => setMobileNav(false)} />
-          </div>
-          <div className="shrink-0 border-t border-border px-3 py-3">
-            <p className="px-1 pb-1.5 text-[10px] uppercase tracking-[0.12em] text-muted-foreground">Data source</p>
-            <Select value={loadMode} onValueChange={(v) => setLoadMode(v as typeof loadMode)}>
-              <SelectTrigger className="h-8 text-xs" data-testid="select-loadmode-mobile">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="normal">Mock data, normal</SelectItem>
-                <SelectItem value="slow">Mock data, slow network</SelectItem>
-                <SelectItem value="error">Mock data, failing</SelectItem>
-              </SelectContent>
-            </Select>
           </div>
         </SheetContent>
       </Sheet>
@@ -422,25 +375,14 @@ export function AppShell({ children }: { children: ReactNode }) {
           </div>
 
           <div className="ml-auto flex items-center gap-2">
-            {client?.testCompany ? (
-              <span
-                className="hidden items-center gap-1 rounded-sm border border-border bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground sm:inline-flex"
-                title="Fixture kept for self checking"
-                data-testid="badge-test-company"
-              >
-                <FlaskConical className="h-3 w-3" />
-                Test company
-              </span>
-            ) : null}
-
-            <Select value={activeClientId} onValueChange={setActiveClient} disabled={!hasClients}>
+            <Select value={clientId ?? ""} onValueChange={setActiveClient} disabled={!hasClients}>
               <SelectTrigger className="h-8 w-[150px] text-xs sm:w-[210px]" data-testid="select-client">
                 <SelectValue placeholder="No clients yet" />
               </SelectTrigger>
               <SelectContent>
-                {ds.clients.map((c) => (
+                {clients.map((c) => (
                   <SelectItem key={c.id} value={c.id}>
-                    {c.shortName}
+                    {c.name}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -451,17 +393,13 @@ export function AppShell({ children }: { children: ReactNode }) {
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {PERIODS.map((p) => (
+                {periods.map((p) => (
                   <SelectItem key={p} value={p}>
                     {fmtPeriod(p)}
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
-
-            <div className="hidden sm:block">
-              <DataModeSwitch testId="switch-data-mode" />
-            </div>
 
             <div className="hidden sm:block">
               <PlaneSwitcher />
@@ -482,13 +420,12 @@ export function AppShell({ children }: { children: ReactNode }) {
 
         <div className="flex flex-wrap items-center gap-2 border-b border-border bg-card px-3 py-2 sm:hidden">
           <PlaneSwitcher />
-          <DataModeSwitch testId="switch-data-mode-mobile" />
           <Select value={period} onValueChange={setPeriod}>
             <SelectTrigger className="h-8 flex-1 text-xs" data-testid="select-period-mobile">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {PERIODS.map((p) => (
+              {periods.map((p) => (
                 <SelectItem key={p} value={p}>
                   {fmtPeriod(p)}
                 </SelectItem>
@@ -500,9 +437,8 @@ export function AppShell({ children }: { children: ReactNode }) {
         <div className="flex items-center gap-2 border-b border-border bg-muted/40 px-3 py-1.5 text-xs text-muted-foreground sm:px-4">
           <Settings2 className="h-3.5 w-3.5 shrink-0" />
           <span className="truncate">
-            {plane === "firm" ? "Firm workspace" : "Client portal preview"} for {client?.dba || "no client loaded"}, period{" "}
+            {plane === "firm" ? "Firm workspace" : "Client portal preview"} for {client?.name || "no client yet"}, period{" "}
             {fmtPeriod(period)}
-            {dataMode === "demo" ? "" : dataMode === "test" ? ", test company only" : ", empty workspace"}
           </span>
         </div>
 

@@ -8,7 +8,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { DataGrid, EmptyState, ErrorState, KeyValue, Kpi, LoadingRows, PageHeader, Pill, SectionCard } from "@/components/kit";
 import { useApp } from "@/store";
-import { useClient, useClients, useCreateClient, useRunHistory, errorMessage, type CreateClientResult } from "@/api";
+import { useClient, useClients, useCreateClient, useRunHistory, useTriggerRun, errorMessage, type CreateClientResult } from "@/api";
+import type { RunOutcomeDto } from "@shared/api";
 import { fmtPeriod, fmtTimestamp } from "@/lib/money";
 import { isUuid } from "@/lib/period";
 import { SCOPE_LABELS, SCOPE_OPTIONS } from "@/data/labels";
@@ -200,10 +201,8 @@ export default function ClientBook() {
                     ))}
                   </div>
                 </div>
-                {c.engagement.status === "draft" ? (
-                  <p className="mt-3 text-xs text-muted-foreground">
-                    A draft engagement grants the portal nothing. A person activates it once the letter is signed.
-                  </p>
+                {c.engagement.status !== "active" && c.engagement.status !== "terminated" ? (
+                  <ActivatePanel clientId={c.id} engagementId={c.engagement.id} signedAt={c.engagement.signedAt} />
                 ) : null}
               </>
             ) : (
@@ -366,5 +365,84 @@ export function CreateClientForm({ onCreated }: { onCreated: (r: CreateClientRes
         </div>
       ) : null}
     </SectionCard>
+  );
+}
+
+/**
+ * Activation of a draft engagement through INTAKE-ACTIVATE-ENGAGEMENT. The
+ * portal grants features from the active engagement, so until this applies
+ * the client's portal sees the floor tier. A letter signed in the system
+ * needs only the button; a letter signed outside it needs the signer and the
+ * day, which the run keeps as a pending vault document.
+ */
+function ActivatePanel({ clientId, engagementId, signedAt }: { clientId: string; engagementId: string; signedAt: string | null }) {
+  const trigger = useTriggerRun(clientId);
+  const [outside, setOutside] = useState(false);
+  const [signerName, setSignerName] = useState("");
+  const [signedOn, setSignedOn] = useState("");
+  const [outcome, setOutcome] = useState<RunOutcomeDto | null>(null);
+  const ready = signedAt !== null || (outside && signerName.trim().length > 0 && /^\d{4}-\d{2}-\d{2}$/.test(signedOn));
+
+  const activate = async () => {
+    const scope: Record<string, unknown> = { engagementId };
+    if (signedAt === null && outside) scope.signedOutside = { signerName: signerName.trim(), signedOn };
+    try {
+      const preview = await trigger.mutateAsync({ runCode: "INTAKE-ACTIVATE-ENGAGEMENT", body: { mode: "preview", scope } });
+      if (preview.status !== "completed") {
+        setOutcome(preview);
+        return;
+      }
+      const applied = await trigger.mutateAsync({
+        runCode: "INTAKE-ACTIVATE-ENGAGEMENT",
+        body: { mode: "apply", scope, previewRunId: preview.executionId },
+      });
+      setOutcome(applied);
+    } catch {
+      setOutcome(null);
+    }
+  };
+
+  return (
+    <div className="mt-3 rounded-md border border-border p-3" data-testid="panel-activate-engagement">
+      <p className="text-xs text-muted-foreground">
+        A draft engagement grants the portal nothing. Activate it once the engagement letter is signed.
+      </p>
+      {signedAt === null ? (
+        <div className="mt-2 space-y-2">
+          <label className="flex items-center gap-2 text-sm">
+            <Checkbox checked={outside} onCheckedChange={(v) => setOutside(v === true)} data-testid="check-signed-outside" />
+            The letter was signed outside the system
+          </label>
+          {outside ? (
+            <div className="grid gap-2 sm:grid-cols-2">
+              <div>
+                <Label htmlFor="signer-name">Signed by</Label>
+                <Input id="signer-name" value={signerName} onChange={(e) => setSignerName(e.target.value)} data-testid="input-signer-name" />
+              </div>
+              <div>
+                <Label htmlFor="signed-on">Signed on</Label>
+                <Input id="signed-on" type="date" value={signedOn} onChange={(e) => setSignedOn(e.target.value)} data-testid="input-signed-on" />
+              </div>
+            </div>
+          ) : (
+            <p className="text-xs text-muted-foreground">Not signed in the system yet. The client signs through the portal, or tick the box above.</p>
+          )}
+        </div>
+      ) : null}
+      <div className="mt-3 flex items-center gap-3">
+        <Button size="sm" disabled={!ready || trigger.isPending} onClick={() => void activate()} data-testid="button-activate-engagement">
+          {trigger.isPending ? "Activating" : "Activate engagement"}
+        </Button>
+        {trigger.isError ? <span className="text-xs text-destructive">{errorMessage(trigger.error)}</span> : null}
+        {outcome && outcome.status !== "completed" ? (
+          <span className="text-xs text-destructive" data-testid="text-activate-refused">
+            {outcome.errors[0]?.message ?? `The run finished ${outcome.status}.`}
+          </span>
+        ) : null}
+        {outcome && outcome.status === "completed" && outcome.mode === "apply" ? (
+          <span className="text-xs text-muted-foreground">Engagement active.</span>
+        ) : null}
+      </div>
+    </div>
   );
 }

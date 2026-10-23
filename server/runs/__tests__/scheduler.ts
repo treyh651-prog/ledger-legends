@@ -66,16 +66,16 @@ test("no run that posts to the general ledger is unattended", () => {
   }
 });
 
-test("the tier split is nineteen unattended, twenty two propose, nine manual", () => {
+test("the tier split is nineteen unattended, twenty two propose, ten manual", () => {
   const counts = { unattended: 0, propose: 0, manual: 0 };
   for (const entry of registry) {
     const tier = tierOf(entry.type);
     if (tier !== null) counts[tier] += 1;
   }
-  assertEqual(registry.length, 50, "the registry holds fifty runs");
+  assertEqual(registry.length, 51, "the registry holds fifty one runs");
   assertEqual(counts.unattended, 19, "unattended count");
   assertEqual(counts.propose, 22, "propose count");
-  assertEqual(counts.manual, 9, "manual count");
+  assertEqual(counts.manual, 10, "manual count");
 });
 
 test("every tier carries a written reason", () => {

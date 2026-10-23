@@ -69,6 +69,7 @@ const SCHEMA = "ledger";
 export const PHYSICAL_TABLES: Partial<Record<TableName, string>> = {
   clients: "tenancy.clients",
   engagements: "tenancy.engagements",
+  vault_documents: "docvault.documents",
   mapping_profiles: "import.mapping_profiles",
   mapping_profile_columns: "import.mapping_profile_columns",
   wizard_sessions: "intake.wizard_sessions",

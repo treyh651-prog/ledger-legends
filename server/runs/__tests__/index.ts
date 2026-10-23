@@ -109,6 +109,7 @@ import "./offboard-build-export";
 // the runs that create the client every suite above assumes already exists.
 import "./intake-build-chart";
 import "./intake-seed-tasks";
+import "./intake-activate-engagement";
 import "./intake-open-requests";
 import "./setup-import-balances";
 import "./intake-pipeline";

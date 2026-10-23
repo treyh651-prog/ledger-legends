@@ -99,6 +99,7 @@ import {
 type AnyRow = Record<string, unknown> & { id: string };
 
 const TABLES: TableName[] = [
+  "vault_documents",
   "clients",
   "engagements",
   "bank_accounts",
@@ -191,6 +192,20 @@ function key(table: string, rowId: string): string {
   return `${table}:${rowId}`;
 }
 
+/**
+ * Tables whose primary key is (client_id, id) rather than id alone. Category
+ * ids are slugs shared by every client on the standard chart (NOTES 126), so
+ * two clients in one database hold the same id, and migration 0026 keys the
+ * live table the same way. The memory port stores such rows under
+ * "<clientId>/<id>" and resolves a bare id through the session's client.
+ */
+const CLIENT_KEYED_TABLES: readonly TableName[] = ["categories"];
+
+export function storageIdOf(table: TableName, rowId: string, clientId: string): string {
+  if (!CLIENT_KEYED_TABLES.includes(table)) return rowId;
+  return rowId.includes("/") ? rowId : `${clientId}/${rowId}`;
+}
+
 function byId(a: { id: string }, b: { id: string }): number {
   return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
 }
@@ -211,8 +226,9 @@ export class MemoryRunDb implements RunDb {
     if (!target) throw new Error(`unknown table ${table}`);
     for (const row of rows) {
       const r = row as unknown as AnyRow;
-      target.set(r.id, { ...r });
-      this.rowVersions.set(key(table, r.id), 1);
+      const sid = storageIdOf(table, r.id, String(r.clientId ?? ""));
+      target.set(sid, { ...r });
+      this.rowVersions.set(key(table, sid), 1);
     }
   }
 
@@ -319,7 +335,9 @@ class MemoryTx implements RunTx {
 
   private view(table: TableName): AnyRow[] {
     const out = new Map<string, AnyRow>();
-    for (const row of this.db.committedRows(table)) out.set(row.id, row);
+    for (const row of this.db.committedRows(table)) {
+      out.set(storageIdOf(table, row.id, String(row.clientId ?? "")), row);
+    }
     for (const [k, row] of this.writes) {
       const [t, rowId] = splitKey(k);
       if (t === table) out.set(rowId, row);
@@ -327,10 +345,11 @@ class MemoryTx implements RunTx {
     return Array.from(out.values());
   }
 
-  private lookup(table: TableName, rowId: string): AnyRow | undefined {
-    const pending = this.writes.get(key(table, rowId));
+  private lookup(table: TableName, rowId: string, clientId?: string): AnyRow | undefined {
+    const sid = storageIdOf(table, rowId, clientId ?? this.session.clientId);
+    const pending = this.writes.get(key(table, sid));
     if (pending) return pending;
-    return this.db.committedRow(table, rowId);
+    return this.db.committedRow(table, sid);
   }
 
   async tryAdvisoryXactLock(highKey: string, lowKey: string): Promise<boolean> {
@@ -347,7 +366,8 @@ class MemoryTx implements RunTx {
     }
     for (const row of rows) {
       const r = { ...(row as unknown as AnyRow) };
-      if (this.lookup(table, r.id)) {
+      const sid = storageIdOf(table, r.id, String(r.clientId ?? this.session.clientId));
+      if (this.lookup(table, sid)) {
         throw new UniqueViolation(`${table}_pkey`);
       }
       this.guardLedgerDate(table, r);
@@ -355,9 +375,9 @@ class MemoryTx implements RunTx {
       this.guardIdempotency(table, r);
       this.guardBankTransactionId(table, r);
       this.guardScheduleWindow(table, r);
-      const k = key(table, r.id);
+      const k = key(table, sid);
       if (!this.readVersions.has(k)) {
-        this.readVersions.set(k, this.db.versionOf(table, r.id));
+        this.readVersions.set(k, this.db.versionOf(table, sid));
       }
       this.writes.set(k, r);
     }
@@ -383,9 +403,10 @@ class MemoryTx implements RunTx {
     this.guardOverride(table, current, next, rowId);
     this.guardLedgerDate(table, next);
     this.guardChecks(table, next as AnyRow);
-    const k = key(table, rowId);
+    const sid = storageIdOf(table, rowId, String(current.clientId ?? this.session.clientId));
+    const k = key(table, sid);
     if (!this.readVersions.has(k)) {
-      this.readVersions.set(k, this.db.versionOf(table, rowId));
+      this.readVersions.set(k, this.db.versionOf(table, sid));
     }
     this.writes.set(k, next as AnyRow);
   }

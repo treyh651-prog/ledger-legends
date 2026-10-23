@@ -45,6 +45,7 @@ import { perSplitLoan } from "./runs/per-split-loan";
 import { importParseFeed } from "./runs/import-parse-feed";
 import { intakeBuildChart } from "./runs/intake-build-chart";
 import { intakeCreateClient } from "./runs/intake-create-client";
+import { intakeActivateEngagement } from "./runs/intake-activate-engagement";
 import { intakeSeedTasks } from "./runs/intake-seed-tasks";
 import { intakeOpenRequests } from "./runs/intake-open-requests";
 import { setupImportBalances } from "./runs/setup-import-balances";
@@ -85,6 +86,7 @@ export const registry: readonly RegistryEntry[] = [
   // run once per client, at the moment the firm finishes the wizard, and every
   // other run in this list assumes they already did.
   entry(intakeCreateClient),
+  entry(intakeActivateEngagement),
   entry(intakeBuildChart),
   entry(intakeSeedTasks),
   entry(intakeOpenRequests),

@@ -231,25 +231,28 @@ test("api: the overview and list now show the one client", async () => {
 });
 
 /**
- * Known blocker, recorded in api-report.md. Category ids are the published
- * slug (NOTES 126) and ledger.categories keeps a primary key on id alone, so
- * the second client in one database cannot build its chart. The route tells
- * the truth about it: 207, complete false, the failing run named. When the
- * key moves to (client_id, id) this test should expect 201 and complete true.
+ * Two clients in one database, both charts built. Category ids are the
+ * published slug (NOTES 126); migration 0026 keys ledger.categories by
+ * (client_id, id) and the memory port keys the table the same way, so the
+ * second INTAKE-BUILD-CHART no longer collides with the first.
  */
-test("api: a second client reports a partial intake honestly", async () => {
+test("api: a second client builds its own chart alongside the first", async () => {
   const r = await call(world, "POST", "/api/firm/clients", { body: { ...NEW_CLIENT, name: "Second Client Inc" } });
-  assert(r.status === 201 || r.status === 207, `201 or 207, got ${r.status}`);
-  assert(r.body.client !== null, "the client row exists either way");
-  if (r.status === 207) {
-    assertEqual(r.body.complete, false, "not complete");
-    const failed = r.body.runs.find((x: any) => x.status === "failed");
-    assertEqual(failed?.runType, "INTAKE-BUILD-CHART", "the chart run is the one that fails");
-    assertEqual(failed?.errors[0]?.code, "UNIQUE_VIOLATION", "on the categories key");
-  }
+  assertEqual(r.status, 201, "second client created in full");
+  assertEqual(r.body.complete, true, "every intake run completed");
+  const chart = r.body.runs.find((x: any) => x.runType === "INTAKE-BUILD-CHART" && x.mode === "apply");
+  assert(chart && chart.status !== "failed", "the chart run applied");
+  const secondId: string = r.body.client.id;
+  const categories = world.db.all("categories");
+  const first = categories.filter((c) => c.clientId === createdClientId);
+  const second = categories.filter((c) => c.clientId === secondId);
+  assert(first.length > 0 && second.length > 0, "both clients hold categories");
+  assertEqual(first.length, second.length, "the same standard chart for both");
+  assert(first.some((c) => second.some((d) => d.id === c.id)), "the same slug ids exist under both clients");
+  assertEqual(r.body.client.chartAccounts > 0, true, "the summary counts the second chart");
   // Put the firm back to one client for the reads below.
-  await world.db.tx({ ...readSession(DEV_ACTOR, DEV_FIRM_ID, r.body.client.id), readOnly: false }, async (tx) => {
-    await tx.update("clients", r.body.client.id, { archivedAt: "2026-10-23T00:00:00.000Z" } as any);
+  await world.db.tx({ ...readSession(DEV_ACTOR, DEV_FIRM_ID, secondId), readOnly: false }, async (tx) => {
+    await tx.update("clients", secondId, { archivedAt: "2026-10-23T00:00:00.000Z" } as any);
   });
 });
 
@@ -305,13 +308,24 @@ test("api: feature is enforced, a draft engagement gets 403 feature_not_included
 });
 
 test("api: once the engagement is active, statements answer and the portal lists features", async () => {
-  await world.db.tx(
-    { ...readSession(DEV_ACTOR, DEV_FIRM_ID, createdClientId), readOnly: false },
-    async (tx) => {
-      const [e] = await tx.query("engagements_for_client", { firmId: DEV_FIRM_ID, clientId: createdClientId });
-      await tx.update("engagements", e.id, { status: "active", signedAt: "2026-10-01T00:00:00.000Z" } as any);
-    },
+  // Activation goes through INTAKE-ACTIVATE-ENGAGEMENT, the same route the
+  // client book's button calls: preview, then apply the preview.
+  const [e] = await world.db.tx(readSession(DEV_ACTOR, DEV_FIRM_ID, createdClientId), (tx) =>
+    tx.query("engagements_for_client", { firmId: DEV_FIRM_ID, clientId: createdClientId }),
   );
+  const path = `/api/firm/clients/${createdClientId}/runs/INTAKE-ACTIVATE-ENGAGEMENT`;
+  const refused = await call(world, "POST", path, { body: { mode: "preview", scope: { engagementId: e.id } } });
+  assertEqual(refused.body.status, "refused", "no letter signed anywhere is refused");
+  assertEqual(refused.body.errors[0].code, "INTAKE-LETTER-NOT-SIGNED", "named plainly");
+  const scope = { engagementId: e.id, signedOutside: { signerName: "Dana Owner", signedOn: "2026-10-01" } };
+  const preview = await call(world, "POST", path, { body: { mode: "preview", scope } });
+  assertEqual(preview.body.status, "completed", "preview completed");
+  const applied = await call(world, "POST", path, { body: { mode: "apply", scope, previewRunId: preview.body.executionId } });
+  assertEqual(applied.status, 200, "apply status");
+  assertEqual(applied.body.status, "completed", "apply completed");
+  const detail = await call(world, "GET", `/api/firm/clients/${createdClientId}`);
+  assertEqual(detail.body.engagement.status, "active", "the detail shows it active");
+  assertEqual(detail.body.engagement.signedAt, "2026-10-01T00:00:00.000Z", "signed on the paper's day");
   const home = await call(world, "GET", `/api/portal/${createdClientId}/home`, { token: "client" });
   assertEqual(home.status, 200, "home");
   assert(home.body.features.includes("statements"), "ledger includes statements");
@@ -345,7 +359,7 @@ test("api: document and message routes answer 501 not_configured", async () => {
 test("api: the run catalog lists every registered run with its tier", async () => {
   const r = await call(world, "GET", "/api/firm/runs/catalog");
   assertEqual(r.status, 200, "status");
-  assertEqual(r.body.items.length, 50, "fifty runs");
+  assertEqual(r.body.items.length, 51, "fifty one runs");
   const create = r.body.items.find((x: any) => x.runType === "INTAKE-CREATE-CLIENT");
   assertEqual(create?.tier, "manual", "the intake run is manual");
 });

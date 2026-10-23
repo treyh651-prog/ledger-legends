@@ -57,6 +57,11 @@ export const RUN_POLICIES: Readonly<Record<string, RunPolicy>> = {
     reason:
       "the first intake step, run once when the firm starts a client from the interface, and a clock has no reason to create a client",
   },
+  "INTAKE-ACTIVATE-ENGAGEMENT": {
+    tier: "manual",
+    reason:
+      "turns a draft engagement active once the letter is signed, which is a decision the firm records on purpose and never one a clock infers",
+  },
   "INTAKE-BUILD-CHART": {
     tier: "manual",
     reason:

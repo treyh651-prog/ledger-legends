@@ -50,7 +50,8 @@ import PortalIntake from "@/pages/portal-intake";
 import PortalMappingProfiles from "@/pages/portal-mapping-profiles";
 import PortalClientDetail from "@/pages/portal-client-detail";
 import { ALWAYS_RENDER, EmptyWorkspace } from "@/components/empty-workspace";
-import { useApp } from "@/store";
+import { useActiveClient } from "@/lib/active-client";
+import { usePortalClient } from "@/lib/use-portal-client";
 import { AuthProvider, useAuth } from "@/lib/auth";
 import { AuthLoading, NotAMember, SetPassword, SignIn } from "@/pages/auth/sign-in";
 import Access from "@/pages/access";
@@ -63,8 +64,14 @@ import { useLocation } from "wouter";
  * ratio against zero, which is the honest fix rather than sprinkling fallbacks.
  */
 function Guard({ path, page: Page }: { path: string; page: () => JSX.Element }) {
-  const { hasClients } = useApp();
-  if (!hasClients && !ALWAYS_RENDER.includes(path)) return <EmptyWorkspace path={path} />;
+  const firm = useActiveClient();
+  const portal = usePortalClient();
+  const portalPath = path.startsWith("/portal");
+  const loading = portalPath ? portal.loading : firm.loading;
+  const hasClients = portalPath ? portal.hasClients : firm.hasClients;
+  // While the list loads the page renders its own loading state. An empty
+  // answer from the API is the only thing that shows the empty workspace.
+  if (!loading && !hasClients && !ALWAYS_RENDER.includes(path)) return <EmptyWorkspace path={path} />;
   return <Page />;
 }
 

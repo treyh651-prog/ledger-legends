@@ -31,6 +31,7 @@ import type {
   PracticeTaskCatalogRow,
   ClientRow,
   EngagementRow,
+  VaultDocumentRow,
   DeferralLineRow,
   DepreciationScheduleRow,
   InvoiceRow,
@@ -267,6 +268,11 @@ async function writeField(
   switch (table) {
     case "transactions":
       await tx.update("transactions", rowId, after);
+      return;
+    // INTAKE-ACTIVATE-ENGAGEMENT moves the engagement to active and records
+    // the letter it rests on. The only engagement write a run makes.
+    case "engagements":
+      await tx.update("engagements", rowId, after);
       return;
     case "suspense_items":
       await tx.update("suspense_items", rowId, after);
@@ -684,6 +690,10 @@ async function insertRow(
       return;
     case "engagements":
       await tx.insert("engagements", [withId as unknown as EngagementRow]);
+      return;
+    // INTAKE-ACTIVATE-ENGAGEMENT records a letter signed outside the system.
+    case "vault_documents":
+      await tx.insert("vault_documents", [withId as unknown as VaultDocumentRow]);
       return;
     default:
       throw new ProposalWriteError(
