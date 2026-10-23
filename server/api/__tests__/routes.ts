@@ -337,6 +337,31 @@ test("api: once the engagement is active, statements answer and the portal lists
   assertEqual(req.status, 200, "requests");
 });
 
+test("api: the screen read models answer for a new client with honest zeros", async () => {
+  const base = `/api/firm/clients/${createdClientId}`;
+  const close = await call(world, "GET", `${base}/close?period=2026-10-01`);
+  assertEqual(close.status, 200, "close");
+  assertEqual(close.body.periodStatus, "none", "no period opened");
+  assert(Array.isArray(close.body.tasks) && close.body.tasks.length > 0, "the seeded checklist tasks for a period");
+  assertEqual(close.body.gates.length, 0, "no gates evaluated yet");
+  const rec = await call(world, "GET", `${base}/reconcile?period=2026-10-01`);
+  assertEqual(rec.status, 200, "reconcile");
+  assertEqual(rec.body.batches.length, 0, "no statements yet");
+  assertEqual(rec.body.selectedBatchId, null, "nothing selected");
+  const req = await call(world, "GET", `${base}/requests`);
+  assertEqual(req.status, 200, "requests");
+  assertEqual(req.body.openCount, req.body.items.filter((i: any) => i.status === "open").length, "open count is a filter");
+  const st = await call(world, "GET", `${base}/statements?period=2026-10-01`);
+  assertEqual(st.status, 200, "firm statements are not tier gated");
+  assertEqual(st.body.entryCount, 0, "no entries");
+  const tb = await call(world, "GET", `${base}/trial-balance?period=2026-10-01`);
+  assertEqual(tb.status, 200, "trial balance");
+  assertEqual(tb.body.foots, true, "zero foots");
+  assertEqual(tb.body.lines.length, 0, "no balances");
+  const bad = await call(world, "GET", `${base}/close?period=2026-10-15`);
+  assertEqual(bad.status, 400, "a mid month period is refused");
+});
+
 test("api: a period that is not a first of month is 400", async () => {
   const r = await call(world, "GET", `/api/portal/${createdClientId}/statements?period=2026-10-15`, { token: "client" });
   assertEqual(r.status, 400, "status");

@@ -21,6 +21,8 @@ import {
   undoBodySchema,
 } from "../../shared/api/runs";
 import { transactionQuerySchema } from "../../shared/api/transactions";
+import { z } from "zod";
+import { closeChecklist, firmRequests, reconcile, trialBalance } from "./reads-screens";
 import type { ActorMiddleware } from "../auth/middleware";
 import {
   featuresForTier,
@@ -208,6 +210,70 @@ export function createApiRouter(deps: ApiDeps): Router {
       const q = parse(transactionQuerySchema, req.query);
       const firmId = req.firm!.firmId;
       const body = await deps.db.tx(readSession(req.actor!, firmId, clientId), (tx) => transactionPage(tx, firmId, clientId, q));
+      return { body };
+    }),
+  );
+
+  // Screen read models. Each answers for the client in the path and the
+  // period in the query, or the current month when the query names none.
+  const screenPeriod = (req: Request) => parse(periodQuerySchema, req.query).period ?? `${todayOf(deps).slice(0, 7)}-01`;
+
+  firmClient.get(
+    "/close",
+    route(async (req) => {
+      const { clientId } = parse(clientParamsSchema, req.params);
+      const period = screenPeriod(req);
+      const firmId = req.firm!.firmId;
+      const body = await deps.db.tx(readSession(req.actor!, firmId, clientId), (tx) => closeChecklist(tx, firmId, clientId, period));
+      return { body };
+    }),
+  );
+
+  firmClient.get(
+    "/reconcile",
+    route(async (req) => {
+      const { clientId } = parse(clientParamsSchema, req.params);
+      const period = screenPeriod(req);
+      const { batchId } = parse(z.object({ batchId: z.string().uuid().optional() }), req.query);
+      const firmId = req.firm!.firmId;
+      const body = await deps.db.tx(readSession(req.actor!, firmId, clientId), (tx) =>
+        reconcile(tx, firmId, clientId, period, batchId ?? null),
+      );
+      return { body };
+    }),
+  );
+
+  firmClient.get(
+    "/requests",
+    route(async (req) => {
+      const { clientId } = parse(clientParamsSchema, req.params);
+      const firmId = req.firm!.firmId;
+      const body = await deps.db.tx(readSession(req.actor!, firmId, clientId), (tx) => firmRequests(tx, firmId, clientId, todayOf(deps)));
+      return { body };
+    }),
+  );
+
+  firmClient.get(
+    "/statements",
+    route(async (req) => {
+      const { clientId } = parse(clientParamsSchema, req.params);
+      const period = screenPeriod(req);
+      const firmId = req.firm!.firmId;
+      // The firm sees every period, so the entitlement passed here grants open_period.
+      const body = await deps.db.tx(readSession(req.actor!, firmId, clientId), (tx) =>
+        portalStatements(tx, firmId, clientId, period, { clientId, tier: null, rank: 0, features: new Set(["open_period"]) }),
+      );
+      return { body };
+    }),
+  );
+
+  firmClient.get(
+    "/trial-balance",
+    route(async (req) => {
+      const { clientId } = parse(clientParamsSchema, req.params);
+      const period = screenPeriod(req);
+      const firmId = req.firm!.firmId;
+      const body = await deps.db.tx(readSession(req.actor!, firmId, clientId), (tx) => trialBalance(tx, firmId, clientId, period));
       return { body };
     }),
   );
