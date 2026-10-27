@@ -28,6 +28,22 @@ function getHandler(): Promise<Handler> {
 }
 
 export const handler: Handler = async (event, context) => {
+  if (event.httpMethod === "POST") {
+    console.log(
+      "DEBUG event",
+      JSON.stringify({
+        httpMethod: event.httpMethod,
+        path: event.path,
+        isBase64Encoded: event.isBase64Encoded,
+        bodyType: typeof event.body,
+        bodyLength: event.body ? event.body.length : null,
+        bodyPreview: event.body ? event.body.slice(0, 120) : null,
+        contentType: event.headers?.["content-type"] ?? event.headers?.["Content-Type"],
+        contentLength: event.headers?.["content-length"] ?? event.headers?.["Content-Length"],
+        headerKeys: Object.keys(event.headers ?? {}),
+      }),
+    );
+  }
   const h = await getHandler();
   return h(event, context);
 };
