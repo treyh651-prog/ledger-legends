@@ -318,6 +318,13 @@ function insertAccount(
       clientId: frozen.clientId,
       accountNumber: account.accountNumber,
       name: account.name,
+      // Only ever set for the 8000 and 9000 blocks (TemplateAccount's own
+      // comment says why); ledger.chart_accounts_insert derives every other
+      // block from the account number itself and ignores this column there,
+      // same as it always has. Undefined serializes to column default (null),
+      // so every other account's insert is byte for byte what it was before.
+      accountType: account.accountType,
+      normalSide: account.normalSide,
     },
     provenance: { cascadeLevel: null },
   };

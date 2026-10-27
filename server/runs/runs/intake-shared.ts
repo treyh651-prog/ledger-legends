@@ -72,6 +72,16 @@ export interface TemplateAccount {
   name: string;
   normalSide: "debit" | "credit";
   scopeKey: TemplateScopeKey;
+  /**
+   * Only set for the 8000 and 9000 blocks, where doc 00's own map allows two
+   * answers (other_income or other_expense; tax or memo) and the database
+   * trigger that derives a type from every other block correctly refuses to
+   * guess (migration 0019, ledger.chart_accounts_insert). Undefined for every
+   * other block, where the trigger's own derivation is the single source of
+   * truth and a second opinion here would just be a place for the two to
+   * disagree.
+   */
+  accountType?: "other_income" | "other_expense" | "tax" | "memo";
 }
 
 export interface TemplateCategory {
@@ -103,8 +113,9 @@ function acct(
   name: string,
   normalSide: "debit" | "credit",
   scopeKey: TemplateScopeKey = "always",
+  accountType?: TemplateAccount["accountType"],
 ): TemplateAccount {
-  return { accountNumber, name, normalSide, scopeKey };
+  return { accountNumber, name, normalSide, scopeKey, accountType };
 }
 
 interface CatOptions {
@@ -218,13 +229,13 @@ export const SHARED_CORE_ACCOUNTS: readonly TemplateAccount[] = [
   acct("6900", "Bad debt expense", "debit"),
   acct("7900", "Penalties and fines, nondeductible", "debit"),
   acct("7910", "Other nondeductible expense", "debit"),
-  acct("8000", "Interest income", "credit"),
-  acct("8100", "Interest expense", "debit"),
-  acct("8200", "Gain or loss on disposal of assets", "credit"),
-  acct("8900", "Other income", "credit"),
-  acct("9000", "State income and franchise tax expense", "debit"),
-  acct("9900", "Memo, book to tax differences", "debit"),
-  acct("9910", "Memo, owner or shareholder basis tracking", "debit"),
+  acct("8000", "Interest income", "credit", "always", "other_income"),
+  acct("8100", "Interest expense", "debit", "always", "other_expense"),
+  acct("8200", "Gain or loss on disposal of assets", "credit", "always", "other_income"),
+  acct("8900", "Other income", "credit", "always", "other_income"),
+  acct("9000", "State income and franchise tax expense", "debit", "always", "tax"),
+  acct("9900", "Memo, book to tax differences", "debit", "always", "memo"),
+  acct("9910", "Memo, owner or shareholder basis tracking", "debit", "always", "memo"),
 ];
 
 /**
@@ -974,8 +985,8 @@ const NONPROFIT_ACCOUNTS: readonly TemplateAccount[] = [
   acct("7070", "Board and volunteer expense", "debit"),
   acct("7080", "Audit and annual information return preparation", "debit"),
   acct("7090", "Insurance, directors and officers", "debit"),
-  acct("8010", "Realized and unrealized gain and loss on investments", "credit"),
-  acct("9200", "Unrelated business income tax expense", "debit"),
+  acct("8010", "Realized and unrealized gain and loss on investments", "credit", "always", "other_income"),
+  acct("9200", "Unrelated business income tax expense", "debit", "always", "tax"),
 ];
 
 const NONPROFIT_CATEGORIES: readonly TemplateCategory[] = [

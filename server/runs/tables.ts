@@ -25,6 +25,10 @@ export interface ChartAccountRow {
   clientId: Ulid;
   accountNumber: string;
   name: string;
+  /** Only meaningful for the 8000 and 9000 blocks; every other block derives this from the account number itself. */
+  accountType?: "other_income" | "other_expense" | "tax" | "memo";
+  /** Read by the insert trigger only alongside accountType, for the same two blocks; every other block derives its own. */
+  normalSide?: "debit" | "credit";
 }
 
 /**
