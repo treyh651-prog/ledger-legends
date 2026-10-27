@@ -205,6 +205,12 @@ export async function applyProposals(
         createdByRunId: ctx.runExecutionId,
         runType: meta.runType,
         runVersion: meta.runVersion,
+        createdBy: ctx.actor.userId,
+        // Every posted proposal is posted the instant it is written; there is
+        // no draft state on this path, so posted_at/posted_by are stamped
+        // together with created_by rather than left for a later step.
+        postedAt: ctx.now.toISOString(),
+        postedBy: ctx.actor.userId,
       };
       await tx.insert("journal_entries", [entry]);
       const lines: JournalLineRow[] = p.lines.map((line) => ({

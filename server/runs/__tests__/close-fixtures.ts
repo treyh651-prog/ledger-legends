@@ -28,7 +28,7 @@ import type {
   SubTieoutRow,
   SubstantiationRecordRow,
 } from "../tables";
-import { CLIENT_A1, FIRM_A, NOW, chartAccount, opts } from "./fixtures";
+import { ACTOR, CLIENT_A1, FIRM_A, NOW, chartAccount, opts } from "./fixtures";
 
 export const PERIOD = "2026-01-01";
 export const PERIOD_END = "2026-01-31";
@@ -160,6 +160,9 @@ export function closeEntry(
     createdByRunId: "RUNX-SEED",
     runType: "SEED",
     runVersion: 1,
+    createdBy: ACTOR,
+    postedAt: NOW.toISOString(),
+    postedBy: ACTOR,
     ...extra,
   };
 }

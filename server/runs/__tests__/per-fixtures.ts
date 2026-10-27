@@ -25,7 +25,7 @@ import type {
   RecurringSplitRow,
   RecurringTemplateRow,
 } from "../tables";
-import { CLIENT_A1, FIRM_A, NOW, baseDb, chartAccount, opts } from "./fixtures";
+import { ACTOR, CLIENT_A1, FIRM_A, NOW, baseDb, chartAccount, opts } from "./fixtures";
 
 /** The period every module 4 suite works on unless it says otherwise. */
 export const PERIOD = "2026-01-01";
@@ -309,6 +309,9 @@ export function entry(
     createdByRunId: "RUNX-SEED",
     runType: "SEED",
     runVersion: 1,
+    createdBy: ACTOR,
+    postedAt: NOW.toISOString(),
+    postedBy: ACTOR,
     ...extra,
   };
 }

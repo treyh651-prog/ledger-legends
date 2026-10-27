@@ -251,7 +251,7 @@ export const arapRefreshAging: Run<RefreshAgingScope, Proposal> = {
         const open = invoiceOpen(inv);
         arOpen.push(open);
         contents.push({
-          id: snapshotId(asOf, "receivable", inv.id),
+          id: snapshotId(frozen.clientId, asOf, "receivable", inv.id),
           source: inv.id,
           content: {
             side: "receivable",
@@ -290,7 +290,7 @@ export const arapRefreshAging: Run<RefreshAgingScope, Proposal> = {
         if (open <= ZERO) continue;
         arOpen.push(-open);
         contents.push({
-          id: snapshotId(asOf, "receivable", memo.id),
+          id: snapshotId(frozen.clientId, asOf, "receivable", memo.id),
           source: memo.id,
           content: {
             side: "receivable",
@@ -344,7 +344,7 @@ export const arapRefreshAging: Run<RefreshAgingScope, Proposal> = {
         const open = billOpen(bill);
         apOpen.push(open);
         contents.push({
-          id: snapshotId(asOf, "payable", bill.id),
+          id: snapshotId(frozen.clientId, asOf, "payable", bill.id),
           source: bill.id,
           content: {
             side: "payable",
@@ -376,7 +376,7 @@ export const arapRefreshAging: Run<RefreshAgingScope, Proposal> = {
       const balance = controlBalance(lines, control, asOf);
       const sub = sumArapCents(arOpen);
       contents.push({
-        id: tieId(asOf, "receivable"),
+        id: tieId(frozen.clientId, asOf, "receivable"),
         source: frozen.clientId,
         content: tieContent(policy, "receivable", control, balance, sub),
       });
@@ -389,7 +389,7 @@ export const arapRefreshAging: Run<RefreshAgingScope, Proposal> = {
       // against the negated balance and not against the raw one.
       const sub = sumArapCents(apOpen);
       contents.push({
-        id: tieId(asOf, "payable"),
+        id: tieId(frozen.clientId, asOf, "payable"),
         source: frozen.clientId,
         content: tieContent(policy, "payable", control, -balance, sub),
       });
@@ -470,12 +470,12 @@ export const arapRefreshAging: Run<RefreshAgingScope, Proposal> = {
   },
 };
 
-function snapshotId(asOf: string, side: ArapSide, documentId: Ulid): Ulid {
-  return derivedId(`${asOf}:${side}:${documentId}`, "arap-refresh-aging", 0);
+function snapshotId(clientId: Ulid, asOf: string, side: ArapSide, documentId: Ulid): Ulid {
+  return derivedId(`${clientId}:${asOf}:${side}:${documentId}`, "arap-refresh-aging", 0);
 }
 
-function tieId(asOf: string, side: ArapSide): Ulid {
-  return derivedId(`${asOf}:${side}:tie`, "arap-refresh-aging", 1);
+function tieId(clientId: Ulid, asOf: string, side: ArapSide): Ulid {
+  return derivedId(`${clientId}:${asOf}:${side}:tie`, "arap-refresh-aging", 1);
 }
 
 function tieContent(

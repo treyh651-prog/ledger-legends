@@ -11,7 +11,7 @@
 import { arapRefreshAging } from "../runs/ar-refresh-aging";
 import type { AgingSnapshotRow } from "../tables";
 import type { MemoryRunDb } from "../db-memory";
-import { CLIENT_A1, FIRM_A, lock } from "./fixtures";
+import { ACTOR, CLIENT_A1, FIRM_A, NOW, lock } from "./fixtures";
 import {
   applyArap,
   arapDb,
@@ -296,6 +296,9 @@ test("aging, the payable side ages bills against the payable control", async () 
       createdByRunId: "RUNX-SEED",
       runType: "SEED",
       runVersion: 1,
+      createdBy: ACTOR,
+      postedAt: NOW.toISOString(),
+      postedBy: ACTOR,
     },
   ]);
   db.seed("journal_lines", [

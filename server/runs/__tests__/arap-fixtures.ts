@@ -320,6 +320,9 @@ export function arEntry(
     createdByRunId: "RUNX-SEED",
     runType: "SEED",
     runVersion: 1,
+    createdBy: ACTOR,
+    postedAt: NOW.toISOString(),
+    postedBy: ACTOR,
     ...extra,
   };
 }

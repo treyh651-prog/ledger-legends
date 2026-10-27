@@ -576,7 +576,9 @@ const JE_COLUMNS = `
   run_type as "runType", run_version as "runVersion",
   reverses_on::text as "reversesOn",
   linked_document_id as "linkedDocumentId",
-  accrual_template_id as "accrualTemplateId"`;
+  accrual_template_id as "accrualTemplateId",
+  created_by as "createdBy",
+  posted_at::text as "postedAt", posted_by as "postedBy"`;
 
 const JL_COLUMNS = `
   id, firm_id as "firmId", client_id as "clientId",

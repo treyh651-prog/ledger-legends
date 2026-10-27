@@ -351,6 +351,10 @@ export interface JournalEntryRow {
   createdByRunId: string;
   runType: string;
   runVersion: number;
+  createdBy: Ulid;
+  /** Required by je_posted_complete whenever status is posted or reversed. */
+  postedAt: string | null;
+  postedBy: Ulid | null;
 }
 
 export interface JournalLineRow {
