@@ -355,6 +355,14 @@ export const COLUMN_OVERRIDES: Partial<
   run_log_events: {
     runExecutionId: { column: "run_id" },
     occurredAt: { column: "created_at" },
+    // detail is a plain string in RunLogEventRow (run-log.ts builds it from a
+    // run's own status detail, or a bare reason like a retry's error code),
+    // but the column is jsonb. pg auto-encodes a JS object for a jsonb column,
+    // not a bare string, so an unquoted word like a Postgres error code is
+    // not valid JSON on its own; this is the first write run_log_events has
+    // ever had reach real Postgres with RLS enforced, which is why the gap
+    // was never caught.
+    detail: { column: "detail", write: (v) => JSON.stringify(v ?? "") },
   },
   run_log_items: {
     runExecutionId: { column: "run_id" },
