@@ -351,10 +351,12 @@ export const importCommitBatch: Run<CommitBatchScope, Proposal> = {
         before: {
           dedupState: row.dedupState,
           committedTransactionId: row.committedTransactionId,
+          committedAt: row.committedAt,
         },
         after: {
           dedupState: "committed",
           committedTransactionId: registerId,
+          committedAt: NOW_PLACEHOLDER,
         },
         provenance: { cascadeLevel: 0 },
       });

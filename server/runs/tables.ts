@@ -264,6 +264,8 @@ export interface StagedRowRow {
   reviewState: "none" | "pending" | "accepted" | "rejected";
   committedTransactionId: Ulid | null;
   committedEntryId: Ulid | null;
+  /** Required by staged_commit_complete whenever dedupState is 'committed'. */
+  committedAt: string | null;
   errorCode: string | null;
   errorMessage: string | null;
   version: number;

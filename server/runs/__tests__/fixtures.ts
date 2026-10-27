@@ -357,6 +357,7 @@ export function stagedRow(
     reviewState: "none",
     committedTransactionId: null,
     committedEntryId: null,
+    committedAt: null,
     errorCode: null,
     errorMessage: null,
     version: 1,

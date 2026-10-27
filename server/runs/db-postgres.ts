@@ -531,6 +531,7 @@ const STAGED_ROW_COLUMNS = `
   review_state as "reviewState",
   committed_transaction_id as "committedTransactionId",
   committed_entry_id as "committedEntryId",
+  committed_at::text as "committedAt",
   error_code as "errorCode", error_message as "errorMessage", version`;
 
 const CLIENT_COLUMNS = `

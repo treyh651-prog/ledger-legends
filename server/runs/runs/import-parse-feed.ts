@@ -771,6 +771,7 @@ export const importParseFeed: Run<ParseFeedScope, Proposal> = {
         reviewState,
         committedTransactionId: null,
         committedEntryId: null,
+        committedAt: null,
         errorCode,
         errorMessage,
         version: 1,
