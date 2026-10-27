@@ -94,6 +94,11 @@ export const RUN_POLICIES: Readonly<Record<string, RunPolicy>> = {
     reason:
       "one time wizard step whose output is a list of asks addressed to the client, and the first thing a new client hears from the firm is not a thing a clock decides to send",
   },
+  "SETUP-ADD-BANK-ACCOUNT": {
+    tier: "manual",
+    reason:
+      "names a bank or card account and which chart account it feeds, once, and a clock has no account of its own to discover",
+  },
   "SETUP-IMPORT-BALANCES": {
     tier: "manual",
     reason:

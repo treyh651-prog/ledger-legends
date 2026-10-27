@@ -89,7 +89,8 @@ export type RunTypeId =
   // nothing in the original 49 ever puts the first one there.
   | "AR-CREATE-CUSTOMER"
   | "AR-CREATE-INVOICE"
-  | "REC-IMPORT-STATEMENT";
+  | "REC-IMPORT-STATEMENT"
+  | "SETUP-ADD-BANK-ACCOUNT";
 
 /** Doc 03 Part 7 names the reversal of a run `<ORIGINAL>-UNDO`. */
 export type UndoRunTypeId = `${RunTypeId}-UNDO`;

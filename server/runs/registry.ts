@@ -2,15 +2,18 @@
  * The run registry. One entry per implemented run type.
  *
  * The 49 run types doc 02 and doc 05 name are the original target, and all 49
- * are implemented. Three more sit beside them: AR-CREATE-CUSTOMER,
- * AR-CREATE-INVOICE, and REC-IMPORT-STATEMENT, none of which the original
- * modules ever specified, because module 5 and module 3 were both written
- * assuming a customer, an invoice, or a bank statement's lines already
- * existed on the books by the time their own runs read them. These three put
- * the first one there, in the same insert-only, run-framework shape as
- * everything around them.
+ * are implemented. Four more sit beside them: SETUP-ADD-BANK-ACCOUNT,
+ * AR-CREATE-CUSTOMER, AR-CREATE-INVOICE, and REC-IMPORT-STATEMENT, none of
+ * which the original modules ever specified, because module 1 setup, module
+ * 5, and module 3 were all written assuming a bank account, a customer, an
+ * invoice, or a bank statement's lines already existed on the books by the
+ * time their own runs read them. These four put the first one there, in the
+ * same insert-only, run-framework shape as everything around them.
  *
- * IMPORT-PARSE-FEED and IMPORT-COMMIT-BATCH are the front door for the
+ * SETUP-ADD-BANK-ACCOUNT comes first for the same reason: IMPORT-PARSE-FEED's
+ * own scope requires an existing bankAccountId, and without this run nothing
+ * downstream of it, including the whole of module 3, was reachable for any
+ * client. IMPORT-PARSE-FEED and IMPORT-COMMIT-BATCH are the front door for the
  * register side: nothing the coding cascade reads exists until a feed has
  * been parsed and a batch committed. REC-IMPORT-STATEMENT is the equivalent
  * front door for the bank's own side, which the original 49 never built. The
@@ -67,6 +70,7 @@ import { portalPostMessage } from "./runs/portal-post-message";
 import { docRecordUpload } from "./runs/doc-record-upload";
 import { intakeSeedTasks } from "./runs/intake-seed-tasks";
 import { intakeOpenRequests } from "./runs/intake-open-requests";
+import { setupAddBankAccount } from "./runs/setup-add-bank-account";
 import { setupImportBalances } from "./runs/setup-import-balances";
 import { recClearMatched } from "./runs/rec-clear-matched";
 import { subRaiseRequests } from "./runs/sub-raise-requests";
@@ -118,6 +122,7 @@ export const registry: readonly RegistryEntry[] = [
   entry(portalPostMessage),
   entry(docRecordUpload),
   entry(engSignLetter),
+  entry(setupAddBankAccount),
   entry(setupImportBalances),
   entry(importParseFeed),
   entry(importCommitBatch),

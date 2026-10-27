@@ -26,6 +26,7 @@ import type { RunTx } from "./db";
 import { ulid } from "./ids";
 import type {
   AgingSnapshotRow,
+  BankAccountRow,
   CategoryRow,
   ChartAccountRow,
   PracticeTaskCatalogRow,
@@ -478,6 +479,12 @@ async function insertRow(
 ): Promise<void> {
   const withId = { ...row, id: rowId };
   switch (table) {
+    // SETUP-ADD-BANK-ACCOUNT. Nothing else in this switch ever inserted a
+    // bank account, which is why IMPORT-PARSE-FEED's own bankAccountId
+    // requirement was unreachable from the real app for every client.
+    case "bank_accounts":
+      await tx.insert("bank_accounts", [withId as unknown as BankAccountRow]);
+      return;
     case "transactions":
       await tx.insert("transactions", [withId as unknown as TransactionRow]);
       return;

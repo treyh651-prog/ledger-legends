@@ -120,6 +120,7 @@ import "./intake-seed-tasks";
 import "./intake-activate-engagement";
 import "./eng-set-billing-status";
 import "./intake-open-requests";
+import "./setup-add-bank-account";
 import "./setup-import-balances";
 import "./intake-pipeline";
 
