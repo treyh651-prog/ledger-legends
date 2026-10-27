@@ -8,6 +8,7 @@
  */
 
 import { assert, assertEqual, test } from "./harness";
+import { CLIENT_A1 } from "./fixtures";
 import { PERIOD, addAccount, seedEntry } from "./close-fixtures";
 import {
   applyReport,
@@ -44,7 +45,7 @@ test("variance ids are derived, so a rerun is a no operation", async () => {
   await applyReport(db, rptFlagVariances, scope);
   assertEqual(
     rowFor(db, "4100")?.id,
-    varianceIdOf(PERIOD, "4100"),
+    varianceIdOf(CLIENT_A1, PERIOD, "4100"),
     "the id is derived from the period and the account",
   );
   const again = await previewReport(db, rptFlagVariances, scope);
@@ -64,7 +65,7 @@ test("two periods do not collide because the period is in the scope hash", async
   });
   assert(january.scopeHash !== february.scopeHash, "the two hashes differ");
   assert(
-    varianceIdOf(PERIOD, "4100") !== varianceIdOf("2026-02-01", "4100"),
+    varianceIdOf(CLIENT_A1, PERIOD, "4100") !== varianceIdOf(CLIENT_A1, "2026-02-01", "4100"),
     "and the same account in two periods is two rows",
   );
 });
@@ -98,7 +99,7 @@ test("an overridden variance row is never rewritten", async () => {
   const again = await previewReport(db, rptFlagVariances, scope);
   assert(
     again.result.skips.some(
-      (s) => s.rowId === varianceIdOf(PERIOD, "4100") && s.reason === "manual_override",
+      (s) => s.rowId === varianceIdOf(CLIENT_A1, PERIOD, "4100") && s.reason === "manual_override",
     ),
     "the overridden row is skipped",
   );

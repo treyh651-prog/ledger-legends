@@ -198,7 +198,7 @@ export const rptBuildPackage: Run<BuildPackageScope, Proposal> = {
     const errors: RunError[] = [];
 
     const basis = frozen.input.comparisonBasis;
-    const packageId = packageIdOf(data.periodStart, basis);
+    const packageId = packageIdOf(frozen.clientId, data.periodStart, basis);
     const sections = buildSections(data, basis);
     const sectionRows = await tx.query("report_sections_for_package", {
       firmId: frozen.firmId,
@@ -358,8 +358,8 @@ export const rptBuildPackage: Run<BuildPackageScope, Proposal> = {
   },
 };
 
-export function packageIdOf(periodStart: string, comparisonBasis: string): Ulid {
-  return derivedId(`${periodStart}:${comparisonBasis}`, "rpt-build-package", 0);
+export function packageIdOf(clientId: Ulid, periodStart: string, comparisonBasis: string): Ulid {
+  return derivedId(`${clientId}:${periodStart}:${comparisonBasis}`, "rpt-build-package", 0);
 }
 
 export function sectionIdOf(packageId: Ulid, sectionCode: string): Ulid {

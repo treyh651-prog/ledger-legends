@@ -126,12 +126,12 @@ test("roll forward, a prior period correction restates the opening figure", asyn
 
 test("roll forward, the row id is derived from the period and the account", () => {
   assertEqual(
-    openingId(NEXT_PERIOD, "1010"),
-    openingId(NEXT_PERIOD, "1010"),
+    openingId(CLIENT_A1, NEXT_PERIOD, "1010"),
+    openingId(CLIENT_A1, NEXT_PERIOD, "1010"),
     "the same inputs give the same id",
   );
   assert(
-    openingId(NEXT_PERIOD, "1010") !== openingId(PERIOD, "1010"),
+    openingId(CLIENT_A1, NEXT_PERIOD, "1010") !== openingId(CLIENT_A1, PERIOD, "1010"),
     "two periods are two rows",
   );
 });
@@ -139,7 +139,7 @@ test("roll forward, the row id is derived from the period and the account", () =
 test("roll forward, an overridden opening balance is left alone", async () => {
   const db = closeDb();
   db.seed("opening_balances", [
-    opening(openingId(NEXT_PERIOD, "1010"), NEXT_PERIOD, "1010", BigInt(1), {
+    opening(openingId(CLIENT_A1, NEXT_PERIOD, "1010"), NEXT_PERIOD, "1010", BigInt(1), {
       manualOverride: true,
     }),
   ]);

@@ -45,7 +45,7 @@ test("rec-import-statement: inserts one row per line", async () => {
 
   const rows = db.all("statement_lines") as StatementLineRow[];
   assertEqual(rows.length, 2, "both lines landed");
-  const first = rows.find((l) => l.id === statementLineIdFor(STATEMENT_ID, 0));
+  const first = rows.find((l) => l.id === statementLineIdFor(CLIENT_A1, STATEMENT_ID, 0));
   assert(first !== undefined, "the first line exists at its derived id");
   assertEqual(first?.amountCents, BigInt(-25000), "amount carried through");
   assertEqual(first?.matchTier, null, "unmatched on arrival");
@@ -96,7 +96,7 @@ test("rec-import-statement: once imported, REC-MATCH-TIERED can reconcile the li
   await execute(db, recMatchTiered, matchScope(BigInt(50000), { statementId: STATEMENT_ID }), opts("apply", { previewRunId: matchPreview.executionId }));
 
   const matchedLine = (db.all("statement_lines") as StatementLineRow[]).find(
-    (l) => l.id === statementLineIdFor(STATEMENT_ID, 0),
+    (l) => l.id === statementLineIdFor(CLIENT_A1, STATEMENT_ID, 0),
   );
   assertEqual(matchedLine?.matchTier, TIER.exactDate, "tier 1 matched the exact same day amount");
   assertEqual(matchedLine?.matchedTransactionId, "TX-1", "matched to the register row this run never could have reached before");

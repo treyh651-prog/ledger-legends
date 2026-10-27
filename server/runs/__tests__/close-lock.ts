@@ -116,7 +116,7 @@ test("lock, one failing gate refuses the run", async () => {
 
 test("lock, a missing gate result refuses the run", async () => {
   const db = await withGates(closeDb());
-  const target = gateResultId(PERIOD, "G07");
+  const target = gateResultId(CLIENT_A1, PERIOD, "G07");
   const kept = db.all("close_gate_results").filter((r) => r.id !== target);
   // Seeding merges, so the table is rebuilt through a fresh database instead.
   const rebuilt = closeDb();

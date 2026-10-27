@@ -694,7 +694,7 @@ export const clsEvaluateGates: Run<EvaluateGatesScope, Proposal> = {
     });
     const data = await loadCloseData(tx, ctx.firmId, scope.clientId, scope.period);
     const candidateIds = CLOSE_GATES.map((g) =>
-      gateResultId(window.periodStart, g.code),
+      gateResultId(scope.clientId, window.periodStart, g.code),
     );
     const versions = [
       { id: "CLOSE-CHECK-GATES", version: 1 },
@@ -756,7 +756,7 @@ export const clsEvaluateGates: Run<EvaluateGatesScope, Proposal> = {
         scopeReason: answer.scopeReason,
         ledgerFingerprint: data.fingerprint,
       };
-      const rowId = gateResultId(data.periodStart, gate.code);
+      const rowId = gateResultId(frozen.clientId, data.periodStart, gate.code);
       const existing = prior.get(rowId);
       if (existing === undefined) {
         proposals.push(insertGateResult(frozen, data, rowId, gate.code, content));
@@ -817,8 +817,8 @@ export const clsEvaluateGates: Run<EvaluateGatesScope, Proposal> = {
   },
 };
 
-export function gateResultId(periodStart: string, gateCode: string): Ulid {
-  return derivedId(`${periodStart}:${gateCode}`, "cls-evaluate-gates", 0);
+export function gateResultId(clientId: Ulid, periodStart: string, gateCode: string): Ulid {
+  return derivedId(`${clientId}:${periodStart}:${gateCode}`, "cls-evaluate-gates", 0);
 }
 
 function insertGateResult(

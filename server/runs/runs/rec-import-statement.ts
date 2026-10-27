@@ -60,8 +60,8 @@ export const importStatementScopeSchema = z.object({
 
 export type ImportStatementScope = z.infer<typeof importStatementScopeSchema>;
 
-export function statementLineIdFor(statementId: Ulid, index: number): Ulid {
-  return derivedId(statementId, "rec-import-statement", index);
+export function statementLineIdFor(clientId: Ulid, statementId: Ulid, index: number): Ulid {
+  return derivedId(`${clientId}:${statementId}`, "rec-import-statement", index);
 }
 
 export const recImportStatement: Run<ImportStatementScope, Proposal> = {
@@ -84,7 +84,7 @@ export const recImportStatement: Run<ImportStatementScope, Proposal> = {
       bankAccountId: scope.bankAccountId,
       statementId: scope.statementId,
     });
-    const candidateIds = scope.lines.map((_, i) => statementLineIdFor(scope.statementId, i));
+    const candidateIds = scope.lines.map((_, i) => statementLineIdFor(scope.clientId, scope.statementId, i));
     const versions = [
       { id: "REC-IMPORT-STATEMENT", version: 1 },
       ...accounts.filter((a) => a.id === scope.bankAccountId).map((a) => ({ id: a.id, version: 1 })),
@@ -142,7 +142,7 @@ export const recImportStatement: Run<ImportStatementScope, Proposal> = {
 
     const proposals: Proposal[] = scope.lines.map((line, index) => {
       const row: StatementLineRow = {
-        id: statementLineIdFor(scope.statementId, index),
+        id: statementLineIdFor(frozen.clientId, scope.statementId, index),
         firmId: frozen.firmId,
         clientId: frozen.clientId,
         bankAccountId: scope.bankAccountId,

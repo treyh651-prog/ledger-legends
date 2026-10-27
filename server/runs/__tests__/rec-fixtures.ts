@@ -27,7 +27,7 @@ export const PERIOD_END = "2026-01-31";
 export const AS_OF = "2026-02-10";
 
 /** The batch id REC-MATCH-TIERED derives for the January statement. */
-export const BATCH_ID = derivedId(STATEMENT, "rec-batch", 0);
+export const BATCH_ID = derivedId(`${CLIENT_A1}:${STATEMENT}`, "rec-batch", 0);
 
 /** The base database plus the suspense account the stale run's items name. */
 export function recDb(): MemoryRunDb {

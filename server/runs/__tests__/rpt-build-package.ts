@@ -71,7 +71,7 @@ test("package ids are derived, so a rerun is a no operation", async () => {
   );
   assertEqual(
     first.id,
-    packageIdOf(PERIOD, "prior_period"),
+    packageIdOf(CLIENT_A1, PERIOD, "prior_period"),
     "the id is derived from the period and the comparison basis",
   );
 });
@@ -88,7 +88,7 @@ test("two periods do not collide because the period is in the scope hash", async
     "January and February hash differently",
   );
   assert(
-    packageIdOf(PERIOD, "prior_period") !== packageIdOf("2026-02-01", "prior_period"),
+    packageIdOf(CLIENT_A1, PERIOD, "prior_period") !== packageIdOf(CLIENT_A1, "2026-02-01", "prior_period"),
     "and the two packages are different rows",
   );
 });
@@ -127,7 +127,7 @@ test("a posting after a build produces a fresh package rather than a stale one",
 test("an overridden package is not touched, and neither are its sections", async () => {
   const db = reportDb();
   await applyReport(db, rptBuildPackage, scope);
-  const packageId = packageIdOf(PERIOD, "prior_period");
+  const packageId = packageIdOf(CLIENT_A1, PERIOD, "prior_period");
   db.seed("report_packages", [
     { ...packagesOf(db)[0], manualOverride: true, sectionCount: 2 },
   ]);
@@ -152,7 +152,7 @@ test("an overridden package is not touched, and neither are its sections", async
 test("an overridden section is left alone while the rest rebuild", async () => {
   const db = reportDb();
   await applyReport(db, rptBuildPackage, scope);
-  const packageId = packageIdOf(PERIOD, "prior_period");
+  const packageId = packageIdOf(CLIENT_A1, PERIOD, "prior_period");
   const notesId = sectionIdOf(packageId, "NOTES");
   db.seed(
     "report_sections",

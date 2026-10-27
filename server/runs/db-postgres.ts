@@ -705,7 +705,7 @@ const CUSTOMER_COLUMNS = `
   do_not_pursue as "doNotPursue",
   payment_plan_active as "paymentPlanActive",
   statement_document_id as "statementDocumentId",
-  statement_document_date as "statementDocumentDate",
+  statement_document_date::text as "statementDocumentDate",
   manual_override as "manualOverride",
   created_by as "createdBy"
 `;
@@ -713,7 +713,7 @@ const CUSTOMER_COLUMNS = `
 const INVOICE_COLUMNS = `
   id, firm_id as "firmId", client_id as "clientId", version,
   customer_id as "customerId", invoice_number as "invoiceNumber",
-  invoice_date as "invoiceDate", due_date as "dueDate",
+  invoice_date::text as "invoiceDate", due_date::text as "dueDate",
   original_amount_cents::text as "originalAmountCents",
   tax_cents::text as "taxCents",
   applied_payments_cents::text as "appliedPaymentsCents",
@@ -730,14 +730,14 @@ const INVOICE_COLUMNS = `
 const CREDIT_MEMO_COLUMNS = `
   id, firm_id as "firmId", client_id as "clientId", version,
   customer_id as "customerId", memo_number as "memoNumber",
-  memo_date as "memoDate", amount_cents::text as "amountCents",
+  memo_date::text as "memoDate", amount_cents::text as "amountCents",
   applied_cents::text as "appliedCents", status,
   manual_override as "manualOverride"
 `;
 
 const CUSTOMER_PAYMENT_COLUMNS = `
   id, firm_id as "firmId", client_id as "clientId", version,
-  customer_id as "customerId", payment_date as "paymentDate",
+  customer_id as "customerId", payment_date::text as "paymentDate",
   amount_cents::text as "amountCents",
   applied_cents::text as "appliedCents",
   on_hold as "onHold", match_hint as "matchHint",
@@ -756,7 +756,7 @@ const PAYMENT_APPLICATION_COLUMNS = `
   id, firm_id as "firmId", client_id as "clientId", version,
   payment_id as "paymentId", invoice_id as "invoiceId",
   applied_cents::text as "appliedCents",
-  application_date as "applicationDate", tier, state,
+  application_date::text as "applicationDate", tier, state,
   posted_entry_id as "postedEntryId",
   created_by_run_id as "createdByRunId",
   manual_override as "manualOverride"
@@ -764,30 +764,30 @@ const PAYMENT_APPLICATION_COLUMNS = `
 
 const AGING_SNAPSHOT_COLUMNS = `
   id, firm_id as "firmId", client_id as "clientId", version,
-  as_of_date as "asOfDate", side, aging_basis as "agingBasis",
+  as_of_date::text as "asOfDate", side, aging_basis as "agingBasis",
   party_id as "partyId", party_name as "partyName",
   document_id as "documentId", document_number as "documentNumber",
-  document_date as "documentDate", basis_date as "basisDate",
+  document_date::text as "documentDate", basis_date::text as "basisDate",
   age_days as "ageDays", bucket,
   open_balance_cents::text as "openBalanceCents",
   control_account as "controlAccount",
   control_balance_cents::text as "controlBalanceCents",
   tie_difference_cents::text as "tieDifferenceCents",
   subledger_out_of_tie as "subledgerOutOfTie",
-  created_by_run_id as "createdByRunId", created_at as "createdAt",
+  created_by_run_id as "createdByRunId", created_at::text as "createdAt",
   manual_override as "manualOverride"
 `;
 
 const STATEMENT_DOCUMENT_COLUMNS = `
   id, firm_id as "firmId", client_id as "clientId", version,
-  customer_id as "customerId", statement_date as "statementDate",
+  customer_id as "customerId", statement_date::text as "statementDate",
   statement_type as "statementType", state,
   opening_balance_cents::text as "openingBalanceCents",
   activity_cents::text as "activityCents",
   closing_balance_cents::text as "closingBalanceCents",
   message_band as "messageBand", message_text as "messageText",
   oldest_item_age_days as "oldestItemAgeDays", item_count as "itemCount",
-  created_by_run_id as "createdByRunId", created_at as "createdAt",
+  created_by_run_id as "createdByRunId", created_at::text as "createdAt",
   manual_override as "manualOverride"
 `;
 
@@ -795,7 +795,7 @@ const STATEMENT_ITEM_COLUMNS = `
   id, firm_id as "firmId", client_id as "clientId",
   statement_id as "statementId", line_number as "lineNumber",
   item_kind as "itemKind", document_id as "documentId",
-  document_number as "documentNumber", document_date as "documentDate",
+  document_number as "documentNumber", document_date::text as "documentDate",
   original_cents::text as "originalCents",
   applied_cents::text as "appliedCents",
   open_cents::text as "openCents",
@@ -805,20 +805,20 @@ const STATEMENT_ITEM_COLUMNS = `
 const WRITEOFF_PROPOSAL_COLUMNS = `
   id, firm_id as "firmId", client_id as "clientId", version,
   invoice_id as "invoiceId", customer_id as "customerId",
-  as_of_date as "asOfDate", age_days as "ageDays",
+  as_of_date::text as "asOfDate", age_days as "ageDays",
   open_balance_cents::text as "openBalanceCents",
   net_cents::text as "netCents", tax_cents::text as "taxCents",
   method, approval_route as "approvalRoute", authority,
   collection_attempts as "collectionAttempts", state,
   posted_entry_id as "postedEntryId",
-  created_by_run_id as "createdByRunId", created_at as "createdAt",
+  created_by_run_id as "createdByRunId", created_at::text as "createdAt",
   manual_override as "manualOverride"
 `;
 
 const BILL_COLUMNS = `
   id, firm_id as "firmId", client_id as "clientId", version,
   vendor_id as "vendorId", bill_number as "billNumber",
-  bill_date as "billDate", due_date as "dueDate",
+  bill_date::text as "billDate", due_date::text as "dueDate",
   original_amount_cents::text as "originalAmountCents",
   freight_cents::text as "freightCents",
   tax_cents::text as "taxCents",

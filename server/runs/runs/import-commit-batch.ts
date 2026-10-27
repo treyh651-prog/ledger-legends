@@ -47,10 +47,7 @@ import { isLockedDay } from "../dates";
 import { derivedId, scopeHashFor } from "../ids";
 import { reverseEntry, revertFieldWrite } from "../undo";
 import type { StagedRowRow, TransactionRow } from "../tables";
-import {
-  DESCRIPTOR_NORMALIZATION_VERSION,
-  normalizeDescriptor,
-} from "./import-parse-feed";
+import { DESCRIPTOR_NORMALIZATION_VERSION } from "./import-parse-feed";
 
 export const COMMIT_ERROR_CODES = {
   unknownBatch: "UNKNOWN_IMPORT_BATCH",
@@ -263,9 +260,6 @@ export const importCommitBatch: Run<CommitBatchScope, Proposal> = {
       }
 
       const registerId = registerIdFor(batch.id, row.rowNumber);
-      const normalized =
-        row.normalizedDescription ??
-        normalizeDescriptor(row.description ?? "");
       const register: TransactionRow = {
         id: registerId,
         firmId: frozen.firmId,
@@ -277,10 +271,13 @@ export const importCommitBatch: Run<CommitBatchScope, Proposal> = {
         currency: row.currency,
         description: row.description ?? "",
         bankMerchantName: null,
-        normalizedVendor: normalized,
-        // Left null on purpose. The import normalizer is the staging one, not the
-        // vendor normalizer, so TXN-NORMALIZE-VENDORS still has work to do and
-        // reports the row as unnormalized rather than as already at version.
+        // Both left null on purpose. The staging normalizer that produced
+        // row.normalizedDescription is not the vendor normalizer, and
+        // txn_normalization_versioned (migration 0011) requires a version
+        // whenever normalizedVendor is set, so the pair stays null together
+        // until TXN-NORMALIZE-VENDORS sets both at once -- the same
+        // uncoded-on-arrival treatment as categoryId below.
+        normalizedVendor: null,
         vendorNormalizationVersion: null,
         normalizationDegraded: false,
         vendorId: null,

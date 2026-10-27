@@ -249,7 +249,7 @@ test("tie out, a changed statement restates the row rather than adding one", asy
 test("tie out, a row carrying manual override is left alone", async () => {
   const db = closeDb();
   db.seed("sub_tieouts", [
-    tieout(tieoutId(PERIOD, "1010"), "1010", {
+    tieout(tieoutId(CLIENT_A1, PERIOD, "1010"), "1010", {
       manualOverride: true,
       detail: "a person tied this by hand",
     }),
