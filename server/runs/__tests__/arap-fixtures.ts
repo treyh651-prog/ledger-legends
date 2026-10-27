@@ -47,6 +47,7 @@ export const ARAP_ACCOUNTS: ReadonlyArray<readonly [string, string]> = [
   ["2400", "Sales tax payable"],
   ["4100", "Service revenue"],
   ["4200", "Late fee revenue"],
+  ["6100", "Office expense"],
   ["6800", "Bad debt expense"],
   ["8200", "Purchase discounts taken"],
 ];
@@ -216,6 +217,7 @@ export function payment(
     status: "unapplied",
     appliedTier: null,
     manualOverride: false,
+    createdBy: ACTOR,
     ...extra,
   };
 }
@@ -291,6 +293,7 @@ export function bill(
     apAccount: "2000",
     expenseAccount: "6100",
     manualOverride: false,
+    createdBy: ACTOR,
     ...extra,
   };
 }

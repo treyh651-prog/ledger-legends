@@ -221,8 +221,10 @@ export const RUN_POLICIES: Readonly<Record<string, RunPolicy>> = {
 
   // ---------------------------------------------------------------------
   // Module 5, AR and AP. AR-CREATE-CUSTOMER and AR-CREATE-INVOICE put the
-  // first customer and the first bill on the books; four of the rest post,
-  // two reach a customer, one measures.
+  // first customer and the first bill on the books; AP-CREATE-VENDOR and
+  // AP-CREATE-BILL do the identical thing for the payable side, and
+  // AR-RECORD-PAYMENT puts the first received payment on the books. Four of
+  // the documented six post, two reach a customer, one measures.
   // ---------------------------------------------------------------------
   "AR-CREATE-CUSTOMER": {
     tier: "manual",
@@ -233,6 +235,21 @@ export const RUN_POLICIES: Readonly<Record<string, RunPolicy>> = {
     tier: "manual",
     reason:
       "posts the sale to the general ledger and bills a named customer, so the run prepares and a person decides, the same reasoning SETUP-IMPORT-BALANCES gives for the opening entry",
+  },
+  "AP-CREATE-VENDOR": {
+    tier: "manual",
+    reason:
+      "a person at the firm records a new vendor by legal name, once, and a clock has no vendor of its own to discover",
+  },
+  "AP-CREATE-BILL": {
+    tier: "manual",
+    reason:
+      "posts the payable to the general ledger from a named vendor's bill, so the run prepares and a person decides, the same reasoning AR-CREATE-INVOICE gives for billing a customer",
+  },
+  "AR-RECORD-PAYMENT": {
+    tier: "manual",
+    reason:
+      "names which customer a deposit already on the register belongs to, once, and a clock cannot discover whose cash it is",
   },
   "AR-APPLY-PAYMENTS": {
     tier: "propose",

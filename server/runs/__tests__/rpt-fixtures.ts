@@ -184,6 +184,7 @@ export function billRow(id: string, extra: Partial<BillRow> = {}): BillRow {
     apAccount: "2000",
     expenseAccount: "6100",
     manualOverride: false,
+    createdBy: ACTOR,
     ...extra,
   };
 }

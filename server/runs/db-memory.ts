@@ -1195,6 +1195,14 @@ class MemoryTx implements RunTx {
           .sort(comparePayments)
           .map((r) => clone(r as unknown as AnyRow));
       }
+      case "customer_payments_for_client": {
+        const p =
+          rawParams as QueryCatalog["customer_payments_for_client"]["params"];
+        return this.view("customer_payments")
+          .filter((r) => r.firmId === p.firmId && r.clientId === p.clientId)
+          .sort(byId)
+          .map(clone);
+      }
       case "remittance_lines_for_payments": {
         const p =
           rawParams as QueryCatalog["remittance_lines_for_payments"]["params"];

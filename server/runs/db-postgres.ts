@@ -744,7 +744,8 @@ const CUSTOMER_PAYMENT_COLUMNS = `
   on_hold as "onHold", match_hint as "matchHint",
   transaction_id as "transactionId",
   clearing_account as "clearingAccount", status,
-  applied_tier as "appliedTier", manual_override as "manualOverride"
+  applied_tier as "appliedTier", manual_override as "manualOverride",
+  created_by as "createdBy"
 `;
 
 const REMITTANCE_LINE_COLUMNS = `
@@ -829,7 +830,8 @@ const BILL_COLUMNS = `
   discount_bps as "discountBps", discount_days as "discountDays",
   net_days as "netDays", status, on_hold as "onHold",
   in_dispute as "inDispute", ap_account as "apAccount",
-  expense_account as "expenseAccount", manual_override as "manualOverride"
+  expense_account as "expenseAccount", manual_override as "manualOverride",
+  created_by as "createdBy"
 `;
 
 const VENDOR_CREDIT_COLUMNS = `
@@ -2021,6 +2023,14 @@ export const QUERIES: Record<QueryName, SqlSpec> = {
             and payment_date >= $3 and payment_date <= $4
           order by payment_date asc, id asc`,
     params: (p) => [p.firmId, p.clientId, p.from, p.to],
+  },
+  customer_payments_for_client: {
+    table: "customer_payments",
+    sql: `select ${CUSTOMER_PAYMENT_COLUMNS}
+          from subledger.customer_payments
+          where firm_id = $1 and client_id = $2
+          order by id asc`,
+    params: (p) => [p.firmId, p.clientId],
   },
   remittance_lines_for_payments: {
     table: "remittance_lines",

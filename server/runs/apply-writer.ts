@@ -27,8 +27,11 @@ import { ulid } from "./ids";
 import type {
   AgingSnapshotRow,
   BankAccountRow,
+  BillRow,
   CategoryRow,
   ChartAccountRow,
+  CustomerPaymentRow,
+  VendorRow,
   PracticeTaskCatalogRow,
   ClientRow,
   EngagementRow,
@@ -572,6 +575,23 @@ async function insertRow(
     // only ever field-write it (see writeField above).
     case "statement_lines":
       await tx.insert("statement_lines", [withId as unknown as StatementLineRow]);
+      return;
+    // AP-CREATE-VENDOR, AP-CREATE-BILL, and AR-RECORD-PAYMENT. The payable
+    // side of module 5 had the identical "nothing creates the first row" gap
+    // AR-CREATE-CUSTOMER and AR-CREATE-INVOICE closed above: AP-APPLY-DISCOUNTS
+    // and ARAP-REFRESH-AGING both assumed a vendor and a bill already existed,
+    // and AR-APPLY-PAYMENTS assumed a customer_payments row already existed
+    // coded to the clearing account. These three close it the same plain way.
+    case "vendors":
+      await tx.insert("vendors", [withId as unknown as VendorRow]);
+      return;
+    case "bills":
+      await tx.insert("bills", [withId as unknown as BillRow]);
+      return;
+    case "customer_payments":
+      await tx.insert("customer_payments", [
+        withId as unknown as CustomerPaymentRow,
+      ]);
       return;
     case "payment_applications":
       await tx.insert("payment_applications", [

@@ -481,6 +481,17 @@ export interface QueryCatalog {
     params: { firmId: Ulid; clientId: Ulid; from: string; to: string };
     row: CustomerPaymentRow;
   };
+  /**
+   * Every payment of a client, unfiltered by date. AR-RECORD-PAYMENT reads
+   * this to refuse a second payment against the same register transaction,
+   * the same reason AR-CREATE-INVOICE reads invoices_for_client before
+   * posting: the window query exists for AR-APPLY-PAYMENTS' own period scope
+   * and is the wrong shape for a one time existence check.
+   */
+  customer_payments_for_client: {
+    params: { firmId: Ulid; clientId: Ulid };
+    row: CustomerPaymentRow;
+  };
   /** Structured remittance advice, ordered by payment then line number. */
   remittance_lines_for_payments: {
     params: { firmId: Ulid; clientId: Ulid; paymentIds: Ulid[] };

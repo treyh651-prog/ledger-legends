@@ -1135,6 +1135,7 @@ export interface CustomerPaymentRow {
   status: "unapplied" | "partially_applied" | "applied" | "void";
   appliedTier: number | null;
   manualOverride: boolean;
+  createdBy: Ulid;
 }
 
 export interface RemittanceLineRow {
@@ -1304,6 +1305,7 @@ export interface BillRow {
   apAccount: string;
   expenseAccount: string;
   manualOverride: boolean;
+  createdBy: Ulid;
 }
 
 export interface VendorCreditRow {

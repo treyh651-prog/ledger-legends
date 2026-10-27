@@ -90,7 +90,12 @@ export type RunTypeId =
   | "AR-CREATE-CUSTOMER"
   | "AR-CREATE-INVOICE"
   | "REC-IMPORT-STATEMENT"
-  | "SETUP-ADD-BANK-ACCOUNT";
+  | "SETUP-ADD-BANK-ACCOUNT"
+  // The payable side had the identical gap: nothing in the original 49 ever
+  // creates a vendor, a bill, or the subledger record of a received payment.
+  | "AP-CREATE-VENDOR"
+  | "AP-CREATE-BILL"
+  | "AR-RECORD-PAYMENT";
 
 /** Doc 03 Part 7 names the reversal of a run `<ORIGINAL>-UNDO`. */
 export type UndoRunTypeId = `${RunTypeId}-UNDO`;
