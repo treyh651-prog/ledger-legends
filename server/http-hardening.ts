@@ -123,6 +123,7 @@ function jsonBodyParser(opts: { limit: string }): RequestHandler {
   const maxBytes = parseByteLimit(opts.limit);
   return (req, res, next) => {
     const preset = (req as unknown as { body?: unknown }).body;
+    console.log("DEBUG jsonBodyParser", JSON.stringify({ presetType: typeof preset, presetPreview: typeof preset === "string" ? preset.slice(0, 100) : preset, contentType: req.header("content-type") }));
     if (typeof preset !== "string") {
       streamFallback(req, res, next);
       return;
