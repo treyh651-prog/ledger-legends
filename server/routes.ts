@@ -1,6 +1,6 @@
 import type { Express, NextFunction, Request, RequestHandler, Response } from "express";
 import type { Server } from "node:http";
-import rateLimit from "express-rate-limit";
+import rateLimit, { ipKeyGenerator } from "express-rate-limit";
 import { resolveRunDb, type ResolvedRunDb } from "./db/run-db";
 import { schedulerStatus } from "./sched/status";
 import type { AuthRuntime } from "./auth/setup";
@@ -59,7 +59,11 @@ export interface RouteDeps {
 function clientKey(req: { ip?: string; headers: Record<string, unknown> }): string {
   const forwarded = req.headers["x-forwarded-for"];
   const first = Array.isArray(forwarded) ? forwarded[0] : typeof forwarded === "string" ? forwarded.split(",")[0] : null;
-  return (first ?? req.ip ?? "unknown").trim();
+  const addr = (first ?? req.ip ?? "unknown").trim();
+  // IPv6 addresses vary in representation (shortened forms, zone ids); the
+  // helper normalizes to a /56 so the many ways to spell one address cannot
+  // be used to multiply a caller's effective limit.
+  return addr.includes(":") ? ipKeyGenerator(addr) : addr;
 }
 
 export const publicLimiter = rateLimit({
