@@ -160,8 +160,14 @@ export const RUN_POLICIES: Readonly<Record<string, RunPolicy>> = {
   },
 
   // ---------------------------------------------------------------------
-  // Module 3, reconciliation. None of the three posts anything.
+  // Module 3, reconciliation. REC-IMPORT-STATEMENT puts the bank's own lines
+  // on the books; none of the four posts anything.
   // ---------------------------------------------------------------------
+  "REC-IMPORT-STATEMENT": {
+    tier: "unattended",
+    reason:
+      "records exactly what the bank statement says, touches no ledger account, and a repeat on the same statement id changes nothing",
+  },
   "REC-MATCH-TIERED": {
     tier: "unattended",
     reason:
@@ -209,8 +215,20 @@ export const RUN_POLICIES: Readonly<Record<string, RunPolicy>> = {
   },
 
   // ---------------------------------------------------------------------
-  // Module 5, AR and AP. Four post, two reach a customer, one measures.
+  // Module 5, AR and AP. AR-CREATE-CUSTOMER and AR-CREATE-INVOICE put the
+  // first customer and the first bill on the books; four of the rest post,
+  // two reach a customer, one measures.
   // ---------------------------------------------------------------------
+  "AR-CREATE-CUSTOMER": {
+    tier: "manual",
+    reason:
+      "a person at the firm records a new customer by name, once, and a clock has no customer of its own to discover",
+  },
+  "AR-CREATE-INVOICE": {
+    tier: "manual",
+    reason:
+      "posts the sale to the general ledger and bills a named customer, so the run prepares and a person decides, the same reasoning SETUP-IMPORT-BALANCES gives for the opening entry",
+  },
   "AR-APPLY-PAYMENTS": {
     tier: "propose",
     reason:

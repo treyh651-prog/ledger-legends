@@ -28,7 +28,7 @@ import type {
   RemittanceLineRow,
   VendorRow,
 } from "../tables";
-import { CLIENT_A1, FIRM_A, NOW, baseDb, chartAccount, opts } from "./fixtures";
+import { ACTOR, CLIENT_A1, FIRM_A, NOW, baseDb, chartAccount, opts } from "./fixtures";
 
 /** The period every module 5 suite works on unless it says otherwise. */
 export const PERIOD = "2026-01-01";
@@ -133,6 +133,7 @@ export function customer(
     statementDocumentId: null,
     statementDocumentDate: null,
     manualOverride: false,
+    createdBy: ACTOR,
     ...extra,
   };
 }
@@ -167,6 +168,7 @@ export function invoice(
     arAccount: "1100",
     revenueAccount: "4100",
     manualOverride: false,
+    createdBy: ACTOR,
     ...extra,
   };
 }

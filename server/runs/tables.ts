@@ -1053,6 +1053,7 @@ export interface CustomerRow {
   statementDocumentId: Ulid | null;
   statementDocumentDate: string | null;
   manualOverride: boolean;
+  createdBy: Ulid;
 }
 
 /**
@@ -1086,6 +1087,7 @@ export interface InvoiceRow {
   arAccount: string;
   revenueAccount: string;
   manualOverride: boolean;
+  createdBy: Ulid;
 }
 
 export interface CreditMemoRow {

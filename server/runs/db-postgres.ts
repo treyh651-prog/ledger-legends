@@ -703,7 +703,8 @@ const CUSTOMER_COLUMNS = `
   payment_plan_active as "paymentPlanActive",
   statement_document_id as "statementDocumentId",
   statement_document_date as "statementDocumentDate",
-  manual_override as "manualOverride"
+  manual_override as "manualOverride",
+  created_by as "createdBy"
 `;
 
 const INVOICE_COLUMNS = `
@@ -720,7 +721,7 @@ const INVOICE_COLUMNS = `
   parent_invoice_id as "parentInvoiceId", is_late_fee as "isLateFee",
   fee_months as "feeMonths", writeoff_approved as "writeoffApproved",
   ar_account as "arAccount", revenue_account as "revenueAccount",
-  manual_override as "manualOverride"
+  manual_override as "manualOverride", created_by as "createdBy"
 `;
 
 const CREDIT_MEMO_COLUMNS = `

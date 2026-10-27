@@ -1,9 +1,19 @@
 /**
  * The run registry. One entry per implemented run type.
  *
- * The 49 run types in the contract are the target. Forty one are implemented so
- * far. IMPORT-PARSE-FEED and IMPORT-COMMIT-BATCH are the front door: nothing the
- * other runs read exists until a feed has been parsed and a batch committed. The
+ * The 49 run types doc 02 and doc 05 name are the original target, and all 49
+ * are implemented. Three more sit beside them: AR-CREATE-CUSTOMER,
+ * AR-CREATE-INVOICE, and REC-IMPORT-STATEMENT, none of which the original
+ * modules ever specified, because module 5 and module 3 were both written
+ * assuming a customer, an invoice, or a bank statement's lines already
+ * existed on the books by the time their own runs read them. These three put
+ * the first one there, in the same insert-only, run-framework shape as
+ * everything around them.
+ *
+ * IMPORT-PARSE-FEED and IMPORT-COMMIT-BATCH are the front door for the
+ * register side: nothing the coding cascade reads exists until a feed has
+ * been parsed and a batch committed. REC-IMPORT-STATEMENT is the equivalent
+ * front door for the bank's own side, which the original 49 never built. The
  * nine module 2 coding runs then take the register from a raw descriptor to a
  * coded row, and the order they appear in below is the order doc 02 Part B
  * requires. CODING_CASCADE_ORDER is the machine readable form of that order, and
@@ -13,6 +23,9 @@
 
 import type { Proposal, Run } from "./contract";
 import { apApplyEarlyDiscount } from "./runs/ap-apply-earlydiscount";
+import { arCreateCustomer } from "./runs/ar-create-customer";
+import { arCreateInvoice } from "./runs/ar-create-invoice";
+import { recImportStatement } from "./runs/rec-import-statement";
 import { cpaBuildHandoff } from "./runs/cpa-build-handoff";
 import { offboardBuildExport } from "./runs/offboard-build-export";
 import { payApproveRun } from "./runs/pay-approve-run";
@@ -117,9 +130,12 @@ export const registry: readonly RegistryEntry[] = [
   entry(txnApplyVendorDefaults),
   entry(txnMapBankCodes),
   entry(txnSweepSuspense),
-  // Module 3 reconciliation, in the only order they can run in: matching opens
-  // the batch, clearing closes it with a difference, and stale flagging reports
-  // on what clearing left outstanding.
+  // Module 3 reconciliation. REC-IMPORT-STATEMENT first: it is what puts the
+  // bank's own lines on the books, the "statement has already been imported"
+  // precondition the other three assume. Matching then opens the batch,
+  // clearing closes it with a difference, and stale flagging reports on what
+  // clearing left outstanding.
+  entry(recImportStatement),
   entry(recMatchTiered),
   entry(recClearMatched),
   entry(recFlagStale),
@@ -132,7 +148,11 @@ export const registry: readonly RegistryEntry[] = [
   entry(perSplitLoan),
   entry(perPostAccruals),
   entry(perPostDepreciation),
-  // Module 5 AR and AP, in the order AR_AP_ORDER explains.
+  // Module 5 AR and AP. AR-CREATE-CUSTOMER and AR-CREATE-INVOICE first: they
+  // are what put a customer and a bill on the books, the precondition every
+  // run below assumes. Then AR_AP_ORDER explains the rest.
+  entry(arCreateCustomer),
+  entry(arCreateInvoice),
   entry(arApplyPayments),
   entry(apApplyEarlyDiscount),
   entry(arChargeLateFees),

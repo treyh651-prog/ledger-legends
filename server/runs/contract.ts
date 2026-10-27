@@ -83,7 +83,13 @@ export type RunTypeId =
   | "CPA-BUILD-HANDOFF"
   | "OFFBOARD-BUILD-EXPORT"
   // Tenancy level, manual, not part of any module.
-  | "ENG-SET-BILLING-STATUS";
+  | "ENG-SET-BILLING-STATUS"
+  // Added after doc 02: module 5 and module 3 each assumed a row already
+  // existed on the books before their documented runs ever touched it, and
+  // nothing in the original 49 ever puts the first one there.
+  | "AR-CREATE-CUSTOMER"
+  | "AR-CREATE-INVOICE"
+  | "REC-IMPORT-STATEMENT";
 
 /** Doc 03 Part 7 names the reversal of a run `<ORIGINAL>-UNDO`. */
 export type UndoRunTypeId = `${RunTypeId}-UNDO`;

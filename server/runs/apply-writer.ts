@@ -43,6 +43,7 @@ import type {
   ClosePeriodRow,
   CloseGateResultRow,
   ClosingEntryRow,
+  CustomerRow,
   DocumentRequestRow,
   DocumentationExceptionRow,
   OpeningBalanceRow,
@@ -58,6 +59,7 @@ import type {
   RecBatchRow,
   SettlementRowRow,
   StagedRowRow,
+  StatementLineRow,
   SuspenseItemRow,
   TransactionRow,
   CashForecastRunRow,
@@ -542,6 +544,20 @@ async function insertRow(
       return;
     case "invoices":
       await tx.insert("invoices", [withId as unknown as InvoiceRow]);
+      return;
+    // AR-CREATE-CUSTOMER and AR-CREATE-INVOICE. Module 5's documented runs all
+    // assumed a customer and an invoice already existed on the books; these
+    // two close that gap the same way the import pipeline closes the "nothing
+    // exists yet" gap above, with a plain insert and nothing else touched.
+    case "customers":
+      await tx.insert("customers", [withId as unknown as CustomerRow]);
+      return;
+    // REC-IMPORT-STATEMENT. The bank's own record of a statement line, read
+    // only by REC-MATCH-TIERED and REC-CLEAR-MATCHED from here on; nothing
+    // else may insert into this table, which is why module 3's own two runs
+    // only ever field-write it (see writeField above).
+    case "statement_lines":
+      await tx.insert("statement_lines", [withId as unknown as StatementLineRow]);
       return;
     case "payment_applications":
       await tx.insert("payment_applications", [

@@ -55,6 +55,9 @@ import "./txn-map-bankcodes";
 import "./txn-sweep-suspense";
 import "./coding-pipeline";
 // The module 3 reconciliation suites, one file per run plus the pipeline test.
+// REC-IMPORT-STATEMENT first: it puts the bank's own lines on the books,
+// which REC-MATCH-TIERED's own header assumes already happened.
+import "./rec-import-statement";
 import "./rec-match-tiered";
 import "./rec-clear-matched";
 import "./rec-flag-stale";
@@ -68,6 +71,10 @@ import "./per-reverse-accruals";
 import "./per-post-depreciation";
 import "./per-pipeline";
 // The module 5 AR and AP suites, one file per run plus the pipeline test.
+// AR-CREATE-CUSTOMER and AR-CREATE-INVOICE first: they put the first
+// customer and the first bill on the books, which every run below assumes.
+import "./ar-create-customer";
+import "./ar-create-invoice";
 import "./ar-refresh-aging";
 import "./ar-build-statements";
 import "./ar-apply-payments";
