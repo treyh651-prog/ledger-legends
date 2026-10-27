@@ -316,6 +316,7 @@ export function importBatch(
     reversedAt: null,
     reversalBlocked: false,
     createdAt: NOW.toISOString(),
+    createdBy: ACTOR,
     version: 1,
     ...extra,
   };

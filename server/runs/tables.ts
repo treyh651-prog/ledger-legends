@@ -232,6 +232,7 @@ export interface ImportBatchRow {
   reversedAt: string | null;
   reversalBlocked: boolean;
   createdAt: string;
+  createdBy: Ulid;
   version: number;
 }
 

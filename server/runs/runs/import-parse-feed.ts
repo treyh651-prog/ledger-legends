@@ -39,6 +39,7 @@ import {
   type Ulid,
 } from "../contract";
 import {
+  ACTOR_PLACEHOLDER,
   applyProposals,
   NOW_PLACEHOLDER,
   RUN_ID_PLACEHOLDER,
@@ -803,6 +804,7 @@ export const importParseFeed: Run<ParseFeedScope, Proposal> = {
       reversedAt: null,
       reversalBlocked: false,
       createdAt: NOW_PLACEHOLDER,
+      createdBy: ACTOR_PLACEHOLDER,
       version: 1,
     };
 

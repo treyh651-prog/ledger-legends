@@ -85,6 +85,7 @@ import {
   type ReportPackageRow,
   type ReportSectionRow,
   type ReportVarianceRow,
+  type RunLogEventRow,
   type RunLogRow,
   type StagedRowRow,
   type StatementLineRow,
@@ -614,10 +615,30 @@ class MemoryTx implements RunTx {
       case "applied_run_by_idempotency_key": {
         const p =
           rawParams as QueryCatalog["applied_run_by_idempotency_key"]["params"];
+        // run_log.status is always "started": the row is insert only, and
+        // every real status transition is an appended run_log_events row
+        // instead (doc 03 Part 9). A prior attempt is a legitimate dedup
+        // target only when its latest event says it actually completed; a
+        // failed/refused/rejected_locked/abandoned attempt wrote nothing
+        // durable and must not permanently block a retry of that scope.
+        const COMPLETE_STATUSES = new Set([
+          "completed",
+          "completed_with_skips",
+          "no_op",
+        ]);
+        const completedExecutionIds = new Set(
+          this.view("run_log_events")
+            .map((r) => r as unknown as RunLogEventRow)
+            .filter((e) => COMPLETE_STATUSES.has(e.event))
+            .map((e) => e.runExecutionId),
+        );
         return this.view("run_log")
           .map((r) => r as unknown as RunLogRow)
           .filter(
-            (r) => r.mode === "apply" && r.idempotencyKey === p.idempotencyKey,
+            (r) =>
+              r.mode === "apply" &&
+              r.idempotencyKey === p.idempotencyKey &&
+              completedExecutionIds.has(r.id),
           )
           .sort((a, b) => (a.id < b.id ? -1 : 1))
           .map((r) => clone(r as unknown as AnyRow));

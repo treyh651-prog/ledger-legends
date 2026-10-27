@@ -515,7 +515,7 @@ const IMPORT_BATCH_COLUMNS = `
   parsed_run_id as "parsedRunId", committed_run_id as "committedRunId",
   committed_at::text as "committedAt", reversed_run_id as "reversedRunId",
   reversed_at::text as "reversedAt", reversal_blocked as "reversalBlocked",
-  created_at::text as "createdAt", version`;
+  created_at::text as "createdAt", created_by as "createdBy", version`;
 
 const STAGED_ROW_COLUMNS = `
   id, batch_id as "batchId", firm_id as "firmId", client_id as "clientId",
@@ -1409,9 +1409,26 @@ export const QUERIES: Record<QueryName, SqlSpec> = {
   },
   applied_run_by_idempotency_key: {
     table: "run_log",
+    // run_log.status is never anything but 'started': the row is insert only
+    // (trg_run_log_insert_only refuses any update), and every status
+    // transition after the intent row is an appended run_log_events row
+    // instead (doc 03 Part 9). The documented partial unique index
+    // (migration 0003, "where status in (...)") filters on that same
+    // column, so it can never match a single row either -- a fact this
+    // query must not repeat. The real terminal status lives in
+    // run_log_events, so a prior attempt is a legitimate dedup target only
+    // when its latest event says it actually completed; a 'failed',
+    // 'refused', 'rejected_locked', or 'abandoned' attempt wrote nothing
+    // durable; leaving it a dedup target would permanently block a retry
+    // of a scope that never actually ran.
     sql: `select ${RUN_LOG_COLUMNS}
           from ${SCHEMA}.run_log
           where mode = 'apply' and idempotency_key = $1
+            and exists (
+              select 1 from ${SCHEMA}.run_log_events e
+              where e.run_id = run_log.id
+                and e.event in ('completed', 'completed_with_skips', 'no_op')
+            )
           order by started_at asc, id asc`,
     params: (p) => [p.idempotencyKey],
   },
