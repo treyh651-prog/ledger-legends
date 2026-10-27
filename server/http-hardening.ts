@@ -122,9 +122,11 @@ function jsonBodyParser(opts: { limit: string }): RequestHandler {
   const streamFallback = express.json({ limit: opts.limit, strict: true });
   const maxBytes = parseByteLimit(opts.limit);
   return (req, res, next) => {
-    const preset = (req as unknown as { body?: unknown }).body;
-    console.log("DEBUG jsonBodyParser", JSON.stringify({ presetType: typeof preset, presetPreview: typeof preset === "string" ? preset.slice(0, 100) : preset, contentType: req.header("content-type") }));
-    if (typeof preset !== "string") {
+    const raw = (req as unknown as { body?: unknown }).body;
+    // serverless-http sets req.body to a Buffer (not the string the docs
+    // implied), already decoded from base64 when the event said so.
+    const preset = Buffer.isBuffer(raw) ? raw.toString("utf8") : typeof raw === "string" ? raw : undefined;
+    if (preset === undefined) {
       streamFallback(req, res, next);
       return;
     }
