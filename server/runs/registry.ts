@@ -48,6 +48,7 @@ import { intakeBuildChart } from "./runs/intake-build-chart";
 import { intakeCreateClient } from "./runs/intake-create-client";
 import { intakeActivateEngagement } from "./runs/intake-activate-engagement";
 import { engSignLetter } from "./runs/eng-sign-letter";
+import { engSetBillingStatus } from "./runs/eng-set-billing-status";
 import { portalAnswerRequest } from "./runs/portal-answer-request";
 import { portalPostMessage } from "./runs/portal-post-message";
 import { docRecordUpload } from "./runs/doc-record-upload";
@@ -95,6 +96,9 @@ export const registry: readonly RegistryEntry[] = [
   entry(intakeBuildChart),
   entry(intakeSeedTasks),
   entry(intakeOpenRequests),
+  // Firm set, manual, tenancy level. Not a module, not ledger affecting,
+  // triggered from the client admin page rather than any pipeline.
+  entry(engSetBillingStatus),
   // Portal screens, docs/11-api.md and migration 0028. Three runs a person
   // starts from the client plane, or from the firm plane for a reply.
   entry(portalAnswerRequest),

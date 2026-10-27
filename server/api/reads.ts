@@ -80,6 +80,7 @@ export async function clientSummary(tx: RunTx, firmId: string, client: ClientRow
           reportingBasis: engagement.reportingBasis,
           startDate: engagement.startDate,
           signedAt: engagement.signedAt,
+          billingStatus: engagement.billingStatus,
         }
       : null,
     openRequests:
@@ -335,6 +336,7 @@ export async function portalHome(
     tierName: TIERS[tier].name,
     features: [...entitlement.features].sort(),
     engagementStatus: engagement?.status ?? null,
+    billingStatus: engagement?.billingStatus ?? null,
     closedPeriods: locked,
     openPeriod: open[0] ?? null,
     latestClosedPeriod: locked.length > 0 ? locked[locked.length - 1] : null,

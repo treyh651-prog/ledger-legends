@@ -81,7 +81,9 @@ export type RunTypeId =
   | "PAY-APPROVE-RUN"
   | "PAY-POST-REGISTER"
   | "CPA-BUILD-HANDOFF"
-  | "OFFBOARD-BUILD-EXPORT";
+  | "OFFBOARD-BUILD-EXPORT"
+  // Tenancy level, manual, not part of any module.
+  | "ENG-SET-BILLING-STATUS";
 
 /** Doc 03 Part 7 names the reversal of a run `<ORIGINAL>-UNDO`. */
 export type UndoRunTypeId = `${RunTypeId}-UNDO`;

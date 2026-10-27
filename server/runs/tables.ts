@@ -2459,6 +2459,13 @@ export interface EngagementRow {
   terminatedAt: string | null;
   terminationReason: string | null;
   offboardingExportDays: number;
+  /**
+   * Whether the client is current on what they owe the firm for the
+   * engagement itself. Set by hand through ENG-SET-BILLING-STATUS, never by a
+   * run. Not a billing subsystem: no amounts, no invoice rows, no payment
+   * history. Migration 0032.
+   */
+  billingStatus: "current" | "past_due";
   createdAt: string;
   createdBy: Ulid;
 }

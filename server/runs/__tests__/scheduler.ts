@@ -72,10 +72,10 @@ test("the tier split is nineteen unattended, twenty two propose, fourteen manual
     const tier = tierOf(entry.type);
     if (tier !== null) counts[tier] += 1;
   }
-  assertEqual(registry.length, 56, "the registry holds fifty five runs");
+  assertEqual(registry.length, 57, "the registry holds fifty seven runs");
   assertEqual(counts.unattended, 19, "unattended count");
   assertEqual(counts.propose, 22, "propose count");
-  assertEqual(counts.manual, 15, "manual count");
+  assertEqual(counts.manual, 16, "manual count");
 });
 
 test("every tier carries a written reason", () => {

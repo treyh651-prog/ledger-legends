@@ -49,6 +49,13 @@ export type ClientStatus = z.infer<typeof clientStatusSchema>;
 
 export const engagementStatusSchema = z.enum(["draft", "sent", "signed", "active", "terminated"]);
 
+/**
+ * Whether the client is current on what they owe the firm for the
+ * engagement itself. Not a billing subsystem (migration 0032): no amounts,
+ * no invoice rows, no payment history.
+ */
+export const billingStatusSchema = z.enum(["current", "past_due"]);
+
 export const clientSummarySchema = z.object({
   id: idSchema,
   firmId: idSchema,
@@ -70,6 +77,7 @@ export const clientSummarySchema = z.object({
       reportingBasis: z.string(),
       startDate: daySchema,
       signedAt: instantSchema.nullable(),
+      billingStatus: billingStatusSchema,
     })
     .nullable(),
   /** Counts read from the owning tables. */

@@ -38,3 +38,16 @@ export function useCreateClient() {
     },
   });
 }
+
+/** POST /api/firm/clients/:clientId/billing-status. ENG-SET-BILLING-STATUS, preview and apply in one request. */
+export function useSetBillingStatus(clientId: string | null) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (billingStatus: "current" | "past_due") =>
+      api<{ done: boolean }>("POST", `/api/firm/clients/${clientId}/billing-status`, { billingStatus }),
+    onSuccess: () => {
+      if (clientId) void qc.invalidateQueries({ queryKey: clientKeys.one(clientId) });
+      void qc.invalidateQueries({ queryKey: clientKeys.list() });
+    },
+  });
+}

@@ -7,6 +7,7 @@
 import { z } from "zod";
 import { TIER_ORDER } from "../tiers";
 import { centsSchema, daySchema, idSchema, instantSchema } from "./common";
+import { billingStatusSchema } from "./clients";
 
 export const portalTierSchema = z.enum(TIER_ORDER as unknown as [string, ...string[]]);
 
@@ -34,6 +35,8 @@ export const portalHomeSchema = z.object({
   /** Feature keys the engagement includes, from the entitlement view. */
   features: z.array(z.string()),
   engagementStatus: z.string().nullable(),
+  /** The only thing the client's own portal may know about billing: are they current. */
+  billingStatus: billingStatusSchema.nullable(),
   closedPeriods: z.array(daySchema),
   openPeriod: daySchema.nullable(),
   latestClosedPeriod: daySchema.nullable(),

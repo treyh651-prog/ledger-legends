@@ -540,8 +540,8 @@ const ENGAGEMENT_COLUMNS = `
   start_date::text as "startDate", end_date::text as "endDate",
   letter_document_id as "letterDocumentId", signed_at::text as "signedAt",
   terminated_at::text as "terminatedAt", termination_reason as "terminationReason",
-  offboarding_export_days as "offboardingExportDays", created_at::text as "createdAt",
-  created_by as "createdBy"`;
+  offboarding_export_days as "offboardingExportDays", billing_status as "billingStatus",
+  created_at::text as "createdAt", created_by as "createdBy"`;
 
 const RUN_LOG_COLUMNS = `
   id, firm_id as "firmId", client_id as "clientId", run_type as "runType",

@@ -335,6 +335,10 @@ export const RUN_POLICIES: Readonly<Record<string, RunPolicy>> = {
     tier: "manual",
     reason: "a person at the firm completes, reopens, or reassigns one task from the board, and a clock has no opinion on that",
   },
+  "ENG-SET-BILLING-STATUS": {
+    tier: "manual",
+    reason: "a person at the firm marks the engagement current or past due by hand, because this system has no payment event for a clock to read",
+  },
 
   // ---------------------------------------------------------------------
   // D5 payroll and the two deliverables.

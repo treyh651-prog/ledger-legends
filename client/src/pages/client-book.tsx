@@ -8,7 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { DataGrid, EmptyState, ErrorState, KeyValue, Kpi, LoadingRows, PageHeader, Pill, SectionCard } from "@/components/kit";
 import { useApp } from "@/store";
-import { useClient, useClients, useCreateClient, useRunHistory, useTriggerRun, errorMessage, type CreateClientResult } from "@/api";
+import { useClient, useClients, useCreateClient, useRunHistory, useSetBillingStatus, useTriggerRun, errorMessage, type CreateClientResult } from "@/api";
 import type { RunOutcomeDto } from "@shared/api";
 import { fmtPeriod, fmtTimestamp } from "@/lib/money";
 import { isUuid } from "@/lib/period";
@@ -189,6 +189,14 @@ export default function ClientBook({ startAdding = false }: { startAdding?: bool
                     { label: "Reporting basis", value: c.engagement.reportingBasis },
                     { label: "Start date", value: c.engagement.startDate },
                     { label: "Signed at", value: c.engagement.signedAt ? fmtTimestamp(c.engagement.signedAt) : "Not signed yet" },
+                    {
+                      label: "Billing",
+                      value: (
+                        <Pill tone={c.engagement.billingStatus === "current" ? "good" : "watch"}>
+                          {c.engagement.billingStatus === "current" ? "Current" : "Past due"}
+                        </Pill>
+                      ),
+                    },
                   ]}
                 />
                 <div className="mt-4 border-t border-border pt-3">
@@ -201,6 +209,7 @@ export default function ClientBook({ startAdding = false }: { startAdding?: bool
                     ))}
                   </div>
                 </div>
+                <BillingStatusToggle clientId={c.id} billingStatus={c.engagement.billingStatus} />
                 {c.engagement.status !== "active" && c.engagement.status !== "terminated" ? (
                   <ActivatePanel clientId={c.id} engagementId={c.engagement.id} signedAt={c.engagement.signedAt} />
                 ) : null}
@@ -462,6 +471,31 @@ function ActivatePanel({ clientId, engagementId, signedAt }: { clientId: string;
           <span className="text-xs text-muted-foreground">Engagement active.</span>
         ) : null}
       </div>
+    </div>
+  );
+}
+
+/**
+ * ENG-SET-BILLING-STATUS, one click. Whether the client is current on what
+ * they owe the firm for the engagement itself, not a billing subsystem: no
+ * amounts, no invoice rows, no payment history. The client's own portal sees
+ * only this one field.
+ */
+function BillingStatusToggle({ clientId, billingStatus }: { clientId: string; billingStatus: "current" | "past_due" }) {
+  const setStatus = useSetBillingStatus(clientId);
+  const next = billingStatus === "current" ? "past_due" : "current";
+  return (
+    <div className="mt-3 flex items-center gap-3 border-t border-border pt-3">
+      <Button
+        size="sm"
+        variant={billingStatus === "current" ? "outline" : "default"}
+        disabled={setStatus.isPending}
+        onClick={() => setStatus.mutate(next)}
+        data-testid="button-toggle-billing-status"
+      >
+        {setStatus.isPending ? "Updating" : next === "past_due" ? "Mark past due" : "Mark current"}
+      </Button>
+      {setStatus.isError ? <span className="text-xs text-destructive">{errorMessage(setStatus.error)}</span> : null}
     </div>
   );
 }

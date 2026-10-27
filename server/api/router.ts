@@ -25,6 +25,7 @@ import { z } from "zod";
 
 const runSucceeded = (status: string) => status === "completed" || status === "completed_with_skips" || status === "deduplicated";
 const taskParamsSchema = clientParamsSchema.extend({ taskId: z.string().min(1) });
+const setBillingStatusBodySchema = z.object({ billingStatus: z.enum(["current", "past_due"]) });
 import { aging, budget, clientSetup, closeChecklist, firmRequests, firmTasks, forecast, journal, narratives, reconcile, reportPackages, rules, substantiation, taxForms, trialBalance } from "./reads-screens";
 import { updateTaskBodySchema, type FirmMember, type FirmTeam } from "../../shared/api/screens";
 import type { ActorMiddleware } from "../auth/middleware";
@@ -277,6 +278,41 @@ export function createApiRouter(deps: ApiDeps): Router {
         runCode: "PRAC-UPDATE-TASK",
         via: "firm" as const,
         scope: { clientId, taskId, ...body },
+        now: now(),
+      };
+      const preview = await triggerRun({ ...common, mode: "preview" });
+      if (preview.status === "no_op") return { body: { preview, applied: null, done: true } };
+      if (!runSucceeded(preview.status)) return { body: { preview, applied: null, done: false } };
+      const applied = await triggerRun({ ...common, mode: "apply", previewRunId: preview.executionId });
+      return { body: { preview, applied, done: runSucceeded(applied.status) } };
+    }),
+  );
+
+  /**
+   * Marks the client's engagement current or past due, firm staff only.
+   * ENG-SET-BILLING-STATUS is a manual run; same preview then apply in one
+   * request as the task route above. The engagement is the client's own, so
+   * the route resolves it rather than trusting an id from the caller.
+   */
+  firmClient.post(
+    "/billing-status",
+    route(async (req) => {
+      const { clientId } = parse(clientParamsSchema, req.params);
+      const body = parse(setBillingStatusBodySchema, req.body ?? {});
+      const firmId = req.firm!.firmId;
+      const engagements = await deps.db.tx(readSession(req.actor!, firmId, clientId), (tx) =>
+        tx.query("engagements_for_client", { firmId, clientId }),
+      );
+      const engagement = engagements[0];
+      if (!engagement) throw notFound("engagement");
+      const common = {
+        db: deps.db,
+        actor: req.actor!,
+        firmId,
+        clientId,
+        runCode: "ENG-SET-BILLING-STATUS",
+        via: "firm" as const,
+        scope: { clientId, engagementId: engagement.id, billingStatus: body.billingStatus },
         now: now(),
       };
       const preview = await triggerRun({ ...common, mode: "preview" });

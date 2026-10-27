@@ -55,6 +55,7 @@ export default function PortalHome() {
             {home.engagementStatus && home.engagementStatus !== "active" ? (
               <Pill tone="watch">Engagement {home.engagementStatus}</Pill>
             ) : null}
+            {home.billingStatus === "past_due" ? <Pill tone="risk">Payment needed</Pill> : null}
           </>
         }
         actions={

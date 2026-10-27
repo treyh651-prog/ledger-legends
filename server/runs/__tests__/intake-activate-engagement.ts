@@ -37,6 +37,7 @@ function draftEngagement(over: Partial<EngagementRow> = {}): EngagementRow {
     terminatedAt: null,
     terminationReason: null,
     offboardingExportDays: 15,
+    billingStatus: "current",
     createdAt: "2026-07-01T00:00:00.000Z",
     createdBy: "USR-OPERATOR",
     ...over,
