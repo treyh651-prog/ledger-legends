@@ -30,8 +30,16 @@ export interface DocumentStorage {
   remove(objectKey: string): Promise<void>;
   /** A short lived private URL, or null when the provider streams instead. */
   signedUrl(objectKey: string, expiresInSeconds: number): Promise<string | null>;
-  /** The bytes, for providers without signed URLs. */
+  /** The bytes, read back for providers without signed URLs, or for inspecting an object a browser just wrote directly. */
   read(objectKey: string): Promise<{ bytes: Buffer; contentType: string } | null>;
+  /**
+   * A short lived URL the browser may write bytes to directly, bypassing this
+   * server's own request body ceiling (a hard platform limit under a function
+   * runtime, well under what a scanned document or a phone photo can reach).
+   * Null when the provider has no such mechanism (the memory store), in which
+   * case the caller falls back to sending the body through this server.
+   */
+  createUploadUrl(objectKey: string): Promise<{ url: string } | null>;
 }
 
 export class StorageError extends Error {
@@ -101,8 +109,27 @@ export function createSupabaseStorage(cfg: StorageConfig): DocumentStorage {
       if (!path) throw new StorageError("sign_failed", "storage returned no signed path");
       return path.startsWith("http") ? path : `${base}${path.startsWith("/") ? "" : "/"}${path}`;
     },
-    async read() {
-      return null;
+    async read(objectKey) {
+      const res = await fetch(`${base}/object/${cfg.bucket}/${encode(objectKey)}`, { headers });
+      if (res.status === 404) return null;
+      if (!res.ok) throw new StorageError("not_found", `storage answered ${res.status} on read`);
+      const contentType = res.headers.get("content-type") ?? "application/octet-stream";
+      const bytes = Buffer.from(await res.arrayBuffer());
+      return { bytes, contentType };
+    },
+    async createUploadUrl(objectKey) {
+      const res = await fetch(`${base}/object/upload/sign/${cfg.bucket}/${encode(objectKey)}`, {
+        method: "POST",
+        headers: { ...headers, "content-type": "application/json", "x-upsert": "false" },
+        body: JSON.stringify({}),
+      });
+      if (!res.ok) throw new StorageError("sign_failed", `storage answered ${res.status} on upload sign`);
+      const body = (await res.json()) as { url?: string; token?: string };
+      if (body.token) {
+        return { url: `${base}/object/upload/sign/${cfg.bucket}/${encode(objectKey)}?token=${encodeURIComponent(body.token)}` };
+      }
+      if (!body.url) throw new StorageError("sign_failed", "storage returned no upload url or token");
+      return { url: body.url.startsWith("http") ? body.url : `${base}${body.url.startsWith("/") ? "" : "/"}${body.url}` };
     },
   };
 }
@@ -132,6 +159,9 @@ export function createMemoryStorage(bucket = "documents"): DocumentStorage & { o
     },
     async read(objectKey: string) {
       return objects.get(objectKey) ?? null;
+    },
+    async createUploadUrl() {
+      return null;
     },
   };
   return store;

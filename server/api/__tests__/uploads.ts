@@ -275,6 +275,92 @@ test("uploads: without a store the upload answers 501 naming the settings", asyn
   }
 });
 
+/* ---------------- The two step direct upload path (NOTES, Netlify adaptation) ----------------
+ *
+ * finalize is exercised directly against the memory store by writing the
+ * object with storage.put first, standing in for the browser's own write to
+ * Supabase Storage that step 1 and step 2 sit on either side of in
+ * production. Everything finalize itself does, the memory store supports:
+ * read, inspect, remove on refusal, recordDocument. Only createUploadUrl is
+ * real Supabase REST and untested here; its only job is returning a URL and
+ * it is covered by a server answering 501 when it is absent, below.
+ */
+
+test("finalize: the object is read back, inspected, and recorded exactly like a direct upload", async () => {
+  const documentId = "01ARZ3NDEKTSV4RRFFQ69G5FAV";
+  const filename = "statement.pdf";
+  const objectKey = `firm/${DEV_FIRM_ID}/client/${clientId}/${documentId}/${filename}`;
+  await world.storage!.put(objectKey, PDF, "application/pdf");
+  const res = await call(world, "POST", `/api/portal/${clientId}/documents/${documentId}/finalize`, {
+    token: "client",
+    body: { filename, docType: "bank_statement", objectKey },
+  });
+  assertEqual(res.status, 201, `finalized: ${JSON.stringify(res.body)}`);
+  assertEqual(res.body.document.title, filename, "title recorded");
+  assertEqual(res.body.document.byteSize, PDF.length, "size recorded from the object itself, not a client claim");
+  const rows = await world.db.tx(readSession(DEV_ACTOR, DEV_FIRM_ID, clientId), (tx) =>
+    tx.query("document_by_id", { firmId: DEV_FIRM_ID, clientId, documentId: res.body.document.id }),
+  );
+  assertEqual((rows[0] as any).sha256Hex, createHash("sha256").update(PDF).digest("hex"), "hash recorded from the object's own bytes");
+});
+
+test("finalize: an object key outside this document's own firm and client prefix is refused before anything is read", async () => {
+  const documentId = "01ARZ3NDEKTSV4RRFFQ69G5FBB";
+  const foreignKey = `firm/${DEV_FIRM_ID}/client/${otherClientId}/${documentId}/x.pdf`;
+  const before = world.storage!.objects.size;
+  const res = await call(world, "POST", `/api/portal/${clientId}/documents/${documentId}/finalize`, {
+    token: "client",
+    body: { filename: "x.pdf", docType: "other", objectKey: foreignKey },
+  });
+  assertEqual(res.status, 400, `refused: ${JSON.stringify(res.body)}`);
+  assertEqual(world.storage!.objects.size, before, "nothing was read or touched");
+});
+
+test("finalize: content that does not match its declared name is refused and the object is removed", async () => {
+  const documentId = "01ARZ3NDEKTSV4RRFFQ69G5FCC";
+  const filename = "photo.png";
+  const objectKey = `firm/${DEV_FIRM_ID}/client/${clientId}/${documentId}/${filename}`;
+  await world.storage!.put(objectKey, PDF, "image/png");
+  const res = await call(world, "POST", `/api/portal/${clientId}/documents/${documentId}/finalize`, {
+    token: "client",
+    body: { filename, docType: "receipt", objectKey },
+  });
+  assertEqual(res.status, 400, `refused: ${JSON.stringify(res.body)}`);
+  assertEqual(res.body.error.code, "upload_rejected", "code");
+  assert(!world.storage!.objects.has(objectKey), "the mismatched object was removed, same as the body route refuses before ever writing one");
+});
+
+test("finalize: no object at the given key is refused", async () => {
+  const documentId = "01ARZ3NDEKTSV4RRFFQ69G5FDD";
+  const objectKey = `firm/${DEV_FIRM_ID}/client/${clientId}/${documentId}/missing.pdf`;
+  const res = await call(world, "POST", `/api/portal/${clientId}/documents/${documentId}/finalize`, {
+    token: "client",
+    body: { filename: "missing.pdf", docType: "other", objectKey },
+  });
+  assertEqual(res.status, 400, `refused: ${JSON.stringify(res.body)}`);
+});
+
+test("finalize: a client user of another business cannot finalize into this client", async () => {
+  const documentId = "01ARZ3NDEKTSV4RRFFQ69G5FEE";
+  const objectKey = `firm/${DEV_FIRM_ID}/client/${clientId}/${documentId}/x.pdf`;
+  world.setClientFor(otherClientId);
+  const res = await call(world, "POST", `/api/portal/${clientId}/documents/${documentId}/finalize`, {
+    token: "client",
+    body: { filename: "x.pdf", docType: "other", objectKey },
+  });
+  assert(res.status === 403 || res.status === 404, `refused: ${res.status}`);
+  world.setClientFor(clientId);
+});
+
+test("upload-url: the memory store has no direct upload mechanism, so the route answers 501 and the browser falls back to the body route", async () => {
+  const res = await call(world, "POST", `/api/portal/${clientId}/documents/upload-url`, {
+    token: "client",
+    body: { filename: "x.pdf", docType: "other" },
+  });
+  assertEqual(res.status, 501, `status: ${JSON.stringify(res.body)}`);
+  assertEqual(res.body.error.code, "not_configured", "code");
+});
+
 test("uploads: the world stops", async () => {
   await world.close();
 });

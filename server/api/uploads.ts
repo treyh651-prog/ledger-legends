@@ -25,12 +25,13 @@ import { z } from "zod";
 import { UPLOAD_DOC_TYPES, mimeForFilename, safeFilename } from "../../shared/uploads";
 import type { PortalDocument, UploadDocumentResult } from "../../shared/api";
 import type { DocumentRow } from "../runs/tables";
+import type { Actor } from "../db/with-actor";
 import { ulid } from "../runs/ids";
 import { ApiFailure, notConfigured, notFound } from "./errors";
 import { readSession } from "./session";
 import { triggerRun } from "./runs";
 import type { ApiDeps } from "./router";
-import { inspectUpload, type DocumentStorage, uploadMaxBytes } from "../storage/document-storage";
+import { inspectUpload, type DocumentStorage, type UploadAccepted, uploadMaxBytes } from "../storage/document-storage";
 
 const DOC_TYPE_IDS = new Set(UPLOAD_DOC_TYPES.map((t) => t.id));
 
@@ -40,7 +41,20 @@ const headerSchema = z.object({
   requestId: z.string().trim().min(1).max(64).nullable(),
 });
 
+const uploadUrlBodySchema = z.object({
+  filename: z.string().trim().min(1).max(255),
+  docType: z.string().refine((v) => DOC_TYPE_IDS.has(v), "unknown document type"),
+});
+
+const finalizeBodySchema = z.object({
+  filename: z.string().trim().min(1).max(255),
+  docType: z.string().refine((v) => DOC_TYPE_IDS.has(v), "unknown document type"),
+  objectKey: z.string().min(1).max(500),
+  requestId: z.string().trim().min(1).max(64).nullable().optional(),
+});
+
 const downloadParamsSchema = z.object({ clientId: z.string().min(1), documentId: z.string().length(26) });
+const finalizeParamsSchema = z.object({ clientId: z.string().min(1), documentId: z.string().length(26) });
 
 function documentDto(d: DocumentRow): PortalDocument {
   return {
@@ -72,6 +86,72 @@ function clientOf(req: Request) {
   const actor = req.actor;
   if (!client || !actor) throw new ApiFailure(400, "client_required", "A client is required.");
   return { actor, clientId: client.clientId, firmId: client.firmId, via: client.via };
+}
+
+/**
+ * The tail shared by both upload paths, once bytes are inspected and in
+ * place: run DOC-RECORD-UPLOAD preview then apply, read the row back, and
+ * remove the object if any of that fails. Identical to what the direct body
+ * route always did; the two step path below just reaches it from a different
+ * starting point, after the browser has already written the object itself.
+ */
+async function recordDocument(args: {
+  deps: ApiDeps;
+  storage: DocumentStorage;
+  actor: Actor;
+  firmId: string;
+  clientId: string;
+  via: "firm" | "client";
+  documentId: string;
+  objectKey: string;
+  filename: string;
+  docType: string;
+  requestId: string | null;
+  inspected: UploadAccepted;
+  byteSize: number;
+  now: Date;
+}): Promise<UploadDocumentResult> {
+  const { deps, storage, actor, firmId, clientId, via, documentId, objectKey, filename, docType, requestId, inspected, byteSize, now } = args;
+  const scope = {
+    clientId,
+    documentId,
+    docType,
+    title: filename,
+    bucket: storage.bucket,
+    objectKey,
+    storageProvider: storage.provider,
+    byteSize,
+    contentType: inspected.contentType,
+    sha256Hex: inspected.sha256Hex,
+    requestId,
+  };
+  const common = { db: deps.db, actor, firmId, clientId, via, runCode: "DOC-RECORD-UPLOAD", scope, now };
+  let recorded = false;
+  try {
+    const preview = await triggerRun({ ...common, mode: "preview" });
+    const ok = (s: string) => s === "completed" || s === "completed_with_skips";
+    if (ok(preview.status)) {
+      const applied = await triggerRun({ ...common, mode: "apply", previewRunId: preview.executionId });
+      recorded = ok(applied.status);
+      if (!recorded) {
+        const first = applied.errors[0];
+        throw new ApiFailure(500, "run_refused", first ? first.message : "The document record was not saved.");
+      }
+    } else {
+      const first = preview.errors[0];
+      throw new ApiFailure(500, "run_refused", first ? first.message : "The document record was not saved.");
+    }
+  } finally {
+    if (!recorded) await storage.remove(objectKey).catch(() => undefined);
+  }
+
+  const rows = await deps.db.tx(readSession(actor, firmId, clientId), (tx) => tx.query("document_by_id", { firmId, clientId, documentId }));
+  const row = rows[0];
+  if (!row) {
+    await storage.remove(objectKey).catch(() => undefined);
+    throw new ApiFailure(500, "internal", "The document record could not be read back.");
+  }
+  return { document: documentDto(row), done: true };
 }
 
 export function createDocumentRoutes(args: { deps: ApiDeps; gate: RequestHandler }): Router {
@@ -114,47 +194,102 @@ export function createDocumentRoutes(args: { deps: ApiDeps; gate: RequestHandler
       const objectKey = `firm/${firmId}/client/${clientId}/${documentId}/${filename}`;
       const stored = await storage.put(objectKey, bytes, inspected.contentType);
 
-      const scope = {
+      const body = await recordDocument({
+        deps,
+        storage,
+        actor,
+        firmId,
         clientId,
+        via,
         documentId,
-        docType: meta.docType,
-        title: filename,
-        bucket: stored.bucket,
         objectKey: stored.objectKey,
-        storageProvider: storage.provider,
-        byteSize: bytes.length,
-        contentType: inspected.contentType,
-        sha256Hex: inspected.sha256Hex,
+        filename,
+        docType: meta.docType,
         requestId: meta.requestId,
-      };
-      const common = { db: deps.db, actor, firmId, clientId, via, runCode: "DOC-RECORD-UPLOAD", scope, now };
-      let recorded = false;
-      try {
-        const preview = await triggerRun({ ...common, mode: "preview" });
-        const ok = (s: string) => s === "completed" || s === "completed_with_skips";
-        if (ok(preview.status)) {
-          const applied = await triggerRun({ ...common, mode: "apply", previewRunId: preview.executionId });
-          recorded = ok(applied.status);
-          if (!recorded) {
-            const first = applied.errors[0];
-            throw new ApiFailure(500, "run_refused", first ? first.message : "The document record was not saved.");
-          }
-        } else {
-          const first = preview.errors[0];
-          throw new ApiFailure(500, "run_refused", first ? first.message : "The document record was not saved.");
-        }
-      } finally {
-        if (!recorded) await storage.remove(stored.objectKey).catch(() => undefined);
+        inspected,
+        byteSize: bytes.length,
+        now,
+      });
+      res.status(201).json(body);
+    })().catch(next);
+  });
+
+  /**
+   * Step 1 of the direct upload path. Netlify's standard functions cap a
+   * request body at 6 MB (about 4.5 MB once a binary body is base64 encoded),
+   * well under this server's own 25 MiB default and the bucket's 100 MiB
+   * ceiling, and well under what a multi page scan or a phone photo reaches.
+   * This issues a short lived URL the browser writes directly to Supabase
+   * Storage, bypassing that ceiling entirely. Only the memory store (local
+   * development) has no such mechanism; callers fall back to the body route.
+   */
+  router.post("/documents/upload-url", gate, (req, res, next) => {
+    (async () => {
+      const storage = needStorage();
+      const { clientId, firmId } = clientOf(req);
+      const body = uploadUrlBodySchema.parse(req.body);
+      const filename = safeFilename(body.filename);
+      if (!mimeForFilename(filename)) {
+        throw new ApiFailure(400, "upload_rejected", "Only PDF, PNG, JPEG, CSV, and Excel files are accepted.");
+      }
+      const now = deps.now ? deps.now() : new Date();
+      const documentId = ulid(now);
+      const objectKey = `firm/${firmId}/client/${clientId}/${documentId}/${filename}`;
+      const target = await storage.createUploadUrl(objectKey);
+      if (!target) {
+        throw notConfigured("This server's storage does not support a direct upload; send the file in the request body instead.");
+      }
+      res.status(201).json({ documentId, objectKey, uploadUrl: target.url, bucket: storage.bucket });
+    })().catch(next);
+  });
+
+  /**
+   * Step 2. The browser has already written the object itself; nothing here
+   * trusts that write. The bytes are read back from storage and run through
+   * the same size, type, and magic byte inspection the body route applies
+   * before any byte was accepted, scoped to the exact object key step 1
+   * issued for this document id so a caller cannot finalize a path it was
+   * never handed. A failed inspection removes the object, same as always.
+   */
+  router.post("/documents/:documentId/finalize", gate, (req, res, next) => {
+    (async () => {
+      const storage = needStorage();
+      const { actor, clientId, firmId, via } = clientOf(req);
+      const params = finalizeParamsSchema.parse({ clientId, documentId: req.params.documentId });
+      const body = finalizeBodySchema.parse(req.body);
+      const filename = safeFilename(body.filename);
+      const expectedPrefix = `firm/${firmId}/client/${clientId}/${params.documentId}/`;
+      if (!body.objectKey.startsWith(expectedPrefix)) {
+        throw new ApiFailure(400, "upload_rejected", "The uploaded object does not match this request.");
+      }
+      const obj = await storage.read(body.objectKey);
+      if (!obj) {
+        throw new ApiFailure(400, "upload_rejected", "No object was found at the uploaded location. Upload the file again.");
+      }
+      const inspected = inspectUpload({ bytes: obj.bytes, filename, declaredType: obj.contentType, maxBytes });
+      if (!inspected.ok) {
+        await storage.remove(body.objectKey).catch(() => undefined);
+        throw new ApiFailure(inspected.code === "too_large" ? 413 : 400, inspected.code === "too_large" ? "payload_too_large" : "upload_rejected", inspected.message);
       }
 
-      const rows = await deps.db.tx(readSession(actor, firmId, clientId), (tx) => tx.query("document_by_id", { firmId, clientId, documentId }));
-      const row = rows[0];
-      if (!row) {
-        await storage.remove(stored.objectKey).catch(() => undefined);
-        throw new ApiFailure(500, "internal", "The document record could not be read back.");
-      }
-      const body: UploadDocumentResult = { document: documentDto(row), done: true };
-      res.status(201).json(body);
+      const now = deps.now ? deps.now() : new Date();
+      const result = await recordDocument({
+        deps,
+        storage,
+        actor,
+        firmId,
+        clientId,
+        via,
+        documentId: params.documentId,
+        objectKey: body.objectKey,
+        filename,
+        docType: body.docType,
+        requestId: body.requestId ?? null,
+        inspected,
+        byteSize: obj.bytes.length,
+        now,
+      });
+      res.status(201).json(result);
     })().catch(next);
   });
 

@@ -70,6 +70,7 @@
     "react-icons": "^5.4.0",
     "react-resizable-panels": "^2.1.7",
     "recharts": "^2.15.2",
+    "serverless-http": "^3.2.0",
     "tailwind-merge": "^2.6.0",
     "tailwindcss-animate": "^1.0.7",
     "tw-animate-css": "^1.2.5",
@@ -81,6 +82,7 @@
   },
   "devDependencies": {
     "@electric-sql/pglite": "^0.5.10",
+    "@netlify/functions": "^3.1.0",
     "@tailwindcss/typography": "^0.5.15",
     "@tailwindcss/vite": "^4.1.18",
     "@types/cors": "^2.8.19",
