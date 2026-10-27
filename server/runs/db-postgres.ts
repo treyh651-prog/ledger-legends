@@ -582,7 +582,8 @@ const JE_COLUMNS = `
 
 const JL_COLUMNS = `
   id, firm_id as "firmId", client_id as "clientId",
-  entry_id as "entryId", account_number as "accountNumber",
+  entry_id as "entryId", line_number as "lineNumber",
+  account_number as "accountNumber",
   category_id as "categoryId", amount_cents::text as "amountCents",
   memo, entry_date::text as "entryDate", class_id as "classId",
   location_id as "locationId", program_id as "programId", restriction`;

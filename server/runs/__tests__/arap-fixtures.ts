@@ -340,6 +340,7 @@ export function arLine(
     firmId: FIRM_A,
     clientId: CLIENT_A1,
     entryId,
+    lineNumber: 1,
     accountNumber,
     categoryId: null,
     amountCents,

@@ -363,6 +363,8 @@ export interface JournalLineRow {
   firmId: Ulid;
   clientId: Ulid;
   entryId: Ulid;
+  /** 1-based position within the entry. Not null, no default. */
+  lineNumber: number;
   accountNumber: string;
   categoryId: string | null;
   amountCents: Cents;

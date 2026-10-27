@@ -213,11 +213,12 @@ export async function applyProposals(
         postedBy: ctx.actor.userId,
       };
       await tx.insert("journal_entries", [entry]);
-      const lines: JournalLineRow[] = p.lines.map((line) => ({
+      const lines: JournalLineRow[] = p.lines.map((line, index) => ({
         id: ulid(ctx.now),
         firmId: ctx.firmId,
         clientId: ctx.clientId,
         entryId,
+        lineNumber: index + 1,
         accountNumber: line.accountNumber,
         categoryId: line.categoryId,
         amountCents: line.amountCents,
