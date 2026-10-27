@@ -168,7 +168,27 @@ export function createDocumentRoutes(args: { deps: ApiDeps; gate: RequestHandler
 
   // The ceiling applies before the body is read. express.raw answers 413 on
   // its own; the translator turns that into the envelope with payload_too_large.
-  const rawBody = express.raw({ type: () => true, limit: maxBytes });
+  // On Netlify, req is serverless-http's reconstructed stream, which can only
+  // be read once; by the time express.raw's own raw-body reader gets to it,
+  // it reads empty. netlify/functions/api.ts attaches the original event as
+  // __nfEvent for exactly this route, so the ceiling and the bytes both come
+  // from there when it is present, and from express.raw itself otherwise
+  // (the traditional server path, where no such property exists).
+  const rawBody: RequestHandler = (req, res, next) => {
+    const event = (req as unknown as { __nfEvent?: { body?: string | null; isBase64Encoded?: boolean } }).__nfEvent;
+    if (!event) {
+      express.raw({ type: () => true, limit: maxBytes })(req, res, next);
+      return;
+    }
+    const raw = event.body ?? "";
+    const bytes = event.isBase64Encoded ? Buffer.from(raw, "base64") : Buffer.from(raw, "utf8");
+    if (bytes.length > maxBytes) {
+      next(Object.assign(new Error("request entity too large"), { type: "entity.too.large", status: 413 }));
+      return;
+    }
+    (req as unknown as { body: unknown }).body = bytes;
+    next();
+  };
 
   router.post("/documents", gate, rawBody, (req, res, next) => {
     (async () => {

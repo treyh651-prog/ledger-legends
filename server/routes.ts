@@ -46,11 +46,28 @@ export interface RouteDeps {
 }
 
 /** Tight limit for routes that do work on behalf of an unauthenticated caller. */
+/**
+ * serverless-http sets req.ip itself (lib/request.js), from a shape Netlify's
+ * event does not carry, so it is always undefined on Netlify even with
+ * `trust proxy` set; express-rate-limit's own IP lookup then throws
+ * ERR_ERL_UNDEFINED_IP_ADDRESS and, worse, every caller silently shares one
+ * bucket rather than being limited per address. X-Forwarded-For is present on
+ * every request that reaches a function (Netlify's own edge sets it), so
+ * reading it directly sidesteps req.ip entirely. The traditional server path
+ * still has a real req.ip from Node, which this falls back to.
+ */
+function clientKey(req: { ip?: string; headers: Record<string, unknown> }): string {
+  const forwarded = req.headers["x-forwarded-for"];
+  const first = Array.isArray(forwarded) ? forwarded[0] : typeof forwarded === "string" ? forwarded.split(",")[0] : null;
+  return (first ?? req.ip ?? "unknown").trim();
+}
+
 export const publicLimiter = rateLimit({
   windowMs: 60_000,
   limit: 60,
   standardHeaders: "draft-7",
   legacyHeaders: false,
+  keyGenerator: clientKey,
   message: { error: { code: "rate_limited", message: "Too many requests. Slow down." } },
 });
 
@@ -60,6 +77,7 @@ export const apiLimiter = rateLimit({
   limit: 600,
   standardHeaders: "draft-7",
   legacyHeaders: false,
+  keyGenerator: clientKey,
   message: { error: { code: "rate_limited", message: "Too many requests. Slow down." } },
 });
 

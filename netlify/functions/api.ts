@@ -22,28 +22,27 @@ let handlerPromise: Promise<Handler> | null = null;
 
 function getHandler(): Promise<Handler> {
   if (!handlerPromise) {
-    handlerPromise = createApp().then((app) => serverless(app) as unknown as Handler);
+    handlerPromise = createApp().then(
+      (app) =>
+        serverless(app, {
+          // serverless-http's reconstructed request stream can only be read
+          // once (lib/request.js), and something downstream of it reads it
+          // first, so express.raw() (the document upload route) sees an
+          // empty body the same way express.json() did before the fix in
+          // http-hardening.ts. JSON is always text, so reading req.body as a
+          // string was enough there; a binary upload may be base64 encoded
+          // and only the raw event says so, which is why this attaches it
+          // rather than guessing.
+          request: (request: Record<string, unknown>, event: unknown) => {
+            request.__nfEvent = event;
+          },
+        }) as unknown as Handler,
+    );
   }
   return handlerPromise;
 }
 
 export const handler: Handler = async (event, context) => {
-  if (event.httpMethod === "POST") {
-    console.log(
-      "DEBUG event",
-      JSON.stringify({
-        httpMethod: event.httpMethod,
-        path: event.path,
-        isBase64Encoded: event.isBase64Encoded,
-        bodyType: typeof event.body,
-        bodyLength: event.body ? event.body.length : null,
-        bodyPreview: event.body ? event.body.slice(0, 120) : null,
-        contentType: event.headers?.["content-type"] ?? event.headers?.["Content-Type"],
-        contentLength: event.headers?.["content-length"] ?? event.headers?.["Content-Length"],
-        headerKeys: Object.keys(event.headers ?? {}),
-      }),
-    );
-  }
   const h = await getHandler();
   return h(event, context);
 };

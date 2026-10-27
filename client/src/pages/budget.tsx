@@ -1,9 +1,50 @@
+import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { DataGrid, EmptyState, ErrorState, Kpi, Money, PageHeader, Pill, SectionCard } from "@/components/kit";
 import { useApp } from "@/store";
 import { useActiveClient } from "@/lib/active-client";
 import { useBudget, errorMessage } from "@/api";
-import { fmtPeriod, usd } from "@/lib/money";
+import { fmtCompactUsd, fmtPeriod, usd } from "@/lib/money";
 import type { BudgetLine } from "@shared/api";
+
+const CHART_ACCOUNT_LIMIT = 10;
+
+/**
+ * Budget against actual, the accounts with the largest budget first. Two
+ * series means a legend; colors are fixed (budget first, actual second) so
+ * filtering never repaints which hue means what.
+ */
+function BudgetVsActualChart({ lines }: { lines: BudgetLine[] }) {
+  const top = [...lines].sort((a, b) => Math.abs(b.budgetCents) - Math.abs(a.budgetCents)).slice(0, CHART_ACCOUNT_LIMIT);
+  const data = top.map((l) => ({
+    name: l.accountNumber,
+    full: `${l.accountNumber} ${l.accountName}`,
+    budget: l.budgetCents / 100,
+    actual: l.actualCents / 100,
+  }));
+  return (
+    <>
+      <ResponsiveContainer width="100%" height={260}>
+        <BarChart data={data} margin={{ top: 8, right: 12, bottom: 0, left: 0 }}>
+          <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
+          <XAxis dataKey="name" tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} axisLine={{ stroke: "hsl(var(--border))" }} tickLine={false} />
+          <YAxis tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} axisLine={false} tickLine={false} tickFormatter={(v: number) => fmtCompactUsd(v * 100)} width={56} />
+          <Tooltip
+            formatter={((value: number, key: string) => [usd(Math.round(value * 100)), key === "budget" ? "Budget" : "Actual"]) as never}
+            labelFormatter={((label: string, items: Array<{ payload?: { full?: string } }>) => items?.[0]?.payload?.full ?? label) as never}
+            contentStyle={{ background: "hsl(var(--popover))", border: "1px solid hsl(var(--border))", borderRadius: 6, fontSize: 12 }}
+            labelStyle={{ color: "hsl(var(--foreground))" }}
+          />
+          <Legend wrapperStyle={{ fontSize: 12 }} formatter={(key: string) => (key === "budget" ? "Budget" : "Actual")} />
+          <Bar dataKey="budget" fill="hsl(var(--chart-1))" radius={[3, 3, 0, 0]} maxBarSize={28} />
+          <Bar dataKey="actual" fill="hsl(var(--chart-2))" radius={[3, 3, 0, 0]} maxBarSize={28} />
+        </BarChart>
+      </ResponsiveContainer>
+      {lines.length > CHART_ACCOUNT_LIMIT ? (
+        <p className="mt-1 text-xs text-muted-foreground">Showing the {CHART_ACCOUNT_LIMIT} largest of {lines.length} budgeted accounts. The table below has all of them.</p>
+      ) : null}
+    </>
+  );
+}
 
 /**
  * Budget versus actual, read from GET /api/firm/clients/:id/budget. Budget
@@ -29,6 +70,11 @@ export default function Budget() {
         <Kpi label="Variance lines" value={d ? d.lines.length : "…"} hint={d && d.lines.length === 0 ? "RPT-COMPUTE-VARIANCES has not run for this period" : undefined} />
         <Kpi label="Flagged" value={d ? d.flaggedCount : "…"} tone={d && d.flaggedCount > 0 ? "watch" : "neutral"} />
       </div>
+      {d && d.lines.length > 0 ? (
+        <SectionCard title="Budget vs actual" description="The largest budgeted accounts, budget beside actual.">
+          <BudgetVsActualChart lines={d.lines} />
+        </SectionCard>
+      ) : null}
       <SectionCard title="Variances" description="One row per account the variance run compared, with the threshold it applied.">
         <DataGrid<BudgetLine>
           rows={d?.lines ?? []}

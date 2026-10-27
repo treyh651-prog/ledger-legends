@@ -32,16 +32,9 @@ import { serveStatic } from "./static";
   // this serves both the API and the client.
   // It is the only port that is not firewalled.
   const port = parseInt(process.env.PORT || "5000", 10);
-  httpServer.listen(
-    {
-      port,
-      host: "0.0.0.0",
-      reusePort: true,
-    },
-    () => {
-      log(`serving on port ${port}`);
-    },
-  );
+  httpServer.listen(port, "0.0.0.0", () => {
+    log(`serving on port ${port}`);
+  });
 })().catch((err: unknown) => {
   // A startup refusal, most often DATABASE_URL missing in production. Print the
   // message and nothing else, then exit non zero so the platform reports a
