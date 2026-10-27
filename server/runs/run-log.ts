@@ -254,6 +254,12 @@ export async function writeRunLog<S, P>(
 
   if (items.length > 0) await tx.insert("run_log_items", items);
 
+  const COMPLETE_STATUSES = new Set<RunStatus>([
+    "completed",
+    "completed_with_skips",
+    "no_op",
+  ]);
+
   await appendEvent(tx, {
     firmId: frozen.firmId,
     clientId: frozen.clientId,
@@ -271,6 +277,15 @@ export async function writeRunLog<S, P>(
     durationMs: args.finishedAt.getTime() - args.startedAt.getTime(),
     relatedRunId: args.relatedRunId ?? null,
     occurredAt: args.finishedAt.toISOString(),
+    // Only an apply that actually completed is a legitimate dedup target
+    // (doc 03 Part 4 "Idempotency keys"). A preview's key never collides
+    // with an apply's -- the key formula includes mode -- but a preview is
+    // also never meant to be deduplicated against itself, so it never
+    // carries the key either.
+    idempotencyKey:
+      args.mode === "apply" && COMPLETE_STATUSES.has(args.status)
+        ? ctx.idempotencyKey
+        : null,
   });
 }
 
@@ -291,6 +306,7 @@ export interface AppendEventArgs {
   durationMs: number;
   relatedRunId: string | null;
   occurredAt: string;
+  idempotencyKey: string | null;
 }
 
 export async function appendEvent(
@@ -315,6 +331,7 @@ export async function appendEvent(
     durationMs: args.durationMs,
     relatedRunId: args.relatedRunId,
     occurredAt: args.occurredAt,
+    idempotencyKey: args.idempotencyKey,
   };
   await tx.insert("run_log_events", [row]);
 }
@@ -348,5 +365,6 @@ export async function appendBareEvent(
     durationMs: 0,
     relatedRunId,
     occurredAt: occurredAt.toISOString(),
+    idempotencyKey: null,
   });
 }

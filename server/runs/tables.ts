@@ -1392,6 +1392,16 @@ export interface RunLogEventRow {
   durationMs: number;
   relatedRunId: string | null;
   occurredAt: string;
+  /**
+   * Set only on the terminal event of an apply-mode execution that actually
+   * completed ('completed', 'completed_with_skips', 'no_op'). Null on every
+   * preview event, every non-terminal event (retried, abandoned, ...), and
+   * every apply event that did not complete. This is the real, DB-enforced
+   * idempotency guarantee (migration 0041) -- the partial unique index on
+   * run_log itself (migration 0003) can never fire, since run_log.status is
+   * always 'started' (insert only, see db-postgres.ts applied_run_by_idempotency_key).
+   */
+  idempotencyKey: string | null;
 }
 
 export interface RunSequenceRow {

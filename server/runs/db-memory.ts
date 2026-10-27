@@ -518,15 +518,22 @@ class MemoryTx implements RunTx {
     }
   }
 
-  /** The unique idempotency key on run_log for mode apply. */
+  /**
+   * The real idempotency guarantee, migration 0041: a partial unique index
+   * on run_log_events.idempotency_key, set only on the terminal event of an
+   * apply that actually completed (run-log.ts writeRunLog). Not on run_log
+   * itself -- run_log.status is always 'started' (insert only), so the
+   * documented partial index there (migration 0003) can never fire, and this
+   * port must not simulate a constraint real Postgres cannot enforce.
+   */
   private guardIdempotency(table: TableName, row: AnyRow): void {
-    if (table !== "run_log") return;
-    const candidate = row as unknown as RunLogRow;
-    if (candidate.mode !== "apply") return;
-    for (const existing of this.view("run_log")) {
-      const r = existing as unknown as RunLogRow;
-      if (r.mode === "apply" && r.idempotencyKey === candidate.idempotencyKey) {
-        throw new UniqueViolation("run_log_apply_idempotency_key");
+    if (table !== "run_log_events") return;
+    const candidate = row as unknown as RunLogEventRow;
+    if (candidate.idempotencyKey === null) return;
+    for (const existing of this.view("run_log_events")) {
+      const r = existing as unknown as RunLogEventRow;
+      if (r.idempotencyKey === candidate.idempotencyKey) {
+        throw new UniqueViolation("run_log_events_idem");
       }
     }
   }
@@ -615,31 +622,17 @@ class MemoryTx implements RunTx {
       case "applied_run_by_idempotency_key": {
         const p =
           rawParams as QueryCatalog["applied_run_by_idempotency_key"]["params"];
-        // run_log.status is always "started": the row is insert only, and
-        // every real status transition is an appended run_log_events row
-        // instead (doc 03 Part 9). A prior attempt is a legitimate dedup
-        // target only when its latest event says it actually completed; a
-        // failed/refused/rejected_locked/abandoned attempt wrote nothing
-        // durable and must not permanently block a retry of that scope.
-        const COMPLETE_STATUSES = new Set([
-          "completed",
-          "completed_with_skips",
-          "no_op",
-        ]);
-        const completedExecutionIds = new Set(
-          this.view("run_log_events")
-            .map((r) => r as unknown as RunLogEventRow)
-            .filter((e) => COMPLETE_STATUSES.has(e.event))
-            .map((e) => e.runExecutionId),
-        );
+        // Migration 0041: idempotency_key lives on run_log_events, set only
+        // on the terminal event of an apply that actually completed (see
+        // guardIdempotency's doc comment above). run_log.status is always
+        // "started" (insert only), so matching on run_log's own key column
+        // would never find a completed attempt.
+        const executionId = this.view("run_log_events")
+          .map((r) => r as unknown as RunLogEventRow)
+          .find((e) => e.idempotencyKey === p.idempotencyKey)?.runExecutionId;
         return this.view("run_log")
           .map((r) => r as unknown as RunLogRow)
-          .filter(
-            (r) =>
-              r.mode === "apply" &&
-              r.idempotencyKey === p.idempotencyKey &&
-              completedExecutionIds.has(r.id),
-          )
+          .filter((r) => r.mode === "apply" && r.id === executionId)
           .sort((a, b) => (a.id < b.id ? -1 : 1))
           .map((r) => clone(r as unknown as AnyRow));
       }
@@ -663,11 +656,19 @@ class MemoryTx implements RunTx {
       case "run_log_events_by_execution": {
         const p =
           rawParams as QueryCatalog["run_log_events_by_execution"]["params"];
+        // Real Postgres never selects idempotency_key here (db-postgres.ts) --
+        // it is an internal dedup detail, not run history. Strip it so the
+        // two backends agree on what this query actually returns.
         return this.view("run_log_events")
           .filter(
             (r) =>
               r.firmId === p.firmId && r.runExecutionId === p.executionId,
           )
+          .map((r) => {
+            const { idempotencyKey: _idempotencyKey, ...rest } =
+              r as unknown as RunLogEventRow;
+            return rest as unknown as AnyRow;
+          })
           .sort(byId)
           .map(clone);
       }

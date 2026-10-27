@@ -295,6 +295,7 @@ export function makeUndoRun<S, P>(
         durationMs: 0,
         relatedRunId: ctx.runExecutionId,
         occurredAt: ctx.now.toISOString(),
+        idempotencyKey: null,
       });
     },
 

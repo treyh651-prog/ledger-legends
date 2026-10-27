@@ -18,7 +18,7 @@ import {
 } from "../contract";
 import { MemoryRunDb } from "../db-memory";
 import { execute, sweepAbandoned } from "../execute";
-import { canonicalJson, idempotencyKeyFor, toJsonValue } from "../ids";
+import { canonicalJson, idempotencyKeyFor, toJsonValue, ulid } from "../ids";
 import { executeSequence, step } from "../sequence";
 import { executeUndo } from "../undo";
 import {
@@ -26,7 +26,12 @@ import {
   txnPairTransfers,
   type PairTransfersScope,
 } from "../runs/txn-pair-transfers";
-import type { JournalLineRow, SuspenseItemRow, TransactionRow } from "../tables";
+import type {
+  JournalLineRow,
+  RunLogEventRow,
+  SuspenseItemRow,
+  TransactionRow,
+} from "../tables";
 import {
   ACTOR,
   baseDb,
@@ -418,6 +423,66 @@ test("invariant 6b, a replayed apply never posts twice", async () => {
     );
   }
   assertEqual(db.all("journal_entries").length, 2, "still only two entries");
+});
+
+test("invariant 6c, the store itself refuses a second completed event for the same idempotency key", async () => {
+  // Migration 0041: run_log.status can never carry this guarantee (always
+  // 'started', insert only), so the real partial unique index lives on
+  // run_log_events.idempotency_key instead. This proves the memory port
+  // enforces the same thing real Postgres does, directly, not just through
+  // execute()'s higher level dedup check.
+  const db = baseDb();
+  const session = {
+    isolation: "serializable" as const,
+    readOnly: false,
+    firmId: FIRM_A,
+    clientId: CLIENT_A1,
+    actorId: ACTOR,
+    actorKind: "run" as const,
+  };
+  const bareEvent = (id: string, event: RunLogEventRow["event"]): RunLogEventRow => ({
+    id,
+    firmId: FIRM_A,
+    clientId: CLIENT_A1,
+    runExecutionId: id,
+    event,
+    attempt: 1,
+    detail: "",
+    proposalCount: 0,
+    skipCount: 0,
+    errorCount: 0,
+    netCents: BigInt(0),
+    entriesCreated: 0,
+    entriesReversed: 0,
+    skipCountsByReason: {},
+    durationMs: 0,
+    relatedRunId: null,
+    occurredAt: NOW.toISOString(),
+    idempotencyKey: "test-fixed-idempotency-key",
+  });
+  await db.tx(session, async (tx) => {
+    await tx.insert("run_log_events", [bareEvent(ulid(NOW), "completed")]);
+  });
+  let code = "";
+  try {
+    await db.tx(session, async (tx) => {
+      await tx.insert("run_log_events", [bareEvent(ulid(NOW), "no_op")]);
+    });
+  } catch (err) {
+    code = (err as { constraintName?: string }).constraintName ?? "";
+  }
+  assertEqual(code, "run_log_events_idem", "the partial unique index fired");
+  // Null never collides with itself: two retry markers (idempotencyKey null,
+  // since only a completed apply's terminal event carries the key) write
+  // side by side without incident.
+  await db.tx(session, async (tx) => {
+    await tx.insert("run_log_events", [
+      { ...bareEvent(ulid(NOW), "attempt_retried"), idempotencyKey: null },
+    ]);
+    await tx.insert("run_log_events", [
+      { ...bareEvent(ulid(NOW), "attempt_retried"), idempotencyKey: null },
+    ]);
+  });
 });
 
 test("idempotency key covers type, version, tenant, scope hash, and mode", () => {

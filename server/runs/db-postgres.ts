@@ -1416,22 +1416,22 @@ export const QUERIES: Record<QueryName, SqlSpec> = {
     // transition after the intent row is an appended run_log_events row
     // instead (doc 03 Part 9). The documented partial unique index
     // (migration 0003, "where status in (...)") filters on that same
-    // column, so it can never match a single row either -- a fact this
-    // query must not repeat. The real terminal status lives in
-    // run_log_events, so a prior attempt is a legitimate dedup target only
-    // when its latest event says it actually completed; a 'failed',
-    // 'refused', 'rejected_locked', or 'abandoned' attempt wrote nothing
-    // durable; leaving it a dedup target would permanently block a retry
-    // of a scope that never actually ran.
+    // column, so it can never match a single row either. Migration 0041
+    // is the real fix: run_log_events.idempotency_key is set only on an
+    // apply's terminal event when it actually completed ('completed',
+    // 'completed_with_skips', 'no_op'; see run-log.ts writeRunLog), and
+    // carries a real partial unique index, so this lookup both finds the
+    // prior row and is protected at the database level against ever
+    // matching two. A 'failed', 'refused', 'rejected_locked', or
+    // 'abandoned' attempt never gets the key written, so it is correctly
+    // never a dedup target and never permanently blocks a retry of a
+    // scope that never actually ran.
     sql: `select ${RUN_LOG_COLUMNS}
           from ${SCHEMA}.run_log
-          where mode = 'apply' and idempotency_key = $1
-            and exists (
-              select 1 from ${SCHEMA}.run_log_events e
-              where e.run_id = run_log.id
-                and e.event in ('completed', 'completed_with_skips', 'no_op')
-            )
-          order by started_at asc, id asc`,
+          where id = (
+            select run_id from ${SCHEMA}.run_log_events
+            where idempotency_key = $1
+          )`,
     params: (p) => [p.idempotencyKey],
   },
   run_log_by_id: {
