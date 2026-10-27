@@ -2570,20 +2570,67 @@ class PostgresTx implements RunTx {
     return res.rows.length > 0 && res.rows[0].locked === true;
   }
 
+  /**
+   * One statement per group of rows that set exactly the same fields, rather
+   * than one round trip per row. A chart build proposes on the order of two
+   * hundred chart_accounts and categories rows in a single transaction, each
+   * previously its own `insert into ... values (...)` and its own network
+   * round trip to the pooler; against real Postgres from a function runtime
+   * that adds up to tens of seconds, enough to trip an upstream proxy's own
+   * timeout well under either this pool's statement_timeout or the function
+   * runtime's own limit, found creating an actual client end to end rather
+   * than by any local measurement.
+   *
+   * Grouping by field set, not by table, is what keeps this safe: two rows
+   * in the same table can legitimately set different optional fields (a
+   * chart_accounts row for an ordinary account carries no accountType; the
+   * handful in the 8000 and 9000 blocks do), and the single row path has
+   * always let an unset field fall to the column's own default by leaving it
+   * out of the statement entirely. Synthesizing an explicit null for a field
+   * a row never set, to force it into one larger statement, would be a
+   * different write than the one row path made, silently, for any column
+   * whose default is not null. Rows land in the same batch only when they
+   * agree on every field name, so nothing is ever synthesized; a table whose
+   * rows are already uniform (the common case) gets one statement, and a
+   * mixed batch still costs no more round trips than it did before.
+   */
   async insert<T extends TableName>(table: T, rows: RowMap[T][]): Promise<void> {
     if (rows.length === 0) return;
+    const groups = new Map<string, Array<Record<string, unknown>>>();
+    const order: string[] = [];
     for (const row of rows) {
-      const entries = Object.entries(row as unknown as Record<string, unknown>).filter(
-        ([, v]) => v !== undefined,
-      );
-      const resolved = entries.map(([k, v]) => columnFor(table, k, v));
-      const cols = resolved.map(([c]) => c).join(", ");
-      const placeholders = entries.map((_e, i) => `$${i + 1}`).join(", ");
-      const values = resolved.map(([, v]) => encodeParam(v));
+      const r = row as unknown as Record<string, unknown>;
+      const fieldNames = Object.keys(r)
+        .filter((k) => r[k] !== undefined)
+        .sort();
+      const key = fieldNames.join(" ");
+      let group = groups.get(key);
+      if (!group) {
+        group = [];
+        groups.set(key, group);
+        order.push(key);
+      }
+      group.push(r);
+    }
+    for (const key of order) {
+      const group = groups.get(key)!;
+      const fieldNames = key.length === 0 ? [] : key.split(" ");
+      if (fieldNames.length === 0) continue;
+      const resolvedCols = fieldNames.map((f) => columnFor(table, f, group[0][f])[0]);
+      const placeholderRows: string[] = [];
+      const flatValues: unknown[] = [];
+      group.forEach((r, ri) => {
+        const base = ri * fieldNames.length;
+        const placeholders = fieldNames.map((_f, ci) => `$${base + ci + 1}`);
+        placeholderRows.push(`(${placeholders.join(", ")})`);
+        for (const f of fieldNames) {
+          flatValues.push(encodeParam(columnFor(table, f, r[f])[1]));
+        }
+      });
       try {
         await this.client.query(
-          `insert into ${physical(table)} (${cols}) values (${placeholders})`,
-          values,
+          `insert into ${physical(table)} (${resolvedCols.join(", ")}) values ${placeholderRows.join(", ")}`,
+          flatValues,
         );
       } catch (err) {
         throw translateError(err);
