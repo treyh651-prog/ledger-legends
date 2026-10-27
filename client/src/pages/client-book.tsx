@@ -140,6 +140,11 @@ export default function ClientBook({ startAdding = false }: { startAdding?: bool
       </div>
 
       {detail.isError ? <ErrorState message={errorMessage(detail.error)} onRetry={() => void detail.refetch()} /> : null}
+      {c && c.status === "onboarding" && c.chartAccounts === 0 ? (
+        <div className="rounded-md border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground" data-testid="banner-onboarding-pending">
+          Setting up the chart of accounts and first workload. This updates on its own in a few seconds.
+        </div>
+      ) : null}
 
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <Kpi label="Chart accounts" value={c ? c.chartAccounts : "\u2026"} testId="kpi-client-accounts" />

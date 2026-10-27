@@ -1,5 +1,5 @@
 const fs = require("fs");
-const BASE = "https://playful-longma-d9fd28.netlify.app";
+const BASE = process.env.SEED_BASE || "https://playful-longma-d9fd28.netlify.app";
 const TOKEN = fs
   .readFileSync(
     "C:\\Users\\treyh\\AppData\\Local\\Temp\\claude\\C--Users-treyh-OneDrive-Desktop-car-app-ALL-CLAUDE\\003a0658-28a5-4cf9-a649-4c05faba039d\\scratchpad\\owner-token.txt",

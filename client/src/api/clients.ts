@@ -19,11 +19,25 @@ export function useClients() {
   return useQuery({ queryKey: clientKeys.list(), queryFn: () => api<ClientList>("GET", "/api/firm/clients") });
 }
 
+/**
+ * The chart, the workload, and the first document requests finish in a
+ * background function (server/api/runs.ts, dispatchOnboardingContinuation)
+ * rather than in the request that creates the client, so a freshly created
+ * client answers with chartAccounts 0 for a little while. Polling while it
+ * is still onboarding and still at zero is what makes that invisible: the
+ * screen updates itself once the chart lands rather than the person needing
+ * to refresh by hand. Every other read of a client stays a plain one shot
+ * query, onboarding or not.
+ */
 export function useClient(clientId: string | null) {
   return useQuery({
     queryKey: clientKeys.one(clientId ?? "none"),
     queryFn: () => api<ClientSummary>("GET", `/api/firm/clients/${clientId}`),
     enabled: clientId !== null && clientId !== "",
+    refetchInterval: (query) => {
+      const data = query.state.data as ClientSummary | undefined;
+      return data && data.status === "onboarding" && data.chartAccounts === 0 ? 2000 : false;
+    },
   });
 }
 

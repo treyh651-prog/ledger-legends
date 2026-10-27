@@ -54,7 +54,7 @@ import {
   runHistory,
   transactionPage,
 } from "./reads";
-import { applyPreview, createClient, runCatalog, triggerRun, undoApplied } from "./runs";
+import { applyPreview, createClientFirstStep, dispatchOnboardingContinuation, runCatalog, triggerRun, undoApplied } from "./runs";
 import { readSession } from "./session";
 import { createFirmMessagesRouter, createPortalScreensRouter } from "./portal-router";
 
@@ -168,9 +168,22 @@ export function createApiRouter(deps: ApiDeps): Router {
       const actor = req.actor!;
       const firmId = req.firm!.firmId;
       const body = parse(createClientBodySchema, req.body);
-      const result = await createClient(deps.db, actor, firmId, body, now());
-      const client = await deps.db.tx(readSession(actor, firmId, result.clientId), (tx) => getClient(tx, firmId, result.clientId));
-      return { status: result.complete ? 201 : 207, body: { client, runs: result.runs, complete: result.complete } };
+      const started = now();
+      const first = await createClientFirstStep(deps.db, actor, firmId, body, started);
+      if (!first.firstStepComplete) {
+        const client = await deps.db.tx(readSession(actor, firmId, first.clientId), (tx) => getClient(tx, firmId, first.clientId));
+        return { status: 207, body: { client, runs: first.runs, complete: false } };
+      }
+      // The client and its draft engagement exist. Awaited for the dispatch
+      // itself, not for the chart and workload it starts: in background
+      // mode this is only the fast call that hands the rest to
+      // finish-client-onboarding-background.ts, not the up to fifteen
+      // minutes that function may take, and a function runtime can freeze
+      // or recycle this invocation the moment the response below is sent,
+      // so the dispatch has to be sent before then, not fired and left.
+      const rest = await dispatchOnboardingContinuation(deps.db, actor, firmId, first.clientId, body, started);
+      const client = await deps.db.tx(readSession(actor, firmId, first.clientId), (tx) => getClient(tx, firmId, first.clientId));
+      return { status: 201, body: { client, runs: [...first.runs, ...rest.runs], complete: rest.complete } };
     }),
   );
 
