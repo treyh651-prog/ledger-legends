@@ -1430,7 +1430,7 @@ export const QUERIES: Record<QueryName, SqlSpec> = {
   },
   run_log_events_by_execution: {
     table: "run_log_events",
-    sql: `select id, firm_id as "firmId", run_id as "runExecutionId",
+    sql: `select id, firm_id as "firmId", client_id as "clientId", run_id as "runExecutionId",
             event, attempt, detail, proposal_count as "proposalCount",
             skip_count as "skipCount", error_count as "errorCount",
             net_cents::text as "netCents", entries_created as "entriesCreated",

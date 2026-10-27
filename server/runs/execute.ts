@@ -414,6 +414,7 @@ export async function execute<S, P>(
           await appendBareEvent(
             tx,
             frozen0.firmId,
+            frozen0.clientId,
             executionId,
             "attempt_retried",
             attempt,
@@ -840,6 +841,7 @@ export async function sweepAbandoned(
       await appendBareEvent(
         tx,
         row.firmId,
+        row.clientId,
         row.id,
         "abandoned",
         1,

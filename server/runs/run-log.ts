@@ -256,6 +256,7 @@ export async function writeRunLog<S, P>(
 
   await appendEvent(tx, {
     firmId: frozen.firmId,
+    clientId: frozen.clientId,
     runExecutionId: ctx.runExecutionId,
     event: args.status,
     attempt: args.attempt,
@@ -275,6 +276,7 @@ export async function writeRunLog<S, P>(
 
 export interface AppendEventArgs {
   firmId: Ulid;
+  clientId: Ulid;
   runExecutionId: string;
   event: RunLogEventRow["event"];
   attempt: number;
@@ -298,6 +300,7 @@ export async function appendEvent(
   const row: RunLogEventRow = {
     id: ulid(new Date(args.occurredAt)),
     firmId: args.firmId,
+    clientId: args.clientId,
     runExecutionId: args.runExecutionId,
     event: args.event,
     attempt: args.attempt,
@@ -320,6 +323,7 @@ export async function appendEvent(
 export async function appendBareEvent(
   tx: RunTx,
   firmId: Ulid,
+  clientId: Ulid,
   runExecutionId: string,
   event: RunLogEventRow["event"],
   attempt: number,
@@ -329,6 +333,7 @@ export async function appendBareEvent(
 ): Promise<void> {
   await appendEvent(tx, {
     firmId,
+    clientId,
     runExecutionId,
     event,
     attempt,

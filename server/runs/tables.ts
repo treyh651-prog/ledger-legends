@@ -1362,6 +1362,7 @@ export interface RunLogItemRow {
 export interface RunLogEventRow {
   id: Ulid;
   firmId: Ulid;
+  clientId: Ulid;
   runExecutionId: string;
   event: RunStatus | "attempt_retried" | "undone_by";
   attempt: number;
