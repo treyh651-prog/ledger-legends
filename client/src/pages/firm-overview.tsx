@@ -1,15 +1,71 @@
 import { useMemo } from "react";
 import { useLocation } from "wouter";
+import { Area, AreaChart, CartesianGrid, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { ArrowUpRight, CircleAlert, FileWarning, ListChecks } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { DataGrid, EmptyState, Kpi, PageHeader, Pill, SectionCard } from "@/components/kit";
 import { SchedulerCard } from "@/components/scheduler-card";
 import { useApp } from "@/store";
 import { useFirmOverview, errorMessage } from "@/api";
-import { fmtPeriod, fmtTimestamp } from "@/lib/money";
-import type { ClientSummary } from "@shared/api";
+import { fmtCompactUsd, fmtPeriod, fmtTimestamp, usd } from "@/lib/money";
+import type { ClientSummary, MonthlyCashFlow } from "@shared/api";
 
 export const NO_CLIENTS_COPY = "No clients yet. Add the first one.";
+
+/**
+ * Net cash movement across every client, one series. No legend box; the
+ * title names it. A negative month gets a filled dot in the risk color so
+ * the shape of the line, not just its sign, shows where cash went out.
+ */
+function CashFlowChart({ months }: { months: MonthlyCashFlow[] }) {
+  const data = months.map((m) => ({
+    label: fmtPeriod(m.month.slice(0, 7)),
+    net: m.netCashCents / 100,
+    negative: m.netCashCents < 0,
+  }));
+  return (
+    <ResponsiveContainer width="100%" height={220}>
+      <AreaChart data={data} margin={{ top: 8, right: 12, bottom: 0, left: 0 }}>
+        <defs>
+          <linearGradient id="cashFlowFill" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="hsl(var(--chart-1))" stopOpacity={0.25} />
+            <stop offset="100%" stopColor="hsl(var(--chart-1))" stopOpacity={0} />
+          </linearGradient>
+        </defs>
+        <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
+        <XAxis dataKey="label" tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} axisLine={{ stroke: "hsl(var(--border))" }} tickLine={false} />
+        <YAxis
+          tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }}
+          axisLine={false}
+          tickLine={false}
+          tickFormatter={(v: number) => fmtCompactUsd(v * 100)}
+          width={56}
+        />
+        <ReferenceLine y={0} stroke="hsl(var(--border))" />
+        <Tooltip
+          formatter={(value: number) => [usd(Math.round(value * 100)), "Net cash"]}
+          contentStyle={{ background: "hsl(var(--popover))", border: "1px solid hsl(var(--border))", borderRadius: 6, fontSize: 12 }}
+          labelStyle={{ color: "hsl(var(--foreground))" }}
+        />
+        <Area
+          type="monotone"
+          dataKey="net"
+          stroke="hsl(var(--chart-1))"
+          strokeWidth={2}
+          fill="url(#cashFlowFill)"
+          dot={(props: { cx?: number; cy?: number; payload?: { negative?: boolean } }) =>
+            props.payload?.negative ? (
+              <circle key={`dot-${props.cx}-${props.cy}`} cx={props.cx} cy={props.cy} r={4} fill="hsl(var(--destructive))" stroke="none" />
+            ) : (
+              <circle key={`dot-${props.cx}-${props.cy}`} cx={props.cx} cy={props.cy} r={0} fill="transparent" />
+            )
+          }
+          activeDot={{ r: 5, fill: "hsl(var(--chart-1))" }}
+        />
+      </AreaChart>
+    </ResponsiveContainer>
+  );
+}
 
 /**
  * The firm's first screen, read from GET /api/firm/overview. Every number is
@@ -56,6 +112,12 @@ export default function FirmOverview() {
         <Kpi label="Waiting in suspense" value={totals ? totals.openSuspense : "\u2026"} hint="Parked in 1990 with a reason code" tone={totals && totals.openSuspense ? "watch" : "good"} testId="kpi-review" />
         <Kpi label="Document requests open" value={totals ? totals.openRequests : "\u2026"} hint="Asked of clients, not yet satisfied" tone={totals && totals.openRequests ? "watch" : "good"} testId="kpi-tieout" />
       </div>
+
+      {ov && ov.cashFlowTrend.some((m) => m.netCashCents !== 0) ? (
+        <SectionCard title="Cash flow" description="Net movement across every client's cash accounts, the last six months." testId="card-cashflow-trend">
+          <CashFlowChart months={ov.cashFlowTrend} />
+        </SectionCard>
+      ) : null}
 
       <SectionCard
         title="Client book"

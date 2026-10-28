@@ -10,7 +10,7 @@
 
 import type { ClientSummary } from "../../shared/api/clients";
 import type { FirmOverview } from "../../shared/api/overview";
-import type { PortalHome, PortalRequest, PortalStatements, StatementLine, StatementSection } from "../../shared/api/portal";
+import type { MonthlyRevenueExpense, PortalHome, PortalRequest, PortalStatements, StatementLine, StatementSection } from "../../shared/api/portal";
 import type { RunHistoryItem } from "../../shared/api/runs";
 import type { Transaction, TransactionPage, TransactionQuery } from "../../shared/api/transactions";
 import { TIERS, isTierId } from "../../shared/tiers";
@@ -20,7 +20,7 @@ import type { RunTx } from "../runs/db";
 import { tierOf } from "../runs/policy";
 import { blockOf, isIncomeStatement } from "../runs/runs/close-shared";
 import { periodWindow } from "../runs/runs/per-shared";
-import type { ClientRow, EngagementRow, RunLogRow, TransactionRow } from "../runs/tables";
+import type { ClientRow, EngagementRow, JournalLineRow, RunLogRow, TransactionRow } from "../runs/tables";
 
 /* ---------------- Helpers ---------------- */
 
@@ -40,6 +40,73 @@ function clientStatus(client: ClientRow): ClientSummary["status"] {
   if (client.archivedAt) return "archived";
   if (client.onboardedAt) return "active";
   return "onboarding";
+}
+
+const TREND_MONTHS = 6;
+
+/** The trailing n months as "YYYY-MM" keys, oldest first, today's month last. */
+function trailingMonths(today: string, n: number): string[] {
+  const [y, m] = today.slice(0, 7).split("-").map(Number);
+  const out: string[] = [];
+  for (let i = n - 1; i >= 0; i -= 1) {
+    let yy = y;
+    let mm = m - i;
+    while (mm <= 0) {
+      mm += 12;
+      yy -= 1;
+    }
+    out.push(`${String(yy).padStart(4, "0")}-${String(mm).padStart(2, "0")}`);
+  }
+  return out;
+}
+
+/**
+ * Revenue and expense per month from posted journal lines, the same two
+ * blocks ARAP and the income statement use (doc 00 Part 3): revenue is a
+ * credit, so the sign flips to read as a positive figure; cogs and opex are
+ * both debit normal and need no flip. The 8000 block is other income and
+ * other expense together and has no single direction, so it is left out of
+ * this trend the same way rpt-shared's own variance direction leaves it
+ * neutral.
+ */
+function monthlyRevenueExpense(
+  lines: readonly JournalLineRow[],
+  today: string,
+): MonthlyRevenueExpense[] {
+  const months = trailingMonths(today, TREND_MONTHS);
+  const revenue = new Map<string, Cents>(months.map((m) => [m, BigInt(0)]));
+  const expense = new Map<string, Cents>(months.map((m) => [m, BigInt(0)]));
+  for (const line of lines) {
+    const block = blockOf(line.accountNumber);
+    if (block !== "revenue" && block !== "cogs" && block !== "opex") continue;
+    const mk = line.entryDate.slice(0, 7);
+    if (!revenue.has(mk)) continue;
+    if (block === "revenue") revenue.set(mk, (revenue.get(mk) ?? BigInt(0)) - line.amountCents);
+    else expense.set(mk, (expense.get(mk) ?? BigInt(0)) + line.amountCents);
+  }
+  return months.map((mk) => ({
+    month: `${mk}-01`,
+    revenueCents: cents(revenue.get(mk) ?? BigInt(0)),
+    expenseCents: cents(expense.get(mk) ?? BigInt(0)),
+  }));
+}
+
+/**
+ * Net cash movement per month from posted journal lines on cash accounts
+ * (doc 00 Part 3, the 1000 through 1099 block). A deposit and a withdrawal
+ * both show up here exactly as they posted, debit positive, so the figure
+ * is signed the same way the ledger itself is.
+ */
+function monthlyCashFlow(lines: readonly JournalLineRow[], today: string): Map<string, Cents> {
+  const months = trailingMonths(today, TREND_MONTHS);
+  const net = new Map<string, Cents>(months.map((m) => [m, BigInt(0)]));
+  for (const line of lines) {
+    if (blockOf(line.accountNumber) !== "cash") continue;
+    const mk = line.entryDate.slice(0, 7);
+    if (!net.has(mk)) continue;
+    net.set(mk, (net.get(mk) ?? BigInt(0)) + line.amountCents);
+  }
+  return net;
 }
 
 /* ---------------- Clients ---------------- */
@@ -114,6 +181,24 @@ export async function firmOverview(tx: RunTx, firmId: string, today: string): Pr
   const clients = await listClients(tx, firmId);
   const nameById = new Map(clients.map((c) => [c.id, c.name]));
   const recent = await tx.query("run_log_recent_for_firm", { firmId, limit: 20 });
+
+  // Cash flow trend, summed across every client. One client's posted lines
+  // at a time, the same N+1 shape listClients -> clientSummary already uses
+  // above, acceptable at the scale a firm's own client book runs at.
+  const months = trailingMonths(today, TREND_MONTHS);
+  const from = `${months[0]}-01`;
+  const cashByMonth = new Map<string, Cents>(months.map((m) => [m, BigInt(0)]));
+  for (const c of clients) {
+    const entries = await tx.query("journal_entries_in_window", { firmId, clientId: c.id, from, to: today });
+    const lines =
+      entries.length > 0
+        ? await tx.query("journal_lines_for_entries", { firmId, clientId: c.id, entryIds: entries.map((e) => e.id) })
+        : [];
+    for (const [mk, v] of monthlyCashFlow(lines, today)) {
+      cashByMonth.set(mk, (cashByMonth.get(mk) ?? BigInt(0)) + v);
+    }
+  }
+
   return {
     asOf: today,
     clients,
@@ -134,6 +219,10 @@ export async function firmOverview(tx: RunTx, firmId: string, today: string): Pr
       mode: r.mode,
       status: r.status,
       startedAt: r.startedAt,
+    })),
+    cashFlowTrend: months.map((mk) => ({
+      month: `${mk}-01`,
+      netCashCents: cents(cashByMonth.get(mk) ?? BigInt(0)),
     })),
   };
 }
@@ -310,6 +399,7 @@ export async function portalHome(
   firmId: string,
   clientId: string,
   entitlement: Entitlement,
+  today: string,
 ): Promise<PortalHome | null> {
   const clients = await tx.query("client_by_id", { firmId, clientId });
   const client = clients[0];
@@ -325,6 +415,11 @@ export async function portalHome(
   const tier = entitlement.tier ?? (engagement && isTierId(engagement.serviceLevel) ? engagement.serviceLevel : "ledger");
   const locked = periods.filter((p) => p.status === "locked").map((p) => p.periodStart).sort();
   const open = periods.filter((p) => p.status === "open").map((p) => p.periodStart).sort();
+  const posted = entries.filter((e) => e.posted);
+  const lines =
+    posted.length > 0
+      ? await tx.query("journal_lines_for_entries", { firmId, clientId, entryIds: posted.map((e) => e.id) })
+      : [];
   return {
     client: {
       id: client.id,
@@ -340,9 +435,10 @@ export async function portalHome(
     closedPeriods: locked,
     openPeriod: open[0] ?? null,
     latestClosedPeriod: locked.length > 0 ? locked[locked.length - 1] : null,
-    hasBooks: entries.some((e) => e.posted),
+    hasBooks: posted.length > 0,
     openRequests: requests,
     lastRunAt: runs[0]?.startedAt ?? null,
+    monthlyTrend: monthlyRevenueExpense(lines, today),
   };
 }
 

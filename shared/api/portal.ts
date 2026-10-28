@@ -23,6 +23,14 @@ export const portalRequestSchema = z.object({
 });
 export type PortalRequest = z.infer<typeof portalRequestSchema>;
 
+/** One month of posted revenue against posted expense, from journal_lines. */
+export const monthlyRevenueExpenseSchema = z.object({
+  month: daySchema,
+  revenueCents: centsSchema,
+  expenseCents: centsSchema,
+});
+export type MonthlyRevenueExpense = z.infer<typeof monthlyRevenueExpenseSchema>;
+
 export const portalHomeSchema = z.object({
   client: z.object({
     id: idSchema,
@@ -44,6 +52,8 @@ export const portalHomeSchema = z.object({
   hasBooks: z.boolean(),
   openRequests: z.array(portalRequestSchema),
   lastRunAt: instantSchema.nullable(),
+  /** The trailing six months, oldest first, including the current one. */
+  monthlyTrend: z.array(monthlyRevenueExpenseSchema),
 });
 export type PortalHome = z.infer<typeof portalHomeSchema>;
 

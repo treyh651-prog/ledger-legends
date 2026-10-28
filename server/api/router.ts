@@ -556,7 +556,7 @@ export function createApiRouter(deps: ApiDeps): Router {
       const { clientId } = parse(clientParamsSchema, req.params);
       const firmId = req.client!.firmId;
       const ent = await entitlementFor(req);
-      const body = await deps.db.tx(readSession(req.actor!, firmId, clientId), (tx) => portalHome(tx, firmId, clientId, ent));
+      const body = await deps.db.tx(readSession(req.actor!, firmId, clientId), (tx) => portalHome(tx, firmId, clientId, ent, todayOf(deps)));
       if (!body) throw notFound("client");
       return { body };
     }),
