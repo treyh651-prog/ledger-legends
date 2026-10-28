@@ -36,9 +36,10 @@
  * imports the table map: a second copy of the thing being checked drifts, and
  * drift is the defect.
  *
- * The database is read through the Supabase connector, which holds its own
- * credentials, by way of `script/connector-sql.ts`. Nothing here reads, asks
- * for, or stores a password.
+ * The database is read through `script/connector-sql.ts`, which tries the
+ * Supabase connector first (its own credentials, no password seen here) and
+ * falls back to a direct connection on DATABASE_URL when the connector is
+ * not available.
  *
  * Run it with: npx tsx script/check-queries.ts
  */
@@ -103,7 +104,7 @@ const failures: string[] = [];
 // ---------------------------------------------------------------------------
 
 const live = new Map<string, Set<string>>();
-for (const row of query(
+for (const row of await query(
   `select c.table_schema || '.' || c.table_name as tbl, c.column_name as col
      from information_schema.columns c
      join pg_class cl on cl.relname = c.table_name
@@ -152,13 +153,34 @@ for (const name of names) {
     continue;
   }
 
-  // What is left after the literals, the casts, the parameters and the table
-  // name have gone is either a keyword, a function call or a column.
-  const body = stripped
+  // A subquery or a join against a second table is legitimate sql (see
+  // applied_run_by_idempotency_key), and an identifier that belongs to that
+  // second table is not a defect. Every schema qualified table this query
+  // actually references, not only the declared primary one, so an
+  // identifier is checked against whichever table it could plausibly
+  // belong to.
+  const allTables = new Set<string>([table]);
+  const tableRefRe = /\b(?:from|join)\s+([a-z_][a-z0-9_]*\.[a-z0-9_]+)/gi;
+  let tm: RegExpExecArray | null;
+  while ((tm = tableRefRe.exec(stripped)) !== null) allTables.add(tm[1]);
+  const allColumns = new Set<string>();
+  for (const t of allTables) {
+    const cols = live.get(t);
+    if (cols) for (const c of cols) allColumns.add(c);
+  }
+
+  // What is left after the literals, the casts, the parameters and every
+  // referenced table name have gone is either a keyword, a function call or
+  // a column. Table names are removed longest first and at a word boundary,
+  // so removing ledger.run_log cannot eat the front of ledger.run_log_events
+  // and leave a dangling _events behind.
+  let body = stripped
     .replace(/::\s*[a-zA-Z_][a-zA-Z0-9_]*(\(\d+\))?(\s*\[\])?/g, " ")
-    .replace(/\$\d+/g, " ")
-    .split(table)
-    .join(" ");
+    .replace(/\$\d+/g, " ");
+  for (const t of [...allTables].sort((a, b) => b.length - a.length)) {
+    const escaped = t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    body = body.replace(new RegExp(`${escaped}(?![a-zA-Z0-9_])`, "g"), " ");
+  }
   const seen = new Set<string>();
   const re = /(?<![\w.])([a-z_][a-z0-9_]*)\s*(\()?/gi;
   let m: RegExpExecArray | null;
@@ -169,7 +191,7 @@ for (const name of names) {
     if (seen.has(ident)) continue;
     seen.add(ident);
     identifiersChecked += 1;
-    if (!columns.has(ident)) {
+    if (!allColumns.has(ident)) {
       failures.push(`${String(name)}: ${table} has no column ${ident}`);
     }
   }
