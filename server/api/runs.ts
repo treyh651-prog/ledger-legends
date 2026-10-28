@@ -368,7 +368,7 @@ export async function createClient(
  * completion in the same response. When it does dispatch to the
  * background function, the outcome is unknown yet (the caller only sees
  * that the call was handed off), so it answers with an empty run list and
- * complete: false — the client and portal screens pick that up later by
+ * complete: false, and the client and portal screens pick that up later by
  * polling.
  */
 export async function dispatchOnboardingContinuation(
