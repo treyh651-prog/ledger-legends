@@ -22,6 +22,9 @@ function scopeFor(extra: Partial<CreateVendorScope> = {}): CreateVendorScope {
     legalName: "Acme Office Supply LLC",
     earlyDiscountRule: null,
     tinLast4: null,
+    entityType: "unknown",
+    w9OnFile: false,
+    w9ExpiresOn: null,
     ...extra,
   };
 }
@@ -60,6 +63,29 @@ test("ap-create-vendor: the same legal name twice is a no op the second time", a
     "reported as already applied",
   );
   assertEqual((db.all("vendors") as VendorRow[]).length, 1, "only one row exists");
+});
+
+test("ap-create-vendor: real 1099 fields carry through, not just the honest defaults", async () => {
+  const db = baseDb();
+  const scope = scopeFor({
+    legalName: "Jordan Rivera, Attorney at Law",
+    entityType: "individual",
+    w9OnFile: true,
+    w9ExpiresOn: "2028-01-01",
+    tinLast4: "4321",
+  });
+  const preview = await execute(db, apCreateVendor, scope, opts("preview"));
+  const applied = await execute(db, apCreateVendor, scope, opts("apply", { previewRunId: preview.executionId }));
+  assertEqual(applied.status, "completed", "apply completed");
+
+  const row = (db.all("vendors") as VendorRow[]).find(
+    (v) => v.id === vendorIdFor(CLIENT_A1, scope.legalName),
+  );
+  assert(row !== undefined, "the vendor row exists");
+  assertEqual(row?.entityType, "individual", "entity type carried through, not left at unknown");
+  assertEqual(row?.w9OnFile, true, "w9OnFile carried through");
+  assertEqual(row?.w9ExpiresOn, "2028-01-01", "the expiry date carried through");
+  assertEqual(row?.tinLast4, "4321", "the tin carried through");
 });
 
 test("ap-create-vendor: a malformed tin is refused before anything is written", async () => {

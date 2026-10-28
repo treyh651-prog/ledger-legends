@@ -15,10 +15,15 @@
  * normalized_name the moment both exist, with no second normalizer to drift
  * out of step with the first.
  *
- * 1099 fields (entityType, w9OnFile, tinLast4) default to the honest unknown
- * state. Nothing here compiles a 1099 or decides reportability; that is
- * TAX-BUILD-1099's job, reading whatever this run or a later edit leaves on
- * the row.
+ * 1099 fields (entityType, w9OnFile, w9ExpiresOn, tinLast4) default to the
+ * honest unknown state, and every one is a real input: a firm onboarding a
+ * vendor it already has a signed W-9 for should be able to say so on day
+ * one rather than edit the row by hand afterward, since tax-shared.ts reads
+ * every one of them (isExcludedEntity, the W-9 status TAX-TRACK-W9 reports,
+ * TAX-BUILD-1099's own eligibility check) and nothing else in this engine
+ * ever sets them. Nothing here compiles a 1099 or decides reportability;
+ * that is TAX-BUILD-1099's job, reading whatever this run or a later edit
+ * leaves on the row.
  *
  * Manual tier: naming a new vendor is a decision a person makes once, on
  * purpose, and a clock has no vendor of its own to discover.
@@ -41,6 +46,18 @@ import { derivedId, scopeHashFor } from "../ids";
 import type { VendorRow } from "../tables";
 import { normalizeVendor, VENDOR_NORMALIZATION_VERSION } from "./txn-normalize-vendors";
 
+const ENTITY_TYPES = [
+  "individual",
+  "sole_proprietor",
+  "partnership",
+  "llc",
+  "c_corporation",
+  "s_corporation",
+  "government",
+  "tax_exempt",
+  "unknown",
+] as const;
+
 export const createVendorScopeSchema = z.object({
   clientId: z.string().min(1),
   legalName: z.string().min(1),
@@ -53,6 +70,11 @@ export const createVendorScopeSchema = z.object({
     .regex(/^[0-9]{4}$/)
     .nullable()
     .default(null),
+  /** What the payee is, per migration 0017. The honest default excludes nobody. */
+  entityType: z.enum(ENTITY_TYPES).default("unknown"),
+  w9OnFile: z.boolean().default(false),
+  /** Meaningless unless w9OnFile is true; stored as given either way. */
+  w9ExpiresOn: z.string().min(10).nullable().default(null),
 });
 
 export type CreateVendorScope = z.infer<typeof createVendorScopeSchema>;
@@ -125,9 +147,9 @@ export const apCreateVendor: Run<CreateVendorScope, Proposal> = {
       defaultCategoryVersion: null,
       isActive: true,
       earlyDiscountRule: scope.earlyDiscountRule,
-      w9OnFile: false,
-      w9ExpiresOn: null,
-      entityType: "unknown",
+      w9OnFile: scope.w9OnFile,
+      w9ExpiresOn: scope.w9ExpiresOn,
+      entityType: scope.entityType,
       paymentHold: false,
       tinLast4: scope.tinLast4,
     };
