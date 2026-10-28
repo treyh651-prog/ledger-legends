@@ -78,8 +78,13 @@ import "./per-pipeline";
 // The module 5 AR and AP suites, one file per run plus the pipeline test.
 // AR-CREATE-CUSTOMER and AR-CREATE-INVOICE first: they put the first
 // customer and the first bill on the books, which every run below assumes.
+// AP-CREATE-VENDOR, AP-CREATE-BILL, and AR-RECORD-PAYMENT do the same for
+// the payable side and for a received payment.
 import "./ar-create-customer";
 import "./ar-create-invoice";
+import "./ap-create-vendor";
+import "./ap-create-bill";
+import "./ar-record-payment";
 import "./ar-refresh-aging";
 import "./ar-build-statements";
 import "./ar-apply-payments";
