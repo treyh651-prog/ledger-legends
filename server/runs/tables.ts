@@ -1111,6 +1111,11 @@ export interface CreditMemoRow {
   appliedCents: Cents;
   status: "open" | "applied" | "void";
   manualOverride: boolean;
+  /** Migration 0042. The receivable control account this memo offsets. */
+  arAccount: string;
+  /** Migration 0042. Revenue, or a sales returns account, caller's choice. */
+  revenueAccount: string;
+  createdBy: Ulid;
 }
 
 /**

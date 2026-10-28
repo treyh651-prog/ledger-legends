@@ -733,7 +733,9 @@ const CREDIT_MEMO_COLUMNS = `
   customer_id as "customerId", memo_number as "memoNumber",
   memo_date::text as "memoDate", amount_cents::text as "amountCents",
   applied_cents::text as "appliedCents", status,
-  manual_override as "manualOverride"
+  manual_override as "manualOverride",
+  ar_account as "arAccount", revenue_account as "revenueAccount",
+  created_by as "createdBy"
 `;
 
 const CUSTOMER_PAYMENT_COLUMNS = `

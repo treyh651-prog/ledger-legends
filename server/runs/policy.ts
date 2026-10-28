@@ -251,6 +251,11 @@ export const RUN_POLICIES: Readonly<Record<string, RunPolicy>> = {
     reason:
       "names which customer a deposit already on the register belongs to, once, and a clock cannot discover whose cash it is",
   },
+  "AR-CREATE-CREDITMEMO": {
+    tier: "manual",
+    reason:
+      "posts a reversal to the general ledger and credits a named customer's balance, so the run prepares and a person decides, the same reasoning AR-CREATE-INVOICE gives for billing one",
+  },
   "AR-APPLY-PAYMENTS": {
     tier: "propose",
     reason:

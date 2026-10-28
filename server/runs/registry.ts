@@ -2,15 +2,15 @@
  * The run registry. One entry per implemented run type.
  *
  * The 49 run types doc 02 and doc 05 name are the original target, and all 49
- * are implemented. Seven more sit beside them: SETUP-ADD-BANK-ACCOUNT,
+ * are implemented. Eight more sit beside them: SETUP-ADD-BANK-ACCOUNT,
  * AR-CREATE-CUSTOMER, AR-CREATE-INVOICE, REC-IMPORT-STATEMENT,
- * AP-CREATE-VENDOR, AP-CREATE-BILL, and AR-RECORD-PAYMENT, none of which the
- * original modules ever specified, because module 1 setup, module 5, and
- * module 3 were all written assuming a bank account, a customer, an invoice,
- * a bank statement's lines, a vendor, a bill, or a received payment already
- * existed on the books by the time their own runs read them. These seven put
- * the first one there, in the same insert-only, run-framework shape as
- * everything around them.
+ * AP-CREATE-VENDOR, AP-CREATE-BILL, AR-RECORD-PAYMENT, and
+ * AR-CREATE-CREDITMEMO, none of which the original modules ever specified,
+ * because module 1 setup, module 5, and module 3 were all written assuming a
+ * bank account, a customer, an invoice, a bank statement's lines, a vendor, a
+ * bill, a received payment, or a credit memo already existed on the books by
+ * the time their own runs read them. These eight put the first one there, in
+ * the same insert-only, run-framework shape as everything around them.
  *
  * SETUP-ADD-BANK-ACCOUNT comes first for the same reason: IMPORT-PARSE-FEED's
  * own scope requires an existing bankAccountId, and without this run nothing
@@ -32,6 +32,7 @@ import { apCreateVendor } from "./runs/ap-create-vendor";
 import { apCreateBill } from "./runs/ap-create-bill";
 import { arCreateCustomer } from "./runs/ar-create-customer";
 import { arCreateInvoice } from "./runs/ar-create-invoice";
+import { arCreateCreditMemo } from "./runs/ar-create-creditmemo";
 import { arRecordPayment } from "./runs/ar-record-payment";
 import { recImportStatement } from "./runs/rec-import-statement";
 import { cpaBuildHandoff } from "./runs/cpa-build-handoff";
@@ -166,6 +167,7 @@ export const registry: readonly RegistryEntry[] = [
   // AR_AP_ORDER explains the rest.
   entry(arCreateCustomer),
   entry(arCreateInvoice),
+  entry(arCreateCreditMemo),
   entry(apCreateVendor),
   entry(apCreateBill),
   entry(arRecordPayment),

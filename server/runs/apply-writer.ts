@@ -30,6 +30,7 @@ import type {
   BillRow,
   CategoryRow,
   ChartAccountRow,
+  CreditMemoRow,
   CustomerPaymentRow,
   VendorRow,
   PracticeTaskCatalogRow,
@@ -592,6 +593,12 @@ async function insertRow(
       await tx.insert("customer_payments", [
         withId as unknown as CustomerPaymentRow,
       ]);
+      return;
+    // AR-CREATE-CREDITMEMO. The same gap, closed last: migration 0042 gave
+    // credit_memos the ar_account/revenue_account pair invoices and bills
+    // always had, and this is the first insert path that ever uses it.
+    case "credit_memos":
+      await tx.insert("credit_memos", [withId as unknown as CreditMemoRow]);
       return;
     case "payment_applications":
       await tx.insert("payment_applications", [

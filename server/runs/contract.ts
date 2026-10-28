@@ -95,7 +95,10 @@ export type RunTypeId =
   // creates a vendor, a bill, or the subledger record of a received payment.
   | "AP-CREATE-VENDOR"
   | "AP-CREATE-BILL"
-  | "AR-RECORD-PAYMENT";
+  | "AR-RECORD-PAYMENT"
+  // Same gap, the receivable side's credit memo, closed last because it
+  // needed its own GL account columns first (migration 0042).
+  | "AR-CREATE-CREDITMEMO";
 
 /** Doc 03 Part 7 names the reversal of a run `<ORIGINAL>-UNDO`. */
 export type UndoRunTypeId = `${RunTypeId}-UNDO`;

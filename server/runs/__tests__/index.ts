@@ -82,6 +82,7 @@ import "./per-pipeline";
 // the payable side and for a received payment.
 import "./ar-create-customer";
 import "./ar-create-invoice";
+import "./ar-create-creditmemo";
 import "./ap-create-vendor";
 import "./ap-create-bill";
 import "./ar-record-payment";

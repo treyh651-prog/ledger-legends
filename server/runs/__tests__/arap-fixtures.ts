@@ -191,6 +191,9 @@ export function creditMemo(
     appliedCents: BigInt(0),
     status: "open",
     manualOverride: false,
+    arAccount: "1100",
+    revenueAccount: "4100",
+    createdBy: ACTOR,
     ...extra,
   };
 }
