@@ -2,15 +2,20 @@
  * The run registry. One entry per implemented run type.
  *
  * The 49 run types doc 02 and doc 05 name are the original target, and all 49
- * are implemented. Eight more sit beside them: SETUP-ADD-BANK-ACCOUNT,
+ * are implemented. Nine more sit beside them: SETUP-ADD-BANK-ACCOUNT,
  * AR-CREATE-CUSTOMER, AR-CREATE-INVOICE, REC-IMPORT-STATEMENT,
- * AP-CREATE-VENDOR, AP-CREATE-BILL, AR-RECORD-PAYMENT, and
- * AR-CREATE-CREDITMEMO, none of which the original modules ever specified,
+ * AP-CREATE-VENDOR, AP-CREATE-BILL, AR-RECORD-PAYMENT, AR-CREATE-CREDITMEMO,
+ * and TXN-POST-CODED, none of which the original modules ever specified,
  * because module 1 setup, module 5, and module 3 were all written assuming a
  * bank account, a customer, an invoice, a bank statement's lines, a vendor, a
  * bill, a received payment, or a credit memo already existed on the books by
- * the time their own runs read them. These eight put the first one there, in
- * the same insert-only, run-framework shape as everything around them.
+ * the time their own runs read them. Eight of the nine put the first row of
+ * something on the books, in the same insert-only, run-framework shape as
+ * everything around them. TXN-POST-CODED is the ninth and the deepest: module
+ * 2 never had a missing row, it had a missing posting -- migration 0011 says
+ * a register row becomes accounting when its journal_entry_id is filled in,
+ * and nothing in the documented nine coding runs ever filled it in for a row
+ * resolved only by a rule, a vendor default, or a bank code.
  *
  * SETUP-ADD-BANK-ACCOUNT comes first for the same reason: IMPORT-PARSE-FEED's
  * own scope requires an existing bankAccountId, and without this run nothing
@@ -19,11 +24,11 @@
  * register side: nothing the coding cascade reads exists until a feed has
  * been parsed and a batch committed. REC-IMPORT-STATEMENT is the equivalent
  * front door for the bank's own side, which the original 49 never built. The
- * nine module 2 coding runs then take the register from a raw descriptor to a
- * coded row, and the order they appear in below is the order doc 02 Part B
- * requires. CODING_CASCADE_ORDER is the machine readable form of that order, and
- * the registry exists so triggering, sequences, and the undo runner never need to
- * import a run module directly.
+ * ten module 2 coding runs then take the register from a raw descriptor to a
+ * posted entry, and the order they appear in below is doc 02 Part B's order
+ * plus TXN-POST-CODED at the end. CODING_CASCADE_ORDER is the machine readable
+ * form of that order, and the registry exists so triggering, sequences, and
+ * the undo runner never need to import a run module directly.
  */
 
 import type { Proposal, Run } from "./contract";
@@ -92,6 +97,7 @@ import { txnNormalizeVendors } from "./runs/txn-normalize-vendors";
 import { txnPairTransfers } from "./runs/txn-pair-transfers";
 import { txnSplitSettlements } from "./runs/txn-split-settlements";
 import { txnSweepSuspense } from "./runs/txn-sweep-suspense";
+import { txnPostCoded } from "./runs/txn-post-coded";
 
 /** Scope types differ per run, so the registry stores erased entries. */
 export interface RegistryEntry {
@@ -141,6 +147,7 @@ export const registry: readonly RegistryEntry[] = [
   entry(txnApplyVendorDefaults),
   entry(txnMapBankCodes),
   entry(txnSweepSuspense),
+  entry(txnPostCoded),
   // Module 3 reconciliation. REC-IMPORT-STATEMENT first: it is what puts the
   // bank's own lines on the books, the "statement has already been imported"
   // precondition the other three assume. Matching then opens the batch,
@@ -405,14 +412,19 @@ export const RECONCILIATION_ORDER: readonly string[] = [
 ];
 
 /**
- * The module 2 execution order from doc 02 Part B. Every dependency in the
- * cascade points backwards, so this list is the whole ordering contract:
- * normalization before anything that reads a vendor key, duplicate detection
- * before anything that codes, transfer pairing before rules so a rule can never
- * recode one leg of a transfer, settlement splitting and templates before rules
- * because both are stronger evidence than a rule, rules before vendor defaults,
- * vendor defaults before bank codes, and the suspense sweep last so no row can
- * finish the cascade with a null category.
+ * The module 2 execution order from doc 02 Part B, with one addition at the
+ * end. Every dependency in the cascade points backwards, so this list is the
+ * whole ordering contract: normalization before anything that reads a vendor
+ * key, duplicate detection before anything that codes, transfer pairing before
+ * rules so a rule can never recode one leg of a transfer, settlement splitting
+ * and templates before rules because both are stronger evidence than a rule,
+ * rules before vendor defaults, vendor defaults before bank codes, and the
+ * suspense sweep so no row can finish coded with a null category.
+ *
+ * TXN-POST-CODED runs last, after the sweep, because a row has to finish being
+ * coded -- suspense included -- before anything can decide there is nothing
+ * left of it to post. Doc 02 names nine runs here; this is the tenth, and the
+ * one that posts a row the first nine only ever categorized.
  */
 export const CODING_CASCADE_ORDER: readonly string[] = [
   "TXN-NORMALIZE-VENDORS",
@@ -424,6 +436,7 @@ export const CODING_CASCADE_ORDER: readonly string[] = [
   "TXN-APPLY-VENDORDEFAULTS",
   "TXN-MAP-BANKCODES",
   "TXN-SWEEP-SUSPENSE",
+  "TXN-POST-CODED",
 ];
 
 /** Position of a run in the cascade, or null when it is not a coding run. */

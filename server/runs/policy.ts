@@ -163,6 +163,11 @@ export const RUN_POLICIES: Readonly<Record<string, RunPolicy>> = {
     reason:
       "parks a transaction in a clearing account with a ledger entry and opens a portal request the client reads",
   },
+  "TXN-POST-CODED": {
+    tier: "propose",
+    reason:
+      "posts the ordinary coded transaction to its own real account, a general ledger write, the same reasoning TXN-SWEEP-SUSPENSE gives for posting to suspense",
+  },
 
   // ---------------------------------------------------------------------
   // Module 3, reconciliation. REC-IMPORT-STATEMENT puts the bank's own lines

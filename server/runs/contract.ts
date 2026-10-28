@@ -98,7 +98,12 @@ export type RunTypeId =
   | "AR-RECORD-PAYMENT"
   // Same gap, the receivable side's credit memo, closed last because it
   // needed its own GL account columns first (migration 0042).
-  | "AR-CREATE-CREDITMEMO";
+  | "AR-CREATE-CREDITMEMO"
+  // The deepest instance of the gap: doc 02's own nine coding runs never
+  // named the step that posts a transaction resolved only by a rule, a
+  // vendor default, or a bank code. Level ten of a cascade doc 02 called
+  // nine, after TXN-SWEEP-SUSPENSE.
+  | "TXN-POST-CODED";
 
 /** Doc 03 Part 7 names the reversal of a run `<ORIGINAL>-UNDO`. */
 export type UndoRunTypeId = `${RunTypeId}-UNDO`;

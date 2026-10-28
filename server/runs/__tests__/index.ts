@@ -58,6 +58,7 @@ import "./txn-apply-rules";
 import "./txn-apply-vendordefaults";
 import "./txn-map-bankcodes";
 import "./txn-sweep-suspense";
+import "./txn-post-coded";
 import "./coding-pipeline";
 // The module 3 reconciliation suites, one file per run plus the pipeline test.
 // REC-IMPORT-STATEMENT first: it puts the bank's own lines on the books,
