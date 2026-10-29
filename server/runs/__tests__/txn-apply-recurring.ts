@@ -239,7 +239,11 @@ test("apply recurring, ordering, a rule may not overwrite a template split", asy
   // Rules first, which is the wrong order. The whole charge lands on one line.
   const outOfOrder = seed();
   const early = await previewCoding(outOfOrder, txnApplyRules, scopeFor(CLIENT_A1));
-  assertEqual(early.result.proposals.length, 1, "the rule would code the whole charge");
+  assertEqual(
+    early.result.proposals.length,
+    2,
+    "the rule would code the whole charge, and move its hit count",
+  );
 
   // Documented order. The template splits it, then the rule stands down.
   const inOrder = seed();

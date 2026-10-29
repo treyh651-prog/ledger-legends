@@ -114,6 +114,26 @@ export const RUN_POLICIES: Readonly<Record<string, RunPolicy>> = {
     reason:
       "commits a staged batch into the register and the ledger, and which batch commits is a decision a person makes after looking at the mapping",
   },
+  "IMPORT-FLAG-MAPPING-NEEDED": {
+    tier: "unattended",
+    reason:
+      "records that a parse could not get past the mapping check, touches no ledger account, and a repeat of the same failure lands on the same open row",
+  },
+  "IMPORT-REJECT-BATCH": {
+    tier: "manual",
+    reason:
+      "throwing out a staged statement is a decision a person makes once, looking at the mapping, the same reasoning IMPORT-COMMIT-BATCH itself is not unattended for",
+  },
+  "PER-DISPOSE-ASSET": {
+    tier: "manual",
+    reason:
+      "which asset left the books, on what day, and for how much is a decision a person makes once, looking at a bill of sale or a disposal memo, and a clock has no sale of its own to discover",
+  },
+  "IMPORT-REVIEW-STAGED-ROW": {
+    tier: "manual",
+    reason:
+      "whether two same day, same amount charges are one purchase repeated or two different ones is a judgment a person makes once, looking at the statement, the same reasoning IMPORT-COMMIT-BATCH itself is not unattended for",
+  },
 
   // ---------------------------------------------------------------------
   // Module 2, the coding cascade. The six levels that only classify a row
@@ -412,6 +432,21 @@ export const RUN_POLICIES: Readonly<Record<string, RunPolicy>> = {
     tier: "manual",
     reason:
       "a client is offboarded because a contract ended, which is a fact no table in this system holds, so nothing here should be able to start it",
+  },
+  "CFG-EDIT-CATEGORY": {
+    tier: "manual",
+    reason:
+      "a person at the firm decides what a category is called, where it posts, and how it is taxed, never something a clock infers",
+  },
+  "CFG-EDIT-RULE": {
+    tier: "manual",
+    reason:
+      "a rule is configurable by a user and therefore capable of encoding a mistake at scale, the same reason TXN-APPLY-RULES itself names for why editing one is a person's decision",
+  },
+  "CFG-EDIT-MAPPING-PROFILE": {
+    tier: "manual",
+    reason:
+      "which bank column means what is a judgment a person makes once per institution, and a wrong guess here silently books amounts to the wrong sign or date",
   },
 };
 

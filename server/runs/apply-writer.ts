@@ -29,6 +29,7 @@ import type {
   BankAccountRow,
   BillRow,
   CategoryRow,
+  CategoryVersionRow,
   ChartAccountRow,
   CreditMemoRow,
   CustomerPaymentRow,
@@ -37,6 +38,7 @@ import type {
   ClientRow,
   EngagementRow,
   DocumentRow,
+  AuditEventRow,
   DeferralLineRow,
   DepreciationScheduleRow,
   InvoiceRow,
@@ -56,10 +58,14 @@ import type {
   SubTieoutRow,
   SubstantiationRecordRow,
   ImportBatchRow,
+  MappingExceptionRow,
+  MappingProfileRow,
+  MappingProfileVersionRow,
   JournalEntryRow,
   JournalLineRow,
   PortalRequestRow,
   PortalMessageRow,
+  SignatureEventRow,
   SignatureEvidenceRow,
   RecBatchRow,
   SettlementRowRow,
@@ -85,6 +91,7 @@ import type {
   ReportPackageRow,
   ReportSectionRow,
   ReportVarianceRow,
+  RuleVersionRow,
 } from "./tables";
 
 /**
@@ -108,6 +115,8 @@ export const NOW_PLACEHOLDER = "$now";
  * CLOSE-LOCK-PERIOD writes this and the writer resolves it. See NOTES.md entry 92.
  */
 export const ACTOR_PLACEHOLDER = "$actor_user_id";
+/** The same reasoning as ACTOR_PLACEHOLDER, for the actor's kind rather than id. */
+export const ACTOR_KIND_PLACEHOLDER = "$actor_kind";
 
 function materialize(
   values: Record<string, unknown>,
@@ -118,6 +127,7 @@ function materialize(
     if (value === RUN_ID_PLACEHOLDER) out[key] = ctx.runExecutionId;
     else if (value === NOW_PLACEHOLDER) out[key] = ctx.now.toISOString();
     else if (value === ACTOR_PLACEHOLDER) out[key] = ctx.actor.userId;
+    else if (value === ACTOR_KIND_PLACEHOLDER) out[key] = ctx.actor.kind;
     else out[key] = value;
   }
   return out;
@@ -313,6 +323,10 @@ async function writeField(
     case "staged_rows":
       await tx.update("staged_rows", rowId, after);
       return;
+    // IMPORT-FLAG-MAPPING-NEEDED reopens or resolves its one row per account.
+    case "mapping_exceptions":
+      await tx.update("mapping_exceptions", rowId, after);
+      return;
     // Doc 02 TXN-SPLIT-SETTLEMENTS marks the settlement report row it consumed,
     // which is what makes a rerun report settlement_already_split rather than
     // post the same gross and fee twice.
@@ -321,10 +335,6 @@ async function writeField(
       return;
     case "portal_requests":
       await tx.update("portal_requests", rowId, after);
-      return;
-    // ENG-SIGN-LETTER moves the engagement to signed, migration 0028.
-    case "engagements":
-      await tx.update("engagements", rowId, after);
       return;
     // Doc 02 module 4. Each of the six period end runs marks the subledger row
     // it consumed. That mark is what makes a rerun report the work as already
@@ -460,6 +470,23 @@ async function writeField(
     case "offboard_exports":
       await tx.update("offboard_exports", rowId, after);
       return;
+    // TXN-APPLY-RULES wrote hit_count and last_hit_at here first (migration
+    // 0004 carried them with nothing writing them). CFG-EDIT-RULE is the
+    // second writer, for everything a person may change by hand.
+    case "rules":
+      await tx.update("rules", rowId, after);
+      return;
+    // CFG-EDIT-CATEGORY. The category row itself is updated in place, unlike
+    // a mapping profile; see MappingProfileRow's own comment for why those
+    // two tables disagree on this.
+    case "categories":
+      await tx.update("categories", rowId, after);
+      return;
+    // CFG-EDIT-MAPPING-PROFILE deactivates the row it is superseding. The new
+    // version is always a fresh row_insert below, never a field write here.
+    case "mapping_profiles":
+      await tx.update("mapping_profiles", rowId, after);
+      return;
     /*
      * practice_escalations is absent on purpose. Doc 02 PRAC-ESCALATE-OVERDUE
      * says an escalation record is never edited and never removed, so there is
@@ -505,6 +532,13 @@ async function insertRow(
     case "staged_rows":
       await tx.insert("staged_rows", [withId as unknown as StagedRowRow]);
       return;
+    // IMPORT-FLAG-MAPPING-NEEDED opens the row the first time a parse cannot
+    // get past the mapping check for an account.
+    case "mapping_exceptions":
+      await tx.insert("mapping_exceptions", [
+        withId as unknown as MappingExceptionRow,
+      ]);
+      return;
     // Doc 02 TXN-SWEEP-SUSPENSE step 4 creates one request per client owned code.
     case "portal_requests":
       await tx.insert("portal_requests", [withId as unknown as PortalRequestRow]);
@@ -515,6 +549,9 @@ async function insertRow(
       return;
     case "signature_evidence":
       await tx.insert("signature_evidence", [withId as unknown as SignatureEvidenceRow]);
+      return;
+    case "signature_events":
+      await tx.insert("signature_events", [withId as unknown as SignatureEventRow]);
       return;
     // REC-MATCH-TIERED opens the reconciliation batch for the statement.
     case "rec_batches":
@@ -734,11 +771,13 @@ async function insertRow(
       ]);
       return;
     /*
-     * Module 1 intake. The three setup tables a wizard finish seeds. All three
-     * are insert only from a run's point of view: INTAKE-BUILD-CHART and
-     * INTAKE-SEED-TASKS add the rows a client is missing and never rewrite one,
-     * so there is no matching field write branch above and a run that tried
-     * would be refused there by name.
+     * Module 1 intake. The three setup tables a wizard finish seeds.
+     * chart_accounts and practice_task_catalog stay insert only from a run's
+     * point of view: INTAKE-BUILD-CHART and INTAKE-SEED-TASKS add the rows a
+     * client is missing and never rewrite one, so neither has a field write
+     * branch above and a run that tried would be refused there by name.
+     * categories is the one exception now that CFG-EDIT-CATEGORY exists; its
+     * field write case lives beside CFG-EDIT-RULE's above.
      */
     case "chart_accounts":
       await tx.insert("chart_accounts", [withId as unknown as ChartAccountRow]);
@@ -749,6 +788,29 @@ async function insertRow(
     case "practice_task_catalog":
       await tx.insert("practice_task_catalog", [
         withId as unknown as PracticeTaskCatalogRow,
+      ]);
+      return;
+    // CFG-EDIT-RULE never inserts; a rule is edited in place, never replaced.
+    // CFG-EDIT-CATEGORY and CFG-EDIT-MAPPING-PROFILE both insert the history
+    // row below, and the mapping profile edit also inserts a fresh profile
+    // row, because unlike a category a profile is never edited in place
+    // (MappingProfileRow's own comment says why).
+    case "mapping_profiles":
+      await tx.insert("mapping_profiles", [withId as unknown as MappingProfileRow]);
+      return;
+    // No synthetic id for any of the three: the primary key is (entityId,
+    // version), so the row is inserted as given, never merged with withId.
+    // The proposal's own rowId still names the entity for the run log; it is
+    // simply not a column on this table.
+    case "category_versions":
+      await tx.insert("category_versions", [row as unknown as CategoryVersionRow]);
+      return;
+    case "rule_versions":
+      await tx.insert("rule_versions", [row as unknown as RuleVersionRow]);
+      return;
+    case "mapping_profile_versions":
+      await tx.insert("mapping_profile_versions", [
+        row as unknown as MappingProfileVersionRow,
       ]);
       return;
     /**
@@ -764,6 +826,12 @@ async function insertRow(
     // INTAKE-ACTIVATE-ENGAGEMENT records a letter signed outside the system.
     case "documents":
       await tx.insert("documents", [withId as unknown as DocumentRow]);
+      return;
+    // DOC-RECORD-UPLOAD's row_created event. docvault.audit_events has
+    // carried the document access log since migration 0008 and nothing ever
+    // wrote a row to it.
+    case "audit_events":
+      await tx.insert("audit_events", [withId as unknown as AuditEventRow]);
       return;
     default:
       throw new ProposalWriteError(

@@ -115,6 +115,17 @@ test("portal api: with a letter on file the client signs and the engagement move
   assertEqual(evidence[0]!.signerUserId, "00000000-0000-4000-8000-0000000000c1", "signer user id from the actor");
   assert(evidence[0]!.signerIp.length > 0, "ip recorded");
   assert(evidence[0]!.userAgent.length > 0, "user agent recorded");
+
+  // Migration 0008's sig_signed_needs_consent check refuses a signed row on
+  // live Postgres unless consent_event_id points at a real event; the memory
+  // store used by this test does not enforce that constraint, so it is
+  // asserted here directly rather than relying on a database error to catch it.
+  assert(evidence[0]!.consentEventId !== null, "consentEventId is set, not left null");
+  const events = world.db.all("signature_events").filter((e) => e.evidenceId === evidence[0]!.id);
+  assertEqual(events.length, 1, "one signature event recorded");
+  assertEqual(events[0]!.id, evidence[0]!.consentEventId, "evidence points at the event it names");
+  assertEqual(events[0]!.eventType, "consent_given", "the event this run can attest to");
+  assertEqual(events[0]!.sequenceNumber, 1, "first event in the sequence");
 });
 
 test("portal api: signing twice is refused, the engagement is already signed", async () => {

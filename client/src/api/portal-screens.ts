@@ -134,6 +134,14 @@ export interface UploadDocumentArgs {
   file: File;
   docType: string;
   requestId?: string | null;
+  /** Which bank or card account this file is a statement for, when it is one. */
+  bankAccountId?: string | null;
+  /** Which vendor this file is a bill from, when it is one. */
+  vendorId?: string | null;
+  /** Which fixed asset this file is the receipt for, when it is one. */
+  assetId?: string | null;
+  /** Which loan this file is the agreement for, when it is one. */
+  loanId?: string | null;
 }
 
 /**
@@ -158,6 +166,10 @@ async function uploadDirect(clientId: string, args: UploadDocumentArgs): Promise
     "x-doc-type": args.docType,
   };
   if (args.requestId) headers["x-request-id"] = args.requestId;
+  if (args.bankAccountId) headers["x-bank-account-id"] = args.bankAccountId;
+  if (args.vendorId) headers["x-vendor-id"] = args.vendorId;
+  if (args.assetId) headers["x-asset-id"] = args.assetId;
+  if (args.loanId) headers["x-loan-id"] = args.loanId;
   let res: Response;
   try {
     res = await fetch(`${API_BASE}/api/portal/${clientId}/documents`, { method: "POST", headers, body: args.file });
@@ -211,7 +223,16 @@ async function uploadViaSignedUrl(clientId: string, args: UploadDocumentArgs): P
     finRes = await fetch(`${API_BASE}/api/portal/${clientId}/documents/${target.documentId}/finalize`, {
       method: "POST",
       headers: { ...(await authHeaders()), "content-type": "application/json" },
-      body: JSON.stringify({ filename: args.file.name, docType: args.docType, objectKey: target.objectKey, requestId: args.requestId ?? null }),
+      body: JSON.stringify({
+        filename: args.file.name,
+        docType: args.docType,
+        objectKey: target.objectKey,
+        requestId: args.requestId ?? null,
+        bankAccountId: args.bankAccountId ?? null,
+        vendorId: args.vendorId ?? null,
+        assetId: args.assetId ?? null,
+        loanId: args.loanId ?? null,
+      }),
     });
   } catch {
     throw new ApiRequestError(0, "network", "The server could not be reached.");

@@ -26,6 +26,7 @@ import {
   rptBuildPackage,
   sectionIdOf,
 } from "../runs/rpt-build-package";
+import { statementLineOf } from "../runs/statement-taxonomy";
 
 const scope = { ...reportScope(), comparisonBasis: "prior_period" as const };
 
@@ -239,6 +240,24 @@ test("the balance sheet carries the cash balance and the income statement does n
   assert(
     (incomeStatement?.lines ?? []).some((l) => l.accountNumber === "4100"),
     "revenue is on the income statement",
+  );
+});
+
+test("balance sheet and income statement lines carry the statement taxonomy label, totals do not", async () => {
+  const db = reportDb();
+  await applyReport(db, rptBuildPackage, scope);
+  const balanceSheet = sectionsOf(db).find((s) => s.sectionCode === "BALANCE_SHEET");
+  const cash = (balanceSheet?.lines ?? []).find((l) => l.accountNumber === "1010");
+  assertEqual(
+    cash?.statementLine,
+    statementLineOf("1010"),
+    "an account level line carries its derived taxonomy label",
+  );
+  const totalAssets = (balanceSheet?.lines ?? []).find((l) => l.label === "Total assets");
+  assertEqual(
+    totalAssets?.statementLine,
+    null,
+    "a total line is not an account and carries no taxonomy label",
   );
 });
 

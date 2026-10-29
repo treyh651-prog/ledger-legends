@@ -62,6 +62,8 @@ export interface ExecuteOptions {
   previewRunId?: string;
   source?: "button" | "cron" | "sequence";
   parentSequenceId?: string | null;
+  /** Which step of the sequence this run is, 1 based. Null outside a sequence. */
+  sequenceStep?: number | null;
   originalRunId?: string | null;
   executionId?: string;
   maxAttempts?: number;
@@ -346,6 +348,7 @@ export async function execute<S, P>(
     actorKind: opts.actor.kind,
     source: opts.source ?? "button",
     parentSequenceId: opts.parentSequenceId ?? null,
+    sequenceStep: opts.sequenceStep ?? null,
     previewRunId: opts.previewRunId ?? null,
     originalRunId: opts.originalRunId ?? null,
     startedAt,

@@ -25,9 +25,12 @@ import { z } from "zod";
 
 const runSucceeded = (status: string) => status === "completed" || status === "completed_with_skips" || status === "deduplicated";
 const taskParamsSchema = clientParamsSchema.extend({ taskId: z.string().min(1) });
+const batchParamsSchema = clientParamsSchema.extend({ batchId: z.string().min(1) });
 const setBillingStatusBodySchema = z.object({ billingStatus: z.enum(["current", "past_due"]) });
-import { aging, budget, clientSetup, closeChecklist, firmRequests, firmTasks, forecast, journal, narratives, reconcile, reportPackages, rules, substantiation, taxForms, trialBalance } from "./reads-screens";
-import { updateTaskBodySchema, type FirmMember, type FirmTeam } from "../../shared/api/screens";
+import { aging, budget, clientSetup, closeChecklist, firmRequests, firmTasks, forecast, journal, narratives, reconcile, reportPackages, rules, stagedBatches, substantiation, taxForms, trialBalance } from "./reads-screens";
+import { rejectBatchBodySchema, updateTaskBodySchema, type FirmMember, type FirmTeam } from "../../shared/api/screens";
+import { CODING_CASCADE_ORDER, lookupRun } from "../runs/registry";
+import { executeSequence, step } from "../runs/sequence";
 import type { ActorMiddleware } from "../auth/middleware";
 import {
   featuresForTier,
@@ -42,6 +45,7 @@ import {
   type EntitlementRow,
   type EntitlementSource,
 } from "../entitlement";
+import type { Actor } from "../db/with-actor";
 import type { RunDb } from "../runs/db";
 import { ApiFailure, notConfigured, notFound, withOneRetry } from "./errors";
 import type { DocumentStorage } from "../storage/document-storage";
@@ -122,6 +126,48 @@ function route(fn: (req: Request) => Promise<{ status?: number; body: unknown }>
 
 function todayOf(deps: ApiDeps): string {
   return deps.today ? deps.today() : new Date().toISOString().slice(0, 10);
+}
+
+/**
+ * The ten run coding cascade, over exactly the dates a just committed batch
+ * covers and the one account it posted to. Reached only from the staged
+ * batches approve route below, as one sequence attributed to the approving
+ * firm member, with the "sequence" actor kind server/runs/sequence.ts itself
+ * uses for the month end prep order: the decision is the approval, and
+ * everything after it runs as one automated step rather than ten separate
+ * button presses.
+ */
+async function runCodingCascadeForBatch(
+  db: RunDb,
+  actor: Actor,
+  firmId: string,
+  clientId: string,
+  bankAccountId: string,
+  batchId: string,
+  now: Date,
+) {
+  const rows = await db.tx(readSession(actor, firmId, clientId), (tx) =>
+    tx.query("staged_rows_by_batch", { firmId, clientId, batchId }),
+  );
+  const dates = rows.map((r) => r.postedOn).filter((d): d is string => d !== null).sort();
+  const runDay = now.toISOString().slice(0, 10);
+  const from = dates[0] ?? runDay;
+  const to = dates[dates.length - 1] ?? runDay;
+  const codingScope = { clientId, from, to, bankAccountIds: [bankAccountId] };
+
+  const steps = CODING_CASCADE_ORDER.map((type) => {
+    const entry = lookupRun(type);
+    if (!entry) throw new ApiFailure(500, "internal", `${type} is in the coding cascade order but not in the registry`);
+    return step(entry.run, codingScope);
+  });
+  return executeSequence(db, steps, {
+    name: `coding cascade for batch ${batchId}`,
+    firmId,
+    clientId,
+    actorId: actor.userId,
+    now,
+    mode: "apply",
+  });
 }
 
 export function createApiRouter(deps: ApiDeps): Router {
@@ -358,6 +404,92 @@ export function createApiRouter(deps: ApiDeps): Router {
         reconcile(tx, firmId, clientId, period, batchId ?? null),
       );
       return { body };
+    }),
+  );
+
+  firmClient.get(
+    "/staged-batches",
+    route(async (req) => {
+      const { clientId } = parse(clientParamsSchema, req.params);
+      const firmId = req.firm!.firmId;
+      const body = await deps.db.tx(readSession(req.actor!, firmId, clientId), (tx) => stagedBatches(tx, firmId, clientId));
+      return { body };
+    }),
+  );
+
+  /**
+   * Approve. IMPORT-COMMIT-BATCH first, preview then apply, the same shape
+   * every manual run route in this file uses. A batch that commits clean then
+   * runs the ten run coding cascade over exactly the dates the batch covers
+   * and the one account it posted to, as one sequence under the approving
+   * firm member's own id, the same "sequence" convention
+   * server/runs/sequence.ts uses for the month end prep order. A row the
+   * cascade cannot finish coding lands in suspense, same as any other day;
+   * this route does not wait for a person to clear it.
+   */
+  firmClient.post(
+    "/staged-batches/:batchId/approve",
+    route(async (req) => {
+      const { clientId, batchId } = parse(batchParamsSchema, req.params);
+      const firmId = req.firm!.firmId;
+      const actor = req.actor!;
+      const whenNow = now();
+      const commitCommon = {
+        db: deps.db,
+        actor,
+        firmId,
+        clientId,
+        via: "firm" as const,
+        runCode: "IMPORT-COMMIT-BATCH",
+        scope: { clientId, batchId },
+        now: whenNow,
+      };
+      const preview = await triggerRun({ ...commitCommon, mode: "preview" });
+      if (preview.status !== "no_op" && !runSucceeded(preview.status)) {
+        return { body: { commit: preview, applied: null, cascade: null, done: false } };
+      }
+      const applied = preview.status === "no_op" ? preview : await triggerRun({ ...commitCommon, mode: "apply", previewRunId: preview.executionId });
+      if (!runSucceeded(applied.status)) {
+        return { body: { commit: preview, applied, cascade: null, done: false } };
+      }
+
+      const batches = await deps.db.tx(readSession(actor, firmId, clientId), (tx) => tx.query("import_batch_by_id", { firmId, clientId, batchId }));
+      const batch = batches[0];
+      const sequence = batch
+        ? await runCodingCascadeForBatch(deps.db, actor, firmId, clientId, batch.bankAccountId, batchId, whenNow)
+        : null;
+      // Only the shape the firm screen needs: a RunOutcome carries bigint
+      // fields (net cents) that JSON cannot serialize on its own.
+      const cascade = sequence ? { stoppedAtStep: sequence.stoppedAtStep, stoppedBy: sequence.stoppedBy } : null;
+      return { body: { commit: preview, applied, cascade, done: true } };
+    }),
+  );
+
+  /**
+   * Reject. IMPORT-REJECT-BATCH, preview then apply, same shape as approve's
+   * first half. Nothing downstream of a rejected batch ever ran, so there is
+   * no cascade to run and nothing in the ledger to undo.
+   */
+  firmClient.post(
+    "/staged-batches/:batchId/reject",
+    route(async (req) => {
+      const { clientId, batchId } = parse(batchParamsSchema, req.params);
+      const body = parse(rejectBatchBodySchema, req.body ?? {});
+      const common = {
+        db: deps.db,
+        actor: req.actor!,
+        firmId: req.firm!.firmId,
+        clientId,
+        via: "firm" as const,
+        runCode: "IMPORT-REJECT-BATCH",
+        scope: { clientId, batchId, reason: body.reason },
+        now: now(),
+      };
+      const preview = await triggerRun({ ...common, mode: "preview" });
+      if (preview.status === "no_op") return { body: { preview, applied: null, done: true } };
+      if (!runSucceeded(preview.status)) return { body: { preview, applied: null, done: false } };
+      const applied = await triggerRun({ ...common, mode: "apply", previewRunId: preview.executionId });
+      return { body: { preview, applied, done: runSucceeded(applied.status) } };
     }),
   );
 

@@ -367,6 +367,14 @@ export const importCommitBatch: Run<CommitBatchScope, Proposal> = {
       net += row.amountCents;
     }
 
+    // A row still held with nobody having decided it yet means this pass did
+    // not finish the batch: IMPORT-REVIEW-STAGED-ROW still has work to do,
+    // and the batch has to stay in a status IMPORT-COMMIT-BATCH will still
+    // accept once that review lands, rather than closing as committed with
+    // the row stuck behind it forever.
+    const stillHeld = staged.some(
+      (row) => row.dedupState === "held_for_review" && row.reviewState === "pending",
+    );
     proposals.push({
       kind: "field_write",
       table: "import_batches",
@@ -376,12 +384,14 @@ export const importCommitBatch: Run<CommitBatchScope, Proposal> = {
         committedRunId: batch.committedRunId,
         committedAt: batch.committedAt,
       },
-      after: {
-        status: "committed",
-        // Substituted by the writer. See RUN_ID_PLACEHOLDER.
-        committedRunId: RUN_ID_PLACEHOLDER,
-        committedAt: NOW_PLACEHOLDER,
-      },
+      after: stillHeld
+        ? { status: "in_review", committedRunId: batch.committedRunId, committedAt: batch.committedAt }
+        : {
+            status: "committed",
+            // Substituted by the writer. See RUN_ID_PLACEHOLDER.
+            committedRunId: RUN_ID_PLACEHOLDER,
+            committedAt: NOW_PLACEHOLDER,
+          },
       provenance: { cascadeLevel: 0 },
     });
 

@@ -21,6 +21,7 @@ import { LockedPeriodError } from "../../runs/db";
 import { ZodError, z } from "zod";
 import { assert, assertEqual, test } from "../../runs/__tests__/harness";
 import type { createMemoryStorage } from "../../storage/document-storage";
+import { headerFingerprintOf } from "../../runs/runs/import-parse-feed";
 
 export type MemoryStorage = ReturnType<typeof createMemoryStorage>;
 
@@ -445,7 +446,7 @@ test("api: without a document store the upload route answers 501 not_configured"
 test("api: the run catalog lists every registered run with its tier", async () => {
   const r = await call(world, "GET", "/api/firm/runs/catalog");
   assertEqual(r.status, 200, "status");
-  assertEqual(r.body.items.length, 66, "sixty six runs");
+  assertEqual(r.body.items.length, 73, "seventy three runs");
   const create = r.body.items.find((x: any) => x.runType === "INTAKE-CREATE-CLIENT");
   assertEqual(create?.tier, "manual", "the intake run is manual");
 });
@@ -521,6 +522,155 @@ test("api: the development actor refuses production and refuses postgres", () =>
     threw = e;
   }
   assert(threw instanceof DevActorRefused, "set with postgres throws");
+});
+
+/* ---------------- Staged statements: approve and reject ---------------- */
+
+test("api: approve commits a staged batch, runs the coding cascade, and the books still foot", async () => {
+  const bankAccountId = "BA-ROUTE-0001";
+  await world.db.tx({ ...readSession(DEV_ACTOR, DEV_FIRM_ID, createdClientId), readOnly: false }, async (tx) => {
+    await tx.insert("bank_accounts", [
+      {
+        id: bankAccountId,
+        firmId: DEV_FIRM_ID,
+        clientId: createdClientId,
+        accountNumber: "1010",
+        nickname: "Operating checking",
+        kind: "bank",
+        isProcessorDestination: false,
+        institutionName: "First Bank",
+      } as any,
+    ]);
+    await tx.insert("mapping_profiles", [
+      {
+        id: "MP-ROUTE-0001",
+        firmId: DEV_FIRM_ID,
+        clientId: createdClientId,
+        version: 1,
+        institutionName: "First Bank",
+        accountNumber: "1010",
+        fileFormat: "csv",
+        headerFingerprint: headerFingerprintOf(["Date", "Description", "Amount"]),
+        headerRowNumber: 1,
+        skipRows: 0,
+        dateColumn: "Date",
+        dateFormat: "MM/DD/YYYY",
+        descriptionColumn: "Description",
+        amountColumn: "Amount",
+        debitColumn: null,
+        creditColumn: null,
+        signConvention: "credit_positive",
+        currency: "USD",
+        bankIdColumn: null,
+        checkNumberColumn: null,
+        bankCodeColumn: null,
+        isActive: true,
+      } as any,
+    ]);
+  });
+
+  const parseScope = {
+    clientId: createdClientId,
+    bankAccountId,
+    batchName: "approve route test feed",
+    institutionName: "First Bank",
+    sourceFormat: "csv",
+    fileText: "Date,Description,Amount\n01/12/2026,COFFEE HOUSE,-14.75\n01/13/2026,CLIENT DEPOSIT,3000.00\n",
+    grid: null,
+    sourceDocumentId: null,
+  };
+  const parsePath = `/api/firm/clients/${createdClientId}/runs/IMPORT-PARSE-FEED`;
+  const parsePreview = await call(world, "POST", parsePath, { body: { mode: "preview", scope: parseScope } });
+  assertEqual(parsePreview.body.status, "completed", `parse preview: ${JSON.stringify(parsePreview.body)}`);
+  const parseApplied = await call(world, "POST", parsePath, { body: { mode: "apply", scope: parseScope, previewRunId: parsePreview.body.executionId } });
+  assertEqual(parseApplied.body.status, "completed", "parse applied");
+  const batchId = parseApplied.body.proposals.find((p: any) => p.table === "import_batches")?.rowId;
+  assert(typeof batchId === "string" && batchId.length > 0, "the batch id is in the parse proposals");
+
+  const staged = await call(world, "GET", `/api/firm/clients/${createdClientId}/staged-batches`);
+  assert(staged.body.items.some((b: any) => b.id === batchId), "the batch is listed as waiting on a decision");
+
+  const approved = await call(world, "POST", `/api/firm/clients/${createdClientId}/staged-batches/${batchId}/approve`, { body: {} });
+  assertEqual(approved.status, 200, `approve status: ${JSON.stringify(approved.body)}`);
+  assertEqual(approved.body.done, true, "approved");
+  assertEqual(approved.body.applied.status, "completed", "the commit itself completed");
+  assert(approved.body.cascade !== null, "the coding cascade ran");
+  assertEqual(approved.body.cascade.stoppedAtStep, null, "the cascade ran to the end without stopping");
+
+  const batches = await world.db.tx(readSession(DEV_ACTOR, DEV_FIRM_ID, createdClientId), (tx) =>
+    tx.query("import_batch_by_id", { firmId: DEV_FIRM_ID, clientId: createdClientId, batchId }),
+  );
+  assertEqual((batches[0] as any).status, "committed", "the batch is committed");
+
+  const register = await world.db.tx(readSession(DEV_ACTOR, DEV_FIRM_ID, createdClientId), (tx) =>
+    tx.query("transactions_by_bank_ids", { firmId: DEV_FIRM_ID, clientId: createdClientId, bankAccountId, bankTransactionIds: [] }),
+  );
+  // bankTransactionIds empty on purpose; the two lines carry no bank id, so a
+  // direct count from the batch's own staged rows is the honest check instead.
+  const stagedRows = await world.db.tx(readSession(DEV_ACTOR, DEV_FIRM_ID, createdClientId), (tx) =>
+    tx.query("staged_rows_by_batch", { firmId: DEV_FIRM_ID, clientId: createdClientId, batchId }),
+  );
+  assertEqual(stagedRows.length, 2, "two staged rows");
+  assert(stagedRows.every((r: any) => r.committedTransactionId !== null), "both committed into the register");
+  assert(register.length === 0, "the empty bank id lookup is itself empty, confirming these rows carry none");
+
+  // The books still foot: whatever the cascade posted, debits and credits
+  // net to zero, the same invariant every posting run in this codebase holds.
+  const lines = await world.db.tx(readSession(DEV_ACTOR, DEV_FIRM_ID, createdClientId), (tx) =>
+    tx.query("journal_lines_for_client", { firmId: DEV_FIRM_ID, clientId: createdClientId }),
+  );
+  const net = lines.reduce((sum: bigint, l: any) => sum + (l.amountCents as bigint), BigInt(0));
+  assertEqual(net, BigInt(0), "every journal line in the client's books nets to zero");
+});
+
+test("api: reject throws out a staged batch and never touches the register", async () => {
+  const bankAccountId = "BA-ROUTE-0001"; // seeded by the approve test above, same client
+  const parseScope = {
+    clientId: createdClientId,
+    bankAccountId,
+    batchName: "reject route test feed",
+    institutionName: "First Bank",
+    sourceFormat: "csv",
+    fileText: "Date,Description,Amount\n02/01/2026,WRONG STATEMENT,-99.00\n",
+    grid: null,
+    sourceDocumentId: null,
+  };
+  const parsePath = `/api/firm/clients/${createdClientId}/runs/IMPORT-PARSE-FEED`;
+  const preview = await call(world, "POST", parsePath, { body: { mode: "preview", scope: parseScope } });
+  const applied = await call(world, "POST", parsePath, { body: { mode: "apply", scope: parseScope, previewRunId: preview.body.executionId } });
+  const batchId = applied.body.proposals.find((p: any) => p.table === "import_batches")?.rowId;
+  assert(typeof batchId === "string", "staged");
+
+  const rejected = await call(world, "POST", `/api/firm/clients/${createdClientId}/staged-batches/${batchId}/reject`, {
+    body: { reason: "this is the card statement, not the bank statement" },
+  });
+  assertEqual(rejected.status, 200, `reject status: ${JSON.stringify(rejected.body)}`);
+  assertEqual(rejected.body.done, true, "rejected");
+
+  const batches = await world.db.tx(readSession(DEV_ACTOR, DEV_FIRM_ID, createdClientId), (tx) =>
+    tx.query("import_batch_by_id", { firmId: DEV_FIRM_ID, clientId: createdClientId, batchId }),
+  );
+  assertEqual((batches[0] as any).status, "rejected", "rejected");
+  assertEqual((batches[0] as any).rejectReason, "this is the card statement, not the bank statement", "reason on record");
+
+  const stagedRows = await world.db.tx(readSession(DEV_ACTOR, DEV_FIRM_ID, createdClientId), (tx) =>
+    tx.query("staged_rows_by_batch", { firmId: DEV_FIRM_ID, clientId: createdClientId, batchId }),
+  );
+  assert(stagedRows.every((r: any) => r.committedTransactionId === null), "nothing from this batch ever committed");
+  assertEqual(rejected.body.applied.entriesCreated, 0, "nothing posted");
+});
+
+test("api: a client scoped actor cannot reach the staged statements routes at all", async () => {
+  const list = await call(world, "GET", `/api/firm/clients/${createdClientId}/staged-batches`, { token: "client" });
+  assert(list.status === 403 || list.status === 404, `list refused: ${list.status}`);
+  const approve = await call(world, "POST", `/api/firm/clients/${createdClientId}/staged-batches/anything/approve`, { token: "client", body: {} });
+  assert(approve.status === 403 || approve.status === 404, `approve refused: ${approve.status}`);
+  const reject = await call(world, "POST", `/api/firm/clients/${createdClientId}/staged-batches/anything/reject`, { token: "client", body: { reason: "x" } });
+  assert(reject.status === 403 || reject.status === 404, `reject refused: ${reject.status}`);
+  // Nor can a client reach IMPORT-PARSE-FEED or IMPORT-COMMIT-BATCH through
+  // the one generic run route either, the same firm scoped gate.
+  const parse = await call(world, "POST", `/api/firm/clients/${createdClientId}/runs/IMPORT-PARSE-FEED`, { token: "client", body: { mode: "preview", scope: {} } });
+  assert(parse.status === 403 || parse.status === 404, `parse refused: ${parse.status}`);
 });
 
 test("api: the world stops", async () => {

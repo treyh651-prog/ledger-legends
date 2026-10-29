@@ -70,15 +70,19 @@ export const PHYSICAL_TABLES: Partial<Record<TableName, string>> = {
   clients: "tenancy.clients",
   engagements: "tenancy.engagements",
   documents: "docvault.documents",
+  audit_events: "docvault.audit_events",
   signature_evidence: "docvault.signature_evidence",
+  signature_events: "docvault.signature_events",
   mapping_profiles: "import.mapping_profiles",
   mapping_profile_columns: "import.mapping_profile_columns",
+  mapping_profile_versions: "import.mapping_profile_versions",
   wizard_sessions: "intake.wizard_sessions",
   // Plural in SQL, singular in the row map, and the mismatch is why every read
   // of a sequence went to a table that does not exist.
   run_sequence: "ledger.run_sequences",
   import_batches: "import.batches",
   staged_rows: "import.staged_rows",
+  mapping_exceptions: "import.mapping_exceptions",
   recurring_templates: "subledger.recurring_templates",
   recurring_splits: "subledger.recurring_splits",
   vendors: "subledger.vendors",
@@ -156,7 +160,7 @@ const CENTS_FIELDS: Record<string, readonly string[]> = {
     "amountCeilingCents",
     "driverAmountCents",
   ],
-  fixed_assets: ["costCents", "salvageCents", "depreciableBaseCents"],
+  fixed_assets: ["costCents", "salvageCents", "depreciableBaseCents", "disposalProceedsCents"],
   depreciation_schedule: [
     "amountCents",
     "accumulatedAfterCents",
@@ -164,7 +168,7 @@ const CENTS_FIELDS: Record<string, readonly string[]> = {
   ],
   deferral_schedules: ["totalCents"],
   deferral_lines: ["amountCents", "remainingAfterCents"],
-  loans: ["originalPrincipalCents", "paymentCents"],
+  loans: ["originalPrincipalCents", "paymentCents", "balloonCents"],
   loan_schedule: [
     "paymentCents",
     "principalCents",
@@ -435,7 +439,11 @@ const DOCUMENT_COLUMNS = `id, firm_id as "firmId", client_id as "clientId",
             period_end::text as "periodEnd", status, byte_size::float8 as "byteSize",
             content_type as "contentType", sha256_hex as "sha256Hex",
             request_id as "requestId", uploaded_at::text as "uploadedAt",
-            created_at::text as "createdAt"`;
+            created_at::text as "createdAt",
+            linked_bank_account_id as "linkedBankAccountId",
+            linked_vendor_id as "linkedVendorId",
+            linked_asset_id as "linkedAssetId",
+            linked_loan_id as "linkedLoanId"`;
 
 const TXN_COLUMNS = `
   id, firm_id as "firmId", client_id as "clientId",
@@ -482,6 +490,44 @@ const TXN_COLUMNS = `
   manual_override as "manualOverride", manual_override_by as "manualOverrideBy",
   manual_override_at::text as "manualOverrideAt", version`;
 
+const CATEGORY_COLUMNS = `
+  id, firm_id as "firmId", client_id as "clientId", version,
+  name, account_number as "accountNumber",
+  normal_side as "normalSide", tax_treatment as "taxTreatment",
+  class_1099 as "class1099",
+  requires_receipt_over::text as "requiresReceiptOverCents",
+  requires_class as "requiresClass",
+  capitalize_over::text as "capitalizeOverCents",
+  restriction_relevant as "restrictionRelevant",
+  is_active as "isActive"`;
+
+const CATEGORY_VERSION_COLUMNS = `
+  category_id as "categoryId", version,
+  client_id as "clientId", firm_id as "firmId", snapshot,
+  valid_from::text as "validFrom", valid_to::text as "validTo",
+  changed_by as "changedBy", change_note as "changeNote"`;
+
+const RULE_COLUMNS = `
+  id, firm_id as "firmId", client_id as "clientId", version,
+  name, priority, condition_count as "conditionCount", conditions,
+  target_category_id as "targetCategoryId",
+  target_class_id as "targetClassId",
+  scope_kind as "scopeKind",
+  effective_from::text as "effectiveFrom",
+  effective_to::text as "effectiveTo", is_active as "isActive",
+  hit_count as "hitCount", last_hit_at::text as "lastHitAt",
+  accepted_count as "acceptedCount",
+  rejected_count as "rejectedCount",
+  auto_post_enabled as "autoPostEnabled",
+  auto_post_enabled_by as "autoPostEnabledBy",
+  auto_post_ceiling_cents::text as "autoPostCeilingCents"`;
+
+const RULE_VERSION_COLUMNS = `
+  rule_id as "ruleId", version,
+  client_id as "clientId", firm_id as "firmId", snapshot,
+  valid_from::text as "validFrom", valid_to::text as "validTo",
+  changed_by as "changedBy", change_note as "changeNote"`;
+
 const MAPPING_PROFILE_COLUMNS = `
   id, firm_id as "firmId", client_id as "clientId", version,
   institution_name as "institutionName", account_number as "accountNumber",
@@ -493,7 +539,14 @@ const MAPPING_PROFILE_COLUMNS = `
   sign_convention as "signConvention", currency,
   bank_id_column as "bankIdColumn",
   check_number_column as "checkNumberColumn",
-  bank_code_column as "bankCodeColumn", is_active as "isActive"`;
+  bank_code_column as "bankCodeColumn", is_active as "isActive",
+  created_by as "createdBy"`;
+
+const MAPPING_PROFILE_VERSION_COLUMNS = `
+  profile_id as "profileId", version,
+  client_id as "clientId", firm_id as "firmId", snapshot,
+  valid_from::text as "validFrom", valid_to::text as "validTo",
+  changed_by as "changedBy", change_note as "changeNote"`;
 
 const MAPPING_PROFILE_COLUMN_COLUMNS = `
   id, firm_id as "firmId", client_id as "clientId", version,
@@ -506,7 +559,8 @@ const MAPPING_PROFILE_COLUMN_COLUMNS = `
 const IMPORT_BATCH_COLUMNS = `
   id, firm_id as "firmId", client_id as "clientId", name,
   source_format as "sourceFormat", bank_account_id as "bankAccountId",
-  account_number as "accountNumber",
+  account_number as "accountNumber", source_document_id as "sourceDocumentId",
+  earliest_row_date::text as "earliestRowDate", latest_row_date::text as "latestRowDate",
   mapping_profile_id as "mappingProfileId",
   mapping_profile_version as "mappingProfileVersion", status,
   reject_reason as "rejectReason", row_count as "rowCount",
@@ -516,6 +570,15 @@ const IMPORT_BATCH_COLUMNS = `
   committed_at::text as "committedAt", reversed_run_id as "reversedRunId",
   reversed_at::text as "reversedAt", reversal_blocked as "reversalBlocked",
   created_at::text as "createdAt", created_by as "createdBy", version`;
+
+const MAPPING_EXCEPTION_COLUMNS = `
+  id, firm_id as "firmId", client_id as "clientId",
+  bank_account_id as "bankAccountId", source_document_id as "sourceDocumentId",
+  institution_name as "institutionName", source_format as "sourceFormat",
+  error_code as "errorCode", error_message as "errorMessage", status,
+  opened_at::text as "openedAt", opened_by_run_id as "openedByRunId",
+  resolved_at::text as "resolvedAt", resolved_by_run_id as "resolvedByRunId",
+  version`;
 
 const STAGED_ROW_COLUMNS = `
   id, batch_id as "batchId", firm_id as "firmId", client_id as "clientId",
@@ -528,7 +591,9 @@ const STAGED_ROW_COLUMNS = `
   check_number as "checkNumber", bank_code as "bankCode",
   dedup_state as "dedupState",
   duplicate_of_transaction_id as "duplicateOfTransactionId",
+  duplicate_of_staged_row_id as "duplicateOfStagedRowId",
   review_state as "reviewState",
+  reviewed_by as "reviewedBy", reviewed_at::text as "reviewedAt",
   committed_transaction_id as "committedTransactionId",
   committed_entry_id as "committedEntryId",
   committed_at::text as "committedAt",
@@ -558,7 +623,8 @@ const RUN_LOG_COLUMNS = `
   idempotency_key as "idempotencyKey", scope_hash as "scopeHash",
   actor_id as "actorId", actor_kind as "actorKind",
   trigger_source as "source",
-  sequence_id as "parentSequenceId", preview_run_id as "previewRunId",
+  sequence_id as "parentSequenceId", sequence_step as "sequenceStep",
+  preview_run_id as "previewRunId",
   original_run_id as "originalRunId", period_start::text as "periodStart",
   period_end::text as "periodEnd", candidate_count as "candidateCount",
   candidate_ids as "candidateIds", scope_input as "scopeInput",
@@ -600,7 +666,9 @@ const FIXED_ASSET_COLUMNS = `
   method, life_months as "lifeMonths", ddb_factor_bps as "ddbFactorBps",
   macrs_recovery_years as "macrsRecoveryYears", units_total as "unitsTotal",
   convention, half_month_convention as "halfMonthConvention", status,
-  disposed_on::text as "disposedOn", manual_override as "manualOverride",
+  disposed_on::text as "disposedOn", disposal_entry_id as "disposalEntryId",
+  disposal_proceeds_cents::text as "disposalProceedsCents",
+  manual_override as "manualOverride",
   version`;
 
 const DEPRECIATION_COLUMNS = `
@@ -646,7 +714,9 @@ const LOAN_COLUMNS = `
   origination_date::text as "originationDate",
   first_payment_date::text as "firstPaymentDate",
   term_months as "termMonths", annual_rate_bps as "annualRateBps",
-  payment_cents::text as "paymentCents", status,
+  payment_cents::text as "paymentCents",
+  balloon_cents::text as "balloonCents", rate_type as "rateType", status,
+  payoff_date::text as "payoffDate",
   manual_override as "manualOverride", version`;
 
 const LOAN_SCHEDULE_COLUMNS = `
@@ -1339,7 +1409,8 @@ export const QUERIES: Record<QueryName, SqlSpec> = {
     table: "bank_accounts",
     sql: `select id, firm_id as "firmId", client_id as "clientId",
             account_number as "accountNumber", nickname, kind,
-            is_processor_destination as "isProcessorDestination"
+            is_processor_destination as "isProcessorDestination",
+            institution_name as "institutionName"
           from ${SCHEMA}.bank_accounts
           where firm_id = $1 and client_id = $2
           order by id asc`,
@@ -1554,6 +1625,22 @@ export const QUERIES: Record<QueryName, SqlSpec> = {
           order by id asc`,
     params: (p) => [p.firmId, p.clientId],
   },
+  // CFG-EDIT-MAPPING-PROFILE. Unfiltered by is_active, same reason as rule_by_id.
+  mapping_profile_by_id: {
+    table: "mapping_profiles",
+    sql: `select ${MAPPING_PROFILE_COLUMNS}
+          from import.mapping_profiles
+          where firm_id = $1 and client_id = $2 and id = $3`,
+    params: (p) => [p.firmId, p.clientId, p.mappingProfileId],
+  },
+  mapping_profile_versions_for_profile: {
+    table: "mapping_profile_versions",
+    sql: `select ${MAPPING_PROFILE_VERSION_COLUMNS}
+          from import.mapping_profile_versions
+          where firm_id = $1 and client_id = $2 and profile_id = $3
+          order by version asc`,
+    params: (p) => [p.firmId, p.clientId, p.mappingProfileId],
+  },
   mapping_profile_columns_for_client: {
     table: "mapping_profile_columns",
     sql: `select ${MAPPING_PROFILE_COLUMN_COLUMNS}
@@ -1568,6 +1655,21 @@ export const QUERIES: Record<QueryName, SqlSpec> = {
           from import.batches
           where firm_id = $1 and client_id = $2 and id = $3`,
     params: (p) => [p.firmId, p.clientId, p.batchId],
+  },
+  import_batches_awaiting_review: {
+    table: "import_batches",
+    sql: `select ${IMPORT_BATCH_COLUMNS}
+          from import.batches
+          where firm_id = $1 and client_id = $2 and status in ('parsed', 'in_review')
+          order by created_at desc, id asc`,
+    params: (p) => [p.firmId, p.clientId],
+  },
+  mapping_exception_for_account: {
+    table: "mapping_exceptions",
+    sql: `select ${MAPPING_EXCEPTION_COLUMNS}
+          from import.mapping_exceptions
+          where firm_id = $1 and client_id = $2 and bank_account_id = $3`,
+    params: (p) => [p.firmId, p.clientId, p.bankAccountId],
   },
   staged_rows_by_batch: {
     table: "staged_rows",
@@ -1616,37 +1718,53 @@ export const QUERIES: Record<QueryName, SqlSpec> = {
   // the order by clauses so the run never sorts a second time.
   categories_for_client: {
     table: "categories",
-    sql: `select id, firm_id as "firmId", client_id as "clientId", version,
-            name, account_number as "accountNumber",
-            normal_side as "normalSide", tax_treatment as "taxTreatment",
-            class_1099 as "class1099",
-            requires_receipt_over::text as "requiresReceiptOverCents",
-            requires_class as "requiresClass",
-            capitalize_over::text as "capitalizeOverCents",
-            restriction_relevant as "restrictionRelevant",
-            is_active as "isActive"
+    sql: `select ${CATEGORY_COLUMNS}
           from ${SCHEMA}.categories
           where firm_id = $1 and client_id = $2
           order by id asc`,
     params: (p) => [p.firmId, p.clientId],
   },
+  // CFG-EDIT-CATEGORY. Unfiltered by is_active, unlike categories_for_client's
+  // callers, which only ever want the active set.
+  category_by_id: {
+    table: "categories",
+    sql: `select ${CATEGORY_COLUMNS}
+          from ${SCHEMA}.categories
+          where firm_id = $1 and client_id = $2 and id = $3`,
+    params: (p) => [p.firmId, p.clientId, p.categoryId],
+  },
+  category_versions_for_category: {
+    table: "category_versions",
+    sql: `select ${CATEGORY_VERSION_COLUMNS}
+          from ${SCHEMA}.category_versions
+          where firm_id = $1 and client_id = $2 and category_id = $3
+          order by version asc`,
+    params: (p) => [p.firmId, p.clientId, p.categoryId],
+  },
   active_rules_for_client: {
     table: "rules",
-    sql: `select id, firm_id as "firmId", client_id as "clientId", version,
-            name, priority, condition_count as "conditionCount", conditions,
-            target_category_id as "targetCategoryId",
-            scope_kind as "scopeKind",
-            effective_from::text as "effectiveFrom",
-            effective_to::text as "effectiveTo", is_active as "isActive",
-            accepted_count as "acceptedCount",
-            rejected_count as "rejectedCount",
-            auto_post_enabled as "autoPostEnabled",
-            auto_post_enabled_by as "autoPostEnabledBy",
-            auto_post_ceiling_cents::text as "autoPostCeilingCents"
+    sql: `select ${RULE_COLUMNS}
           from ${SCHEMA}.rules
           where firm_id = $1 and client_id = $2 and is_active
           order by priority desc, condition_count desc, id asc`,
     params: (p) => [p.firmId, p.clientId],
+  },
+  // CFG-EDIT-RULE. Unfiltered by is_active, so an inactive rule can still be
+  // read, edited, and (by editing is_active itself) reactivated.
+  rule_by_id: {
+    table: "rules",
+    sql: `select ${RULE_COLUMNS}
+          from ${SCHEMA}.rules
+          where firm_id = $1 and client_id = $2 and id = $3`,
+    params: (p) => [p.firmId, p.clientId, p.ruleId],
+  },
+  rule_versions_for_rule: {
+    table: "rule_versions",
+    sql: `select ${RULE_VERSION_COLUMNS}
+          from ${SCHEMA}.rule_versions
+          where firm_id = $1 and client_id = $2 and rule_id = $3
+          order by version asc`,
+    params: (p) => [p.firmId, p.clientId, p.ruleId],
   },
   recurring_templates_for_client: {
     table: "recurring_templates",
@@ -1821,9 +1939,11 @@ export const QUERIES: Record<QueryName, SqlSpec> = {
             signer_name as "signerName", signer_email as "signerEmail",
             signer_user_id as "signerUserId", signer_title as "signerTitle",
             signed_at::text as "signedAt", signer_ip::text as "signerIp",
-            user_agent as "userAgent", consent_given_at::text as "consentGivenAt",
+            user_agent as "userAgent", consent_event_id as "consentEventId",
+            consent_given_at::text as "consentGivenAt",
             consent_text as "consentText", signature_method as "signatureMethod",
-            status, created_at::text as "createdAt"
+            status, voided_at::text as "voidedAt", void_reason as "voidReason",
+            created_at::text as "createdAt"
           from docvault.signature_evidence
           where firm_id = $1 and client_id = $2 and engagement_id = $3
           order by signed_at desc, id asc`,
@@ -2097,7 +2217,9 @@ export const QUERIES: Record<QueryName, SqlSpec> = {
   chart_accounts_for_client: {
     table: "chart_accounts",
     sql: `select id, firm_id as "firmId", client_id as "clientId",
-            account_number as "accountNumber", name
+            account_number as "accountNumber", name,
+            statement_line as "statementLine", parent_number as "parentNumber",
+            is_control as "isControl"
           from ${SCHEMA}.chart_accounts
           where firm_id = $1 and client_id = $2
           order by account_number asc, id asc`,

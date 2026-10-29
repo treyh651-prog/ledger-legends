@@ -49,6 +49,8 @@ import {
 import { assert, assertEqual, runAll, show, test } from "./harness";
 // The import pipeline suite registers its own tests on the same queue.
 import "./import-pipeline";
+import "./import-flag-mapping-needed";
+import "./import-reject-batch";
 // The module 2 coding cascade suites, one file per run plus the pipeline test.
 import "./txn-normalize-vendors";
 import "./txn-detect-duplicates";
@@ -75,6 +77,7 @@ import "./per-split-loan";
 import "./per-post-accruals";
 import "./per-reverse-accruals";
 import "./per-post-depreciation";
+import "./per-dispose-asset";
 import "./per-pipeline";
 // The module 5 AR and AP suites, one file per run plus the pipeline test.
 // AR-CREATE-CUSTOMER and AR-CREATE-INVOICE first: they put the first
@@ -94,6 +97,8 @@ import "./ar-charge-latefees";
 import "./ap-apply-earlydiscount";
 import "./ar-writeoff-uncollectible";
 import "./arap-pipeline";
+
+import "./statement-taxonomy";
 
 import "./close-tieouts";
 import "./close-requests";
@@ -127,10 +132,14 @@ import "./offboard-build-export";
 
 // Module 1 intake and setup. Last in the file and first in the story: these are
 // the runs that create the client every suite above assumes already exists.
+import "./statement-taxonomy";
 import "./intake-build-chart";
 import "./intake-seed-tasks";
 import "./intake-activate-engagement";
 import "./eng-set-billing-status";
+import "./cfg-edit-category";
+import "./cfg-edit-rule";
+import "./cfg-edit-mapping-profile";
 import "./intake-open-requests";
 import "./setup-add-bank-account";
 import "./setup-import-balances";
@@ -872,7 +881,10 @@ test("a sequence logs each child run separately", async () => {
   seedSimplePair(db);
   const outcome = await executeSequence(
     db,
-    [step(txnPairTransfers, scopeFor(CLIENT_A1))],
+    // A second step of the same run. The pairing already happened in step
+    // one, so step two finds nothing and no_ops, but it still gets its own
+    // run_log row at its own sequence_step, which is what this test checks.
+    [step(txnPairTransfers, scopeFor(CLIENT_A1)), step(txnPairTransfers, scopeFor(CLIENT_A1))],
     {
       name: "month end prep",
       firmId: FIRM_A,
@@ -898,6 +910,15 @@ test("a sequence logs each child run separately", async () => {
     logRows.every((r) => r.parentSequenceId === outcome.sequenceId),
     "every child names its parent sequence",
   );
+
+  const stepOneRows = logRows.filter((r) => r.id === outcome.childRunIds[0]);
+  assertEqual(stepOneRows[0]?.sequenceStep, 1, "the first step is step one");
+  const stepTwoId = outcome.childRunIds.find(
+    (id) => !logRows.some((r) => r.id === id && r.sequenceStep === 1),
+  );
+  assert(stepTwoId !== undefined, "a second step exists");
+  const stepTwoRow = logRows.find((r) => r.id === stepTwoId);
+  assertEqual(stepTwoRow?.sequenceStep, 2, "the second step is step two, not a repeat of step one");
 });
 
 test("the advisory lock is released when the transaction ends", async () => {
@@ -1017,6 +1038,7 @@ test("the sweeper marks an orphaned started row abandoned", async () => {
       actorKind: "run",
       source: "button",
       parentSequenceId: null,
+      sequenceStep: null,
       previewRunId: null,
       originalRunId: null,
       periodStart: "2026-01-01",

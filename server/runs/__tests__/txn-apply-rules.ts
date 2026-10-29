@@ -13,7 +13,7 @@
  */
 
 import { isFieldWrite, isSuspenseRouting } from "../contract";
-import type { TransactionRow } from "../tables";
+import type { RuleRow, TransactionRow } from "../tables";
 import {
   autoPostAllowed,
   conditionMatches,
@@ -74,7 +74,11 @@ test("apply rules, happy path applies the winner and records the provenance", as
 
   const { applied } = await applyCoding(db, txnApplyRules, scopeFor(CLIENT_A1));
   assertEqual(applied.status, "completed", `status ${show(applied.status)}`);
-  assertEqual(applied.result.proposals.filter(isFieldWrite).length, 1, "one write");
+  assertEqual(
+    applied.result.proposals.filter(isFieldWrite).length,
+    2,
+    "the coding write and the winning rule's hit count",
+  );
 
   const row = (db.all("transactions") as TransactionRow[])[0];
   assertEqual(
@@ -93,6 +97,48 @@ test("apply rules, happy path applies the winner and records the provenance", as
     "and nothing auto posted, because the rule was never promoted",
   );
   assertEqual(db.all("journal_entries").length, 0, "the rule step writes no entry");
+
+  const winner = (db.all("rules") as RuleRow[]).find((r) => r.id === "RULE-TIGHT");
+  assertEqual(winner?.hitCount, 1, "the winning rule's hit count moved");
+  assert(winner?.lastHitAt !== null, "and last_hit_at is stamped");
+  const loser = (db.all("rules") as RuleRow[]).find((r) => r.id === "RULE-BROAD");
+  assertEqual(loser?.hitCount, 0, "the rule that lost the tie break is untouched");
+});
+
+test("apply rules, target_class_id rides along with the category, and one rule winning several rows accumulates", async () => {
+  const db = codingDb();
+  db.seed("categories", standardCategories());
+  db.seed("client_policies", [clientPolicy()]);
+  db.seed("rules", [
+    rule("RULE-GITHUB", { targetClassId: "CLS-ENG" }),
+  ]);
+  db.seed("transactions", [
+    txn("TX-1", FIRM_A, CLIENT_A1, "BA-A1-OP", "2026-01-09", BigInt(-2500), {
+      normalizedVendor: "GITHUB",
+    }),
+    txn("TX-2", FIRM_A, CLIENT_A1, "BA-A1-OP", "2026-01-10", BigInt(-3000), {
+      normalizedVendor: "GITHUB",
+    }),
+    txn("TX-3", FIRM_A, CLIENT_A1, "BA-A1-OP", "2026-01-11", BigInt(-4500), {
+      normalizedVendor: "GITHUB",
+    }),
+  ]);
+
+  const { applied } = await applyCoding(db, txnApplyRules, scopeFor(CLIENT_A1));
+  assertEqual(applied.status, "completed", `status ${show(applied.status)}`);
+
+  const rows = db.all("transactions") as TransactionRow[];
+  assert(
+    rows.every((t) => t.classId === "CLS-ENG"),
+    "the rule's target class rides along on every row it coded",
+  );
+
+  const matched = (db.all("rules") as RuleRow[]).find((r) => r.id === "RULE-GITHUB");
+  assertEqual(
+    matched?.hitCount,
+    3,
+    "three wins in one run accumulate rather than each overwriting the last",
+  );
 });
 
 test("apply rules, the six condition types are exact and conjunctive", () => {
@@ -242,7 +288,7 @@ test("apply rules, ordering, a paired transfer is never recoded by a rule", asyn
   const outOfOrder = seed();
   const early = await previewCoding(outOfOrder, txnApplyRules, scopeFor(CLIENT_A1));
   const strayWrites = early.result.proposals.filter(isFieldWrite);
-  assertEqual(strayWrites.length, 1, "the outbound leg gets coded");
+  assertEqual(strayWrites.length, 2, "the outbound leg gets coded, and the rule's hit count moves");
   assertEqual(
     strayWrites[0].rowId,
     "TX-OUT",

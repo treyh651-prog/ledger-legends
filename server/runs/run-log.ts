@@ -51,6 +51,7 @@ export interface IntentRowArgs<S> {
   actorKind: string;
   source: string;
   parentSequenceId: string | null;
+  sequenceStep: number | null;
   previewRunId: string | null;
   originalRunId: string | null;
   startedAt: Date;
@@ -77,6 +78,7 @@ export function buildIntentRow<S>(args: IntentRowArgs<S>): RunLogRow {
     actorKind: args.actorKind,
     source: args.source,
     parentSequenceId: args.parentSequenceId,
+    sequenceStep: args.sequenceStep,
     previewRunId: args.previewRunId,
     originalRunId: args.originalRunId,
     periodStart: args.frozen.periodStart,
@@ -188,6 +190,7 @@ export async function writeRunLog<S, P>(
       ruleVersion: provenance?.ruleVersion ?? null,
       templateId: provenance?.templateId ?? null,
       templateVersion: provenance?.templateVersion ?? null,
+      scheduleLineId: provenance?.scheduleLineId ?? null,
       suspenseReasonCode: isSuspenseRouting(p) ? p.reasonCode : null,
       journalEntryId: args.entryIdByProposalIndex?.[index] ?? null,
       beforeJson: isFieldWrite(p) ? toJsonValue(p.before) : null,
@@ -217,6 +220,7 @@ export async function writeRunLog<S, P>(
       ruleVersion: null,
       templateId: null,
       templateVersion: null,
+      scheduleLineId: null,
       suspenseReasonCode: null,
       journalEntryId: null,
       beforeJson: null,
@@ -242,6 +246,7 @@ export async function writeRunLog<S, P>(
       ruleVersion: null,
       templateId: null,
       templateVersion: null,
+      scheduleLineId: null,
       suspenseReasonCode: null,
       journalEntryId: null,
       beforeJson: null,

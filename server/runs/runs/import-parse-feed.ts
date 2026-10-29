@@ -689,7 +689,10 @@ export const importParseFeed: Run<ParseFeedScope, Proposal> = {
 
     const proposals: Proposal[] = [];
     const stagedRows: StagedRowRow[] = [];
-    const seenInFile = new Set<string>();
+    // Maps the bank supplied id to the staged row id that first claimed it, so
+    // a later repeat in the same file can point staged_duplicate_has_target at
+    // a sibling staged row rather than leave both FKs null.
+    const seenInFile = new Map<string, Ulid>();
     let accepted = 0;
     let rejected = 0;
     let held = 0;
@@ -698,9 +701,11 @@ export const importParseFeed: Run<ParseFeedScope, Proposal> = {
     for (const row of parsed) {
       const normalized =
         row.description === null ? null : normalizeDescriptor(row.description);
+      const stagedId = derivedId(batchId, "staged_row", row.rowNumber);
       let dedupState: StagedRowRow["dedupState"] = "unique";
       let reviewState: StagedRowRow["reviewState"] = "none";
       let duplicateOf: Ulid | null = null;
+      let duplicateOfStagedRow: Ulid | null = null;
       let errorCode = row.errorCode;
       let errorMessage = row.errorMessage;
 
@@ -719,9 +724,10 @@ export const importParseFeed: Run<ParseFeedScope, Proposal> = {
           dedupState = "rejected_duplicate";
           errorCode = "ROW_REPEATED_IN_FILE";
           errorMessage = `bank supplied id ${row.bankTransactionId} appears twice in the same file`;
+          duplicateOfStagedRow = seenInFile.get(row.bankTransactionId) ?? null;
           rejected += 1;
         } else {
-          seenInFile.add(row.bankTransactionId);
+          seenInFile.set(row.bankTransactionId, stagedId);
           accepted += 1;
         }
       } else {
@@ -748,7 +754,6 @@ export const importParseFeed: Run<ParseFeedScope, Proposal> = {
         net += row.amountCents ?? BigInt(0);
       }
 
-      const stagedId = derivedId(batchId, "staged_row", row.rowNumber);
       const staged: StagedRowRow = {
         id: stagedId,
         batchId,
@@ -768,7 +773,10 @@ export const importParseFeed: Run<ParseFeedScope, Proposal> = {
         bankCode: row.bankCode,
         dedupState,
         duplicateOfTransactionId: duplicateOf,
+        duplicateOfStagedRowId: duplicateOfStagedRow,
         reviewState,
+        reviewedBy: null,
+        reviewedAt: null,
         committedTransactionId: null,
         committedEntryId: null,
         committedAt: null,
@@ -787,6 +795,9 @@ export const importParseFeed: Run<ParseFeedScope, Proposal> = {
       sourceFormat: scope.sourceFormat,
       bankAccountId: account.id,
       accountNumber: account.accountNumber,
+      sourceDocumentId: scope.sourceDocumentId,
+      earliestRowDate: earliest,
+      latestRowDate: latest,
       mappingProfileId: profile ? profile.id : null,
       mappingProfileVersion: profile ? profile.version : null,
       // Held rows put the batch in review. Everything else is parsed and ready.

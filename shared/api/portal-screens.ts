@@ -83,6 +83,35 @@ export const portalDocumentSchema = z.object({
 });
 export type PortalDocument = z.infer<typeof portalDocumentSchema>;
 
+/** A bank or card account a statement upload can be pointed at. */
+export const uploadBankAccountSchema = z.object({
+  id: idSchema,
+  nickname: z.string(),
+  accountNumber: z.string(),
+});
+export type UploadBankAccount = z.infer<typeof uploadBankAccountSchema>;
+
+/** A vendor a bill upload can be pointed at. */
+export const uploadVendorSchema = z.object({
+  id: idSchema,
+  legalName: z.string(),
+});
+export type UploadVendor = z.infer<typeof uploadVendorSchema>;
+
+/** A fixed asset a receipt upload can be pointed at. */
+export const uploadAssetSchema = z.object({
+  id: idSchema,
+  description: z.string(),
+});
+export type UploadAsset = z.infer<typeof uploadAssetSchema>;
+
+/** A loan a loan agreement upload can be pointed at. */
+export const uploadLoanSchema = z.object({
+  id: idSchema,
+  lenderName: z.string(),
+});
+export type UploadLoan = z.infer<typeof uploadLoanSchema>;
+
 export const portalDocumentsSchema = z.object({
   items: z.array(portalDocumentSchema),
   /** Open document requests, so the screen can say what the firm is waiting on. */
@@ -93,13 +122,35 @@ export const portalDocumentsSchema = z.object({
   storageProvider: z.enum(["supabase", "memory"]).nullable(),
   /** The server's ceiling, so the screen can refuse early with the same number. */
   uploadMaxBytes: z.number().int().positive(),
+  /** For the "which account is this statement for" picker on a bank or card statement. */
+  bankAccounts: z.array(uploadBankAccountSchema),
+  /** For the "which vendor is this bill from" picker on a bill from a vendor. */
+  vendors: z.array(uploadVendorSchema),
+  /** For the "which asset is this the receipt for" picker on a receipt. */
+  fixedAssets: z.array(uploadAssetSchema),
+  /** For the "which loan is this the agreement for" picker on a loan agreement. */
+  loans: z.array(uploadLoanSchema),
 });
 export type PortalDocuments = z.infer<typeof portalDocumentsSchema>;
+
+/**
+ * What happened to a bank or card statement CSV after it finalized. "staged"
+ * and "needs_mapping" both come from a real IMPORT-PARSE-FEED attempt;
+ * "not_supported" means the file was xlsx, which this route does not try to
+ * read automatically.
+ */
+export const importOutcomeSchema = z.object({
+  status: z.enum(["staged", "needs_mapping", "not_supported", "failed"]),
+  detail: z.string().nullable(),
+});
+export type ImportOutcome = z.infer<typeof importOutcomeSchema>;
 
 /** POST /api/portal/:clientId/documents answers the stored row plus the run outcome. */
 export const uploadDocumentResultSchema = z.object({
   document: portalDocumentSchema,
   done: z.literal(true),
+  /** Null unless the document was a bank or card statement CSV with an account named. */
+  importOutcome: importOutcomeSchema.nullable(),
 });
 export type UploadDocumentResult = z.infer<typeof uploadDocumentResultSchema>;
 
@@ -119,7 +170,7 @@ export const signatureRecordSchema = z.object({
   signerTitle: z.string().nullable(),
   signedAt: z.string(),
   signatureMethod: z.enum(["click_to_sign", "typed_name", "drawn"]),
-  status: z.enum(["signed", "voided"]),
+  status: z.enum(["pending", "signed", "declined", "voided"]),
   documentSha256Hex: z.string(),
 });
 export type SignatureRecord = z.infer<typeof signatureRecordSchema>;

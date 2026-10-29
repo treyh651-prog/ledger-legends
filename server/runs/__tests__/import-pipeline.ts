@@ -41,6 +41,11 @@ import {
   registerIdFor,
   type CommitBatchScope,
 } from "../runs/import-commit-batch";
+import {
+  importReviewStagedRow,
+  REVIEW_ERROR_CODES,
+  type ReviewStagedRowScope,
+} from "../runs/import-review-staged-row";
 import type { ImportBatchRow, StagedRowRow, TransactionRow } from "../tables";
 import {
   baseDb,
@@ -76,6 +81,16 @@ const OFX_FEED = `
 <FITID>FB-0002<NAME>ACME SUPPLY CO<MEMO>INVOICE 4471</STMTTRN>
 <STMTTRN><TRNTYPE>CREDIT<DTPOSTED>20260114<TRNAMT>3000.00
 <FITID>FB-0003<NAME>CLIENT DEPOSIT</STMTTRN>
+</BANKTRANLIST></STMTRS></STMTTRNRS></BANKMSGSRSV1></OFX>
+`;
+
+// Same FITID twice in one file, no earlier register row involved.
+const REPEATED_FITID_OFX_FEED = `
+<OFX><BANKMSGSRSV1><STMTTRNRS><STMTRS><BANKTRANLIST>
+<STMTTRN><TRNTYPE>DEBIT<DTPOSTED>20260112120000<TRNAMT>-14.75
+<FITID>FB-0001<NAME>COFFEE HOUSE #22</STMTTRN>
+<STMTTRN><TRNTYPE>DEBIT<DTPOSTED>20260112120000<TRNAMT>-14.75
+<FITID>FB-0001<NAME>COFFEE HOUSE #22</STMTTRN>
 </BANKTRANLIST></STMTRS></STMTTRNRS></BANKMSGSRSV1></OFX>
 `;
 
@@ -141,6 +156,33 @@ async function commitAndApply(
 ) {
   const preview = await runCommit(db, "preview", scope, extra);
   const applied = await runCommit(db, "apply", scope, {
+    ...extra,
+    previewRunId: preview.executionId,
+  });
+  return { preview, applied };
+}
+
+function runReview(
+  db: MemoryRunDb,
+  mode: "preview" | "apply",
+  scope: ReviewStagedRowScope,
+  extra: Parameters<typeof opts>[1] = {},
+) {
+  return execute<ReviewStagedRowScope, Proposal>(
+    db,
+    importReviewStagedRow,
+    scope,
+    opts(mode, extra),
+  );
+}
+
+async function reviewAndApply(
+  db: MemoryRunDb,
+  scope: ReviewStagedRowScope,
+  extra: Parameters<typeof opts>[1] = {},
+) {
+  const preview = await runReview(db, "preview", scope, extra);
+  const applied = await runReview(db, "apply", scope, {
     ...extra,
     previewRunId: preview.executionId,
   });
@@ -222,6 +264,8 @@ test("import parse feed refuses a shifted header instead of guessing", async () 
   assertEqual(stagedOf(db).length, 3, "three rows were staged");
   assertEqual(batchOf(db).status, "parsed", "the batch is parsed and ready");
   assertEqual(batchOf(db).netCents, BigInt(173525), "net of the three rows");
+  assertEqual(batchOf(db).earliestRowDate, "2026-01-12", "the batch's own earliest row date, no join needed");
+  assertEqual(batchOf(db).latestRowDate, "2026-01-14", "and its latest");
   assertEqual(db.all("journal_entries").length, 0, "parsing posted nothing");
 });
 
@@ -362,6 +406,46 @@ test("import dedup rejects a repeated bank supplied id outright", async () => {
   );
 });
 
+// Rule 2, the within file case. A bank supplied id appearing twice in the
+// same upload has no register row to point at, so the rejection has to name
+// the sibling staged row instead. staged_duplicate_has_target requires one of
+// the two FKs to be non-null whenever dedup_state is rejected_duplicate, and
+// this path was the one case where neither was ever written.
+test("import dedup rejects a bank supplied id repeated within the same file", async () => {
+  const db = baseDb();
+  seedCsvProfile(db, CSV_HEADER);
+
+  await parseAndApply(
+    db,
+    parseScope({ sourceFormat: "ofx", fileText: REPEATED_FITID_OFX_FEED }),
+  );
+
+  const staged = stagedOf(db);
+  assertEqual(staged.length, 2, "both rows were staged for the audit trail");
+  assertEqual(
+    staged[1].dedupState,
+    "rejected_duplicate",
+    "the within file repeat was rejected at parse time",
+  );
+  assertEqual(
+    staged[1].errorCode,
+    "ROW_REPEATED_IN_FILE",
+    "the error names the within file repeat",
+  );
+  assertEqual(
+    staged[1].duplicateOfTransactionId,
+    null,
+    "there is no register row to point at",
+  );
+  assertEqual(
+    staged[1].duplicateOfStagedRowId,
+    staged[0].id,
+    "the rejection points at the sibling staged row instead, satisfying staged_duplicate_has_target",
+  );
+  assertEqual(batchOf(db).rejectedCount, 1, "the batch counted one rejection");
+  assertEqual(batchOf(db).acceptedCount, 1, "and one acceptable row");
+});
+
 // Rule 3. No bank supplied id means hold for review, not commit.
 test("a probable repeat with no bank id is held for review, not committed", async () => {
   const db = baseDb();
@@ -409,34 +493,127 @@ test("a probable repeat with no bank id is held for review, not committed", asyn
   );
   assertEqual(after[0].dedupState, "committed", "the clean rows committed");
 
-  // A reviewer accepts it. Now the same batch commits the one row it held.
-  db.seed("mapping_profiles", []);
-  await db.tx(
-    {
-      isolation: "serializable",
-      readOnly: false,
-      firmId: FIRM_A,
-      clientId: CLIENT_A1,
-      actorId: "USR-OPERATOR",
-      actorKind: "human",
-    },
-    async (tx) => {
-      await tx.update("staged_rows", after[1].id, { reviewState: "accepted" });
-      await tx.update("import_batches", batchOf(db).id, { status: "in_review" });
-    },
+  // A reviewer accepts it, through IMPORT-REVIEW-STAGED-ROW rather than a raw
+  // write, so the same field write that unblocks the commit also stamps who
+  // decided and when.
+  const reviewed = await reviewAndApply(db, {
+    clientId: CLIENT_A1,
+    batchId: batchOf(db).id,
+    stagedRowId: after[1].id,
+    decision: "accept",
+  });
+  assertEqual(reviewed.applied.status, "completed", "the review applied");
+  const reviewedRow = stagedOf(db)[1];
+  assertEqual(reviewedRow.reviewState, "accepted", "accepted");
+  assertEqual(
+    reviewedRow.dedupState,
+    "confirmed_repeat",
+    "moved off held_for_review so the commit's own dedup check reads it as settled",
   );
+  assert(reviewedRow.reviewedBy !== null, "reviewedBy is stamped");
+  assert(reviewedRow.reviewedAt !== null, "reviewedAt is stamped");
+
   const second = await commitAndApply(db, {
     clientId: CLIENT_A1,
     batchId: batchOf(db).id,
   });
+  const registerAfterReview = db.all("transactions") as TransactionRow[];
   assertEqual(
-    (db.all("transactions") as TransactionRow[]).length,
+    registerAfterReview.length,
     4,
     "the accepted repeat committed on the second pass",
   );
   assert(
     second.applied.result.skips.some((s) => s.reason === "already_applied"),
     "the rows committed on the first pass were skipped as already applied",
+  );
+  const postedRepeat = registerAfterReview.find((r) => r.id === registerIdFor(batchOf(db).id, 2));
+  assert(postedRepeat !== undefined, "the previously held row is now in the register");
+  assertEqual(
+    postedRepeat?.legitimateRepeat,
+    true,
+    "confirmed_repeat carried through to the posted transaction",
+  );
+  assertEqual(
+    postedRepeat?.duplicateFlag,
+    true,
+    "and the duplicate flag, so a later duplicate scan does not flag it again",
+  );
+});
+
+// IMPORT-REVIEW-STAGED-ROW on its own: acceptance, rejection, and the states
+// that refuse to be reviewed twice.
+test("import review staged row accepts, rejects, and refuses to relitigate a decision", async () => {
+  const db = baseDb();
+  db.seed("transactions", [
+    txn("TX-POSTED", FIRM_A, CLIENT_A1, "BA-A1-OP", "2026-01-13", BigInt(-125000), {
+      accountNumber: "1010",
+      description: "ACME SUPPLY CO",
+      normalizedVendor: normalizeDescriptor("ACME SUPPLY CO"),
+    }),
+  ]);
+  seedCsvProfile(db, CSV_HEADER);
+  await parseAndApply(db, parseScope());
+  const held = stagedOf(db)[1];
+  const batchId = batchOf(db).id;
+
+  // Unknown row and unknown batch are both refused by name.
+  const unknownRow = await runReview(db, "preview", {
+    clientId: CLIENT_A1,
+    batchId,
+    stagedRowId: "SR-GHOST",
+    decision: "accept",
+  });
+  assertEqual(unknownRow.status, "refused", "refused");
+  assert(
+    unknownRow.result.errors.some((e) => e.code === REVIEW_ERROR_CODES.unknownRow),
+    "named unknownRow",
+  );
+  const unknownBatch = await runReview(db, "preview", {
+    clientId: CLIENT_A1,
+    batchId: "BATCH-GHOST",
+    stagedRowId: held.id,
+    decision: "accept",
+  });
+  assertEqual(unknownBatch.status, "refused", "refused");
+  assert(
+    unknownBatch.result.errors.some((e) => e.code === REVIEW_ERROR_CODES.unknownBatch),
+    "named unknownBatch",
+  );
+
+  // Reject: review_state moves to rejected, dedup_state stays held_for_review
+  // so IMPORT-COMMIT-BATCH's reviewer-decision message, not its parse time
+  // duplicate message, is the one that explains the skip.
+  const rejected = await reviewAndApply(db, {
+    clientId: CLIENT_A1,
+    batchId,
+    stagedRowId: held.id,
+    decision: "reject",
+  });
+  assertEqual(rejected.applied.status, "completed", "applied");
+  const afterReject = stagedOf(db)[1];
+  assertEqual(afterReject.reviewState, "rejected", "rejected");
+  assertEqual(afterReject.dedupState, "held_for_review", "dedup_state untouched");
+  assert(afterReject.reviewedBy !== null, "reviewedBy stamped on a rejection too");
+
+  const committed = await commitAndApply(db, { clientId: CLIENT_A1, batchId });
+  assert(
+    committed.applied.result.skips.some(
+      (s) => s.rowId === held.id && s.detail === "a reviewer rejected this row",
+    ),
+    "the commit names the reviewer's rejection, not a parse time duplicate",
+  );
+
+  // A decided row is not reviewed again.
+  const again = await runReview(db, "preview", {
+    clientId: CLIENT_A1,
+    batchId,
+    stagedRowId: held.id,
+    decision: "accept",
+  });
+  assert(
+    again.result.skips.some((s) => s.reason === "already_applied"),
+    "a row already decided is skipped, not rewritten",
   );
 });
 

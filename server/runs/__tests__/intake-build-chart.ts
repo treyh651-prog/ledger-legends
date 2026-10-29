@@ -27,6 +27,8 @@ import {
 } from "./intake-fixtures";
 import { accountIdOf, intakeBuildChart, planFor } from "../runs/intake-build-chart";
 import { MANDATORY_CLEARING_ACCOUNTS, contraFor } from "../runs/intake-shared";
+import { ARAP_DEFAULTS } from "../runs/arap-shared";
+import { statementLineOf } from "../runs/statement-taxonomy";
 
 test("build chart, preview and apply propose the identical set", async () => {
   const db = intakeDb();
@@ -211,6 +213,32 @@ test("build chart, every one of the five wizard industries resolves to a templat
     assert(plan.accounts.length > 30, `${industry} produces a real chart`);
     assert(plan.templateId.startsWith("TPL-"), `${industry} maps onto a published template`);
   }
+});
+
+test("build chart, every inserted account carries its derived statement line", async () => {
+  const db = intakeDb();
+  await applyIntake(db, intakeBuildChart, chartScope());
+  const accounts = accountsOf(db);
+  assert(accounts.length > 0, "there is a chart to check");
+  for (const a of accounts) {
+    assertEqual(
+      a.statementLine,
+      statementLineOf(a.accountNumber),
+      `${a.accountNumber} carries the label its block derives, never a template value`,
+    );
+  }
+});
+
+test("build chart, only the AR and AP control accounts are flagged is_control", async () => {
+  const db = intakeDb();
+  await applyIntake(db, intakeBuildChart, chartScope());
+  const accounts = accountsOf(db);
+  const flagged = accounts.filter((a) => a.isControl).map((a) => a.accountNumber).sort();
+  assertEqual(
+    flagged,
+    [ARAP_DEFAULTS.accounts.apControl, ARAP_DEFAULTS.accounts.arControl].sort(),
+    "exactly the two canonical control accounts are flagged, nothing else",
+  );
 });
 
 test("build chart, one client's chart does not leak into another", async () => {

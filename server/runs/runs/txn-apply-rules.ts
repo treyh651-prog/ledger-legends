@@ -238,6 +238,11 @@ export const txnApplyRules: Run<CodingScope, Proposal> = {
     const documented = new Set<Ulid>(documents.map((d) => d.transactionId));
 
     let ordinal = 0;
+    // Running, not the stored value: a rule that wins more than one
+    // transaction in this same run would otherwise have every one of its
+    // hit_count field writes computed from the same stale before value and
+    // overwrite each other down to a single increment instead of several.
+    const hitTally = new Map<string, number>();
     for (const t of candidates.slice().sort(iterationOrder)) {
       if (isLockedDay(locks, t.postedDate)) {
         skips.push({
@@ -368,6 +373,7 @@ export const txnApplyRules: Run<CodingScope, Proposal> = {
         ruleId: rule.id,
         ruleVersion: rule.version,
         matchedConditions: rule.conditions,
+        classId: rule.targetClassId,
       });
       if (posts) {
         // Part D. The flag is written only when all five conditions held, which is
@@ -377,6 +383,20 @@ export const txnApplyRules: Run<CodingScope, Proposal> = {
         write.before.autoPostedUnderRulePromotion = t.autoPostedUnderRulePromotion;
       }
       proposals.push(write);
+
+      // hit_count and last_hit_at have carried the tally since migration 0004
+      // and nothing ever wrote them. The winner of the tie break is the rule
+      // that actually coded this transaction, which is what "a hit" means.
+      const priorHits = hitTally.get(rule.id) ?? rule.hitCount;
+      hitTally.set(rule.id, priorHits + 1);
+      proposals.push({
+        kind: "field_write",
+        table: "rules",
+        rowId: rule.id,
+        before: { hitCount: priorHits, lastHitAt: rule.lastHitAt },
+        after: { hitCount: priorHits + 1, lastHitAt: NOW_PLACEHOLDER },
+        provenance: { cascadeLevel: LEVEL.rule },
+      });
 
       for (const ex of outcome.exceptions) {
         ordinal += 1;

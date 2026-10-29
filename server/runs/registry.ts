@@ -2,10 +2,12 @@
  * The run registry. One entry per implemented run type.
  *
  * The 49 run types doc 02 and doc 05 name are the original target, and all 49
- * are implemented. Nine more sit beside them: SETUP-ADD-BANK-ACCOUNT,
+ * are implemented. Thirteen more sit beside them: SETUP-ADD-BANK-ACCOUNT,
  * AR-CREATE-CUSTOMER, AR-CREATE-INVOICE, REC-IMPORT-STATEMENT,
  * AP-CREATE-VENDOR, AP-CREATE-BILL, AR-RECORD-PAYMENT, AR-CREATE-CREDITMEMO,
- * and TXN-POST-CODED, none of which the original modules ever specified,
+ * TXN-POST-CODED, IMPORT-FLAG-MAPPING-NEEDED, IMPORT-REJECT-BATCH,
+ * PER-DISPOSE-ASSET, and IMPORT-REVIEW-STAGED-ROW, none of which the
+ * original modules ever specified,
  * because module 1 setup, module 5, and module 3 were all written assuming a
  * bank account, a customer, an invoice, a bank statement's lines, a vendor, a
  * bill, a received payment, or a credit memo already existed on the books by
@@ -15,7 +17,26 @@
  * 2 never had a missing row, it had a missing posting -- migration 0011 says
  * a register row becomes accounting when its journal_entry_id is filled in,
  * and nothing in the documented nine coding runs ever filled it in for a row
- * resolved only by a rule, a vendor default, or a bank code.
+ * resolved only by a rule, a vendor default, or a bank code. IMPORT-FLAG-MAPPING-NEEDED
+ * is the tenth and a different shape of gap again: IMPORT-PARSE-FEED already
+ * refused a file with no mapping profile or a header that did not match one,
+ * correctly, but nothing ever wrote that refusal down anywhere a bookkeeper
+ * would see it. This run is what the upload route calls when that happens.
+ * IMPORT-REJECT-BATCH is the eleventh: import.batches has carried a rejected
+ * status and a reason column since migration 0009, and nothing ever wrote
+ * either, so a bookkeeper who decided a staged statement was the wrong
+ * account had no way to take it off the list. PER-DISPOSE-ASSET is the
+ * twelfth: subledger.fixed_assets has carried disposed_on, disposal_entry_id,
+ * and disposal_proceeds_cents, plus a check constraint requiring the first
+ * two whenever status is disposed, since the asset table was built, and
+ * PER-POST-DEPRECIATION has always read disposed_on to stop depreciating an
+ * asset once it leaves. Nothing ever wrote any of the three, so an asset sold
+ * or scrapped had no way to leave the books at all. IMPORT-REVIEW-STAGED-ROW
+ * is the thirteenth: import.staged_rows has carried review_state, reviewed_by,
+ * and reviewed_at since migration 0009, and IMPORT-COMMIT-BATCH has always
+ * refused to commit a row held for review until review_state reaches
+ * accepted. Nothing ever moved it past pending, so a bank feed with no
+ * transaction ids held every genuine repeat charge forever.
  *
  * SETUP-ADD-BANK-ACCOUNT comes first for the same reason: IMPORT-PARSE-FEED's
  * own scope requires an existing bankAccountId, and without this run nothing
@@ -98,6 +119,13 @@ import { txnPairTransfers } from "./runs/txn-pair-transfers";
 import { txnSplitSettlements } from "./runs/txn-split-settlements";
 import { txnSweepSuspense } from "./runs/txn-sweep-suspense";
 import { txnPostCoded } from "./runs/txn-post-coded";
+import { importFlagMappingNeeded } from "./runs/import-flag-mapping-needed";
+import { importRejectBatch } from "./runs/import-reject-batch";
+import { importReviewStagedRow } from "./runs/import-review-staged-row";
+import { perDisposeAsset } from "./runs/per-dispose-asset";
+import { cfgEditCategory } from "./runs/cfg-edit-category";
+import { cfgEditRule } from "./runs/cfg-edit-rule";
+import { cfgEditMappingProfile } from "./runs/cfg-edit-mapping-profile";
 
 /** Scope types differ per run, so the registry stores erased entries. */
 export interface RegistryEntry {
@@ -138,6 +166,9 @@ export const registry: readonly RegistryEntry[] = [
   entry(setupImportBalances),
   entry(importParseFeed),
   entry(importCommitBatch),
+  entry(importFlagMappingNeeded),
+  entry(importRejectBatch),
+  entry(importReviewStagedRow),
   entry(txnNormalizeVendors),
   entry(txnDetectDuplicates),
   entry(txnPairTransfers),
@@ -166,6 +197,7 @@ export const registry: readonly RegistryEntry[] = [
   entry(perSplitLoan),
   entry(perPostAccruals),
   entry(perPostDepreciation),
+  entry(perDisposeAsset),
   // Module 5 AR and AP. AR-CREATE-CUSTOMER and AR-CREATE-INVOICE first: they
   // are what put a customer and a bill on the books, the precondition every
   // run below assumes. AP-CREATE-VENDOR and AP-CREATE-BILL do the identical
@@ -213,6 +245,11 @@ export const registry: readonly RegistryEntry[] = [
   // sends anything anywhere.
   entry(cpaBuildHandoff),
   entry(offboardBuildExport),
+  // Reference data edits, manual tier, triggered from a settings screen
+  // rather than any pipeline. Not part of any module.
+  entry(cfgEditCategory),
+  entry(cfgEditRule),
+  entry(cfgEditMappingProfile),
 ];
 
 /**

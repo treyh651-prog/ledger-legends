@@ -79,6 +79,7 @@ export function closeDb(): MemoryRunDb {
       nickname: "A1 operating",
       kind: "bank",
       isProcessorDestination: false,
+      institutionName: "First Bank",
     },
   ]);
   db.seed("client_policies", [policy()]);

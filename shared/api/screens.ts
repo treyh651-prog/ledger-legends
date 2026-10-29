@@ -116,6 +116,38 @@ export const reconcileSchema = z.object({
 export type Reconcile = z.infer<typeof reconcileSchema>;
 
 /* ------------------------------------------------------------------------ */
+/* Staged statements, waiting on a commit or a reject decision              */
+/* ------------------------------------------------------------------------ */
+
+export const stagedBatchSchema = z.object({
+  id: idSchema,
+  bankAccountId: idSchema,
+  bankAccountName: z.string(),
+  periodStart: daySchema.nullable(),
+  periodEnd: daySchema.nullable(),
+  lineCount: z.number().int(),
+  duplicatesHeld: z.number().int(),
+  rejectedCount: z.number().int(),
+  netCents: centsSchema,
+  status: z.enum(["parsed", "in_review"]),
+  createdAt: instantSchema,
+  /** The firm's one open mapping exception for this account, if any. */
+  mappingError: z.string().nullable(),
+});
+export type StagedBatch = z.infer<typeof stagedBatchSchema>;
+
+export const stagedBatchesSchema = z.object({
+  clientId: idSchema,
+  items: z.array(stagedBatchSchema),
+});
+export type StagedBatches = z.infer<typeof stagedBatchesSchema>;
+
+export const rejectBatchBodySchema = z.object({
+  reason: z.string().trim().min(1).max(500),
+});
+export type RejectBatchBody = z.infer<typeof rejectBatchBodySchema>;
+
+/* ------------------------------------------------------------------------ */
 /* Open items, the firm view of the client's requests                       */
 /* ------------------------------------------------------------------------ */
 

@@ -6,14 +6,95 @@
  * Covered: a client upload, a firm upload for the same client, the list after
  * a fresh read, an authorized download, a client of another business refused,
  * another firm refused, a wrong type, a mismatched body, an oversized body,
- * and a record write that fails after the object was stored.
+ * a record write that fails after the object was stored, and that the upload
+ * and the download each leave their own row in docvault.audit_events.
  */
 import { test, assert, assertEqual } from "../../runs/__tests__/harness";
-import { DEV_ACTOR, DEV_FIRM_ID } from "../dev-actor";
+import { DEV_ACTOR, DEV_FIRM_ID, DEV_USER_ID } from "../dev-actor";
 import { readSession } from "../session";
 import { startWorld, call, NEW_CLIENT, type World } from "./routes";
 import { createHash } from "node:crypto";
 import { createMemoryStorage } from "../../storage/document-storage";
+import { headerFingerprintOf } from "../../runs/runs/import-parse-feed";
+import type { BankAccountRow, MappingProfileRow } from "../../runs/tables";
+import { vendor as vendorFixture } from "../../runs/__tests__/arap-fixtures";
+import { asset as assetFixture, loan as loanFixture } from "../../runs/__tests__/per-fixtures";
+
+const CSV_HEADER = ["Date", "Description", "Amount"];
+function csvBody(lines: readonly string[] = ["01/12/2026,COFFEE HOUSE #22,-14.75"]): Buffer {
+  return Buffer.from(`${CSV_HEADER.join(",")}\n${lines.join("\n")}\n`, "utf8");
+}
+const XLSX_BYTES = Buffer.from([0x50, 0x4b, 0x03, 0x04, 0, 0, 0, 0, 0, 0, 0, 0]);
+
+async function seedBankAccount(
+  w: World,
+  cid: string,
+  id: string,
+  institutionName = "First Bank",
+): Promise<void> {
+  await w.db.tx({ ...readSession(DEV_ACTOR, DEV_FIRM_ID, cid), readOnly: false }, async (tx) => {
+    const row: BankAccountRow = {
+      id,
+      firmId: DEV_FIRM_ID,
+      clientId: cid,
+      accountNumber: "1010",
+      nickname: "Operating checking",
+      kind: "bank",
+      isProcessorDestination: false,
+      institutionName,
+    };
+    await tx.insert("bank_accounts", [row]);
+  });
+}
+
+async function seedVendor(w: World, cid: string, id: string): Promise<void> {
+  await w.db.tx({ ...readSession(DEV_ACTOR, DEV_FIRM_ID, cid), readOnly: false }, async (tx) => {
+    await tx.insert("vendors", [vendorFixture(id, { firmId: DEV_FIRM_ID, clientId: cid })]);
+  });
+}
+
+async function seedAsset(w: World, cid: string, id: string): Promise<void> {
+  await w.db.tx({ ...readSession(DEV_ACTOR, DEV_FIRM_ID, cid), readOnly: false }, async (tx) => {
+    await tx.insert("fixed_assets", [assetFixture(id, { firmId: DEV_FIRM_ID, clientId: cid })]);
+  });
+}
+
+async function seedLoan(w: World, cid: string, id: string): Promise<void> {
+  await w.db.tx({ ...readSession(DEV_ACTOR, DEV_FIRM_ID, cid), readOnly: false }, async (tx) => {
+    await tx.insert("loans", [loanFixture(id, { firmId: DEV_FIRM_ID, clientId: cid })]);
+  });
+}
+
+async function seedMappingProfile(w: World, cid: string, id: string, institutionName = "First Bank"): Promise<void> {
+  await w.db.tx({ ...readSession(DEV_ACTOR, DEV_FIRM_ID, cid), readOnly: false }, async (tx) => {
+    const row: MappingProfileRow = {
+      id,
+      firmId: DEV_FIRM_ID,
+      clientId: cid,
+      version: 1,
+      institutionName,
+      accountNumber: "1010",
+      fileFormat: "csv",
+      headerFingerprint: headerFingerprintOf(CSV_HEADER),
+      headerRowNumber: 1,
+      skipRows: 0,
+      dateColumn: "Date",
+      dateFormat: "MM/DD/YYYY",
+      descriptionColumn: "Description",
+      amountColumn: "Amount",
+      debitColumn: null,
+      creditColumn: null,
+      signConvention: "credit_positive",
+      currency: "USD",
+      bankIdColumn: null,
+      checkNumberColumn: null,
+      bankCodeColumn: null,
+      isActive: true,
+      createdBy: DEV_USER_ID,
+    };
+    await tx.insert("mapping_profiles", [row]);
+  });
+}
 
 let world: World;
 let clientId = "";
@@ -26,7 +107,7 @@ const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0
 
 async function upload(
   path: string,
-  opts: { token?: string | null; filename: string; docType: string; bytes: Buffer; contentType?: string; requestId?: string },
+  opts: { token?: string | null; filename: string; docType: string; bytes: Buffer; contentType?: string; requestId?: string; bankAccountId?: string; vendorId?: string; assetId?: string; loanId?: string },
 ): Promise<{ status: number; body: any; headers: Headers }> {
   const headers: Record<string, string> = {
     "content-type": opts.contentType ?? "application/octet-stream",
@@ -34,6 +115,10 @@ async function upload(
     "x-doc-type": opts.docType,
   };
   if (opts.requestId) headers["x-request-id"] = opts.requestId;
+  if (opts.bankAccountId) headers["x-bank-account-id"] = opts.bankAccountId;
+  if (opts.vendorId) headers["x-vendor-id"] = opts.vendorId;
+  if (opts.assetId) headers["x-asset-id"] = opts.assetId;
+  if (opts.loanId) headers["x-loan-id"] = opts.loanId;
   if (opts.token !== null) headers.authorization = `Bearer ${opts.token ?? "owner"}`;
   const res = await fetch(world.base + path, { method: "POST", headers, body: new Uint8Array(opts.bytes) });
   const text = await res.text();
@@ -93,6 +178,15 @@ test("uploads: a client user sends a PDF and the record exists only after the ob
   assertEqual(row.scanStatus, "not_scanned", "scan status honest");
   assertEqual(row.magicVerified, true, "magic bytes verified");
   assertEqual(row.storageProvider, "supabase", "provider shape");
+
+  // docvault.audit_events has carried the document access log since migration
+  // 0008; this is the first thing in this suite that could ever have written
+  // to it.
+  const events = world.db.all("audit_events").filter((e: any) => e.documentId === clientDocId);
+  assertEqual(events.length, 1, "one audit event for the upload");
+  assertEqual(events[0].action, "row_created", "the event DOC-RECORD-UPLOAD can attest to");
+  assertEqual(events[0].actorId, "00000000-0000-4000-8000-0000000000c1", "attributed to the uploader");
+  assert(events[0].createdAt !== null, "timestamped");
 });
 
 test("uploads: firm staff send a PNG for the same client through firm membership", async () => {
@@ -129,6 +223,14 @@ test("uploads: the client downloads their own document and the bytes match", asy
   assert((res.headers.get("content-disposition") ?? "").includes("October statement.pdf"), "filename in disposition");
   const bytes = Buffer.from(await res.arrayBuffer());
   assert(bytes.equals(PDF), "same bytes back");
+
+  // The memory store never signs a URL, so every download in this suite takes
+  // the direct byte stream path, and that is the one this asserts.
+  const events = world.db
+    .all("audit_events")
+    .filter((e: any) => e.documentId === clientDocId && e.action === "download_completed");
+  assertEqual(events.length, 1, "one download event recorded");
+  assert((events[0]?.ipInet ?? "").length > 0, "the requesting address is recorded");
 });
 
 test("uploads: a client user of another business is refused on upload, list and download", async () => {
@@ -359,6 +461,252 @@ test("upload-url: the memory store has no direct upload mechanism, so the route 
   });
   assertEqual(res.status, 501, `status: ${JSON.stringify(res.body)}`);
   assertEqual(res.body.error.code, "not_configured", "code");
+});
+
+/* ---------------- Statement uploads reach IMPORT-PARSE-FEED automatically ----------------
+ *
+ * These five cover doc upload's new connection to the import pipeline: a
+ * matching header stages the file, a mismatched header opens the firm's
+ * mapping exception and stages nothing, a duplicate upload of the same file
+ * is held rather than staged twice, a wrong tenant account is refused before
+ * the file is even read, and xlsx is accepted for storage but never parsed.
+ * IMPORT-COMMIT-BATCH, IMPORT-REJECT-BATCH and the full coding cascade are
+ * covered against the firm's staged-batches routes in routes.ts; nothing
+ * here commits anything, by construction, since recordDocument only ever
+ * calls IMPORT-PARSE-FEED.
+ */
+
+test("uploads: a bank statement csv with a matching account is staged automatically", async () => {
+  const bankAccountId = "BA-UP-0001";
+  await seedBankAccount(world, clientId, bankAccountId);
+  await seedMappingProfile(world, clientId, "MP-UP-0001");
+
+  const r = await upload(`/api/portal/${clientId}/documents`, {
+    token: "client",
+    filename: "october.csv",
+    docType: "bank_statement",
+    bytes: csvBody(),
+    contentType: "text/csv",
+    bankAccountId,
+  });
+  assertEqual(r.status, 201, `created: ${JSON.stringify(r.body)}`);
+  assertEqual(r.body.importOutcome.status, "staged", "parsed into staging");
+  assertEqual(r.body.importOutcome.detail, null, "no detail needed on a clean stage");
+
+  const batches = await world.db.tx(readSession(DEV_ACTOR, DEV_FIRM_ID, clientId), (tx) =>
+    tx.query("import_batches_awaiting_review", { firmId: DEV_FIRM_ID, clientId }),
+  );
+  const batch = (batches as any[]).find((b) => b.bankAccountId === bankAccountId);
+  assert(batch !== undefined, "a batch is waiting on a decision");
+  assertEqual(batch.sourceDocumentId, r.body.document.id, "the batch names the document it came from");
+  const staged = await world.db.tx(readSession(DEV_ACTOR, DEV_FIRM_ID, clientId), (tx) =>
+    tx.query("staged_rows_by_batch", { firmId: DEV_FIRM_ID, clientId, batchId: batch.id }),
+  );
+  assertEqual(staged.length, 1, "one staged row");
+  assertEqual(batch.status, "parsed", "parsed and ready, not yet committed");
+});
+
+test("uploads: a header that does not match opens a mapping exception and stages nothing", async () => {
+  const bankAccountId = "BA-UP-0002";
+  await seedBankAccount(world, clientId, bankAccountId, "Second Bank");
+  // No mapping profile for "Second Bank" at all.
+
+  const r = await upload(`/api/portal/${clientId}/documents`, {
+    token: "client",
+    filename: "november.csv",
+    docType: "bank_statement",
+    bytes: csvBody(),
+    contentType: "text/csv",
+    bankAccountId,
+  });
+  assertEqual(r.status, 201, `created: ${JSON.stringify(r.body)}`);
+  assertEqual(r.body.importOutcome.status, "needs_mapping", "flagged rather than guessed");
+  assert(String(r.body.importOutcome.detail).includes("no active csv mapping profile"), "names the reason");
+
+  const exceptions = await world.db.tx(readSession(DEV_ACTOR, DEV_FIRM_ID, clientId), (tx) =>
+    tx.query("mapping_exception_for_account", { firmId: DEV_FIRM_ID, clientId, bankAccountId }),
+  );
+  assertEqual(exceptions.length, 1, "one exception row");
+  assertEqual(exceptions[0].status, "open", "open, waiting on the firm");
+  assertEqual(exceptions[0].sourceDocumentId, r.body.document.id, "linked to the document that triggered it");
+
+  const batches = await world.db.tx(readSession(DEV_ACTOR, DEV_FIRM_ID, clientId), (tx) =>
+    tx.query("import_batches_awaiting_review", { firmId: DEV_FIRM_ID, clientId }),
+  );
+  assert(!(batches as any[]).some((b) => b.bankAccountId === bankAccountId), "no batch was staged for this account");
+
+  // Fixing the profile and uploading again resolves the exception.
+  await seedMappingProfile(world, clientId, "MP-UP-0002", "Second Bank");
+  const r2 = await upload(`/api/portal/${clientId}/documents`, {
+    token: "client",
+    filename: "november-fixed.csv",
+    docType: "bank_statement",
+    bytes: csvBody(["01/13/2026,A DIFFERENT ROW,-20.00"]),
+    contentType: "text/csv",
+    bankAccountId,
+  });
+  assertEqual(r2.body.importOutcome.status, "staged", "the retry got past the mapping check");
+  const resolved = await world.db.tx(readSession(DEV_ACTOR, DEV_FIRM_ID, clientId), (tx) =>
+    tx.query("mapping_exception_for_account", { firmId: DEV_FIRM_ID, clientId, bankAccountId }),
+  );
+  assertEqual(resolved[0].status, "resolved", "the same row closed itself once a parse got through");
+});
+
+test("uploads: a repeated upload of the same statement is held, not staged twice", async () => {
+  const bankAccountId = "BA-UP-0001";
+  const r = await upload(`/api/portal/${clientId}/documents`, {
+    token: "client",
+    filename: "october.csv",
+    docType: "bank_statement",
+    bytes: csvBody(),
+    contentType: "text/csv",
+    bankAccountId,
+  });
+  // A second document with the exact same bytes derives the same batch id,
+  // so IMPORT-PARSE-FEED's own preview reports no_op rather than staging a
+  // second copy of the same file.
+  assertEqual(r.body.importOutcome.status, "staged", "reported as staged either way");
+  assertEqual(r.body.importOutcome.detail, "this statement was already imported", "named as the repeat it is");
+});
+
+test("uploads: a bank account from another client is refused before the file is read", async () => {
+  const bankAccountId = "BA-UP-0001"; // belongs to clientId, not otherClientId
+  world.setClientFor(otherClientId);
+  const r = await upload(`/api/portal/${otherClientId}/documents`, {
+    token: "client",
+    filename: "cross-tenant.csv",
+    docType: "bank_statement",
+    bytes: csvBody(),
+    contentType: "text/csv",
+    bankAccountId,
+  });
+  assertEqual(r.status, 500, `refused: ${JSON.stringify(r.body)}`);
+  assertEqual(r.body.error.code, "run_refused", "the document record itself refused");
+  world.setClientFor(clientId);
+});
+
+test("uploads: an xlsx statement is accepted for storage but not read automatically", async () => {
+  const bankAccountId = "BA-UP-0001";
+  const r = await upload(`/api/portal/${clientId}/documents`, {
+    token: "client",
+    filename: "october.xlsx",
+    docType: "bank_statement",
+    bytes: XLSX_BYTES,
+    contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    bankAccountId,
+  });
+  assertEqual(r.status, 201, `created: ${JSON.stringify(r.body)}`);
+  assertEqual(r.body.importOutcome.status, "not_supported", "stored, not parsed");
+  assert(String(r.body.importOutcome.detail).toLowerCase().includes("csv"), "tells the uploader what to do instead");
+});
+
+/* ---------------- Vendor, asset, and loan links ----------------
+ *
+ * Same tenant check as the bank account above, now exercised for the other
+ * three link fields migration 0047 gave a foreign key. None of these change
+ * what happens to the file; they only record which row the document is for.
+ */
+
+test("uploads: a bill names a real vendor and the link is recorded", async () => {
+  const vendorId = "VN-UP-0001";
+  await seedVendor(world, clientId, vendorId);
+  const r = await upload(`/api/portal/${clientId}/documents`, {
+    token: "client",
+    filename: "bill.pdf",
+    docType: "invoice_ap",
+    bytes: PDF,
+    contentType: "application/pdf",
+    vendorId,
+  });
+  assertEqual(r.status, 201, `created: ${JSON.stringify(r.body)}`);
+  const rows = await world.db.tx(readSession(DEV_ACTOR, DEV_FIRM_ID, clientId), (tx) =>
+    tx.query("document_by_id", { firmId: DEV_FIRM_ID, clientId, documentId: r.body.document.id }),
+  );
+  assertEqual((rows[0] as any).linkedVendorId, vendorId, "the link is on the row");
+});
+
+test("uploads: a vendor from another client is refused before the file is kept", async () => {
+  const vendorId = "VN-UP-0001"; // belongs to clientId
+  world.setClientFor(otherClientId);
+  const r = await upload(`/api/portal/${otherClientId}/documents`, {
+    token: "client",
+    filename: "cross-tenant-bill.pdf",
+    docType: "invoice_ap",
+    bytes: PDF,
+    contentType: "application/pdf",
+    vendorId,
+  });
+  assertEqual(r.status, 500, `refused: ${JSON.stringify(r.body)}`);
+  assertEqual(r.body.error.code, "run_refused", "DOC-RECORD-UPLOAD refused it");
+  world.setClientFor(clientId);
+});
+
+test("uploads: a receipt names a real fixed asset and the link is recorded", async () => {
+  const assetId = "AS-UP-0001";
+  await seedAsset(world, clientId, assetId);
+  const r = await upload(`/api/portal/${clientId}/documents`, {
+    token: "client",
+    filename: "receipt.pdf",
+    docType: "receipt",
+    bytes: PDF,
+    contentType: "application/pdf",
+    assetId,
+  });
+  assertEqual(r.status, 201, `created: ${JSON.stringify(r.body)}`);
+  const rows = await world.db.tx(readSession(DEV_ACTOR, DEV_FIRM_ID, clientId), (tx) =>
+    tx.query("document_by_id", { firmId: DEV_FIRM_ID, clientId, documentId: r.body.document.id }),
+  );
+  assertEqual((rows[0] as any).linkedAssetId, assetId, "the link is on the row");
+});
+
+test("uploads: a fixed asset from another client is refused before the file is kept", async () => {
+  const assetId = "AS-UP-0001"; // belongs to clientId
+  world.setClientFor(otherClientId);
+  const r = await upload(`/api/portal/${otherClientId}/documents`, {
+    token: "client",
+    filename: "cross-tenant-receipt.pdf",
+    docType: "receipt",
+    bytes: PDF,
+    contentType: "application/pdf",
+    assetId,
+  });
+  assertEqual(r.status, 500, `refused: ${JSON.stringify(r.body)}`);
+  assertEqual(r.body.error.code, "run_refused", "DOC-RECORD-UPLOAD refused it");
+  world.setClientFor(clientId);
+});
+
+test("uploads: a loan agreement names a real loan and the link is recorded", async () => {
+  const loanId = "LN-UP-0001";
+  await seedLoan(world, clientId, loanId);
+  const r = await upload(`/api/portal/${clientId}/documents`, {
+    token: "client",
+    filename: "loan-agreement.pdf",
+    docType: "loan_agreement",
+    bytes: PDF,
+    contentType: "application/pdf",
+    loanId,
+  });
+  assertEqual(r.status, 201, `created: ${JSON.stringify(r.body)}`);
+  const rows = await world.db.tx(readSession(DEV_ACTOR, DEV_FIRM_ID, clientId), (tx) =>
+    tx.query("document_by_id", { firmId: DEV_FIRM_ID, clientId, documentId: r.body.document.id }),
+  );
+  assertEqual((rows[0] as any).linkedLoanId, loanId, "the link is on the row");
+});
+
+test("uploads: a loan from another client is refused before the file is kept", async () => {
+  const loanId = "LN-UP-0001"; // belongs to clientId
+  world.setClientFor(otherClientId);
+  const r = await upload(`/api/portal/${otherClientId}/documents`, {
+    token: "client",
+    filename: "cross-tenant-loan.pdf",
+    docType: "loan_agreement",
+    bytes: PDF,
+    contentType: "application/pdf",
+    loanId,
+  });
+  assertEqual(r.status, 500, `refused: ${JSON.stringify(r.body)}`);
+  assertEqual(r.body.error.code, "run_refused", "DOC-RECORD-UPLOAD refused it");
+  world.setClientFor(clientId);
 });
 
 test("uploads: the world stops", async () => {

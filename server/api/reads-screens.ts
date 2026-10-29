@@ -25,6 +25,8 @@ import type {
   RecBatch,
   RecLine,
   Reconcile,
+  StagedBatch,
+  StagedBatches,
   TrialBalance,
 } from "../../shared/api/screens";
 import type { Cents } from "../runs/contract";
@@ -179,6 +181,37 @@ export async function reconcile(
     selectedBatchId: selectedIndex >= 0 ? ordered[selectedIndex].id : null,
     lines,
   };
+}
+
+/* ---------------- Staged statements ---------------- */
+
+export async function stagedBatches(tx: RunTx, firmId: string, clientId: string): Promise<StagedBatches> {
+  const [batches, accounts] = await Promise.all([
+    tx.query("import_batches_awaiting_review", { firmId, clientId }),
+    tx.query("bank_accounts_for_client", { firmId, clientId }),
+  ]);
+  const accountById = new Map(accounts.map((a) => [a.id, a]));
+  const items: StagedBatch[] = await Promise.all(
+    batches.map(async (b) => {
+      const exceptions = await tx.query("mapping_exception_for_account", { firmId, clientId, bankAccountId: b.bankAccountId });
+      const open = exceptions.find((e) => e.status === "open") ?? null;
+      return {
+        id: b.id,
+        bankAccountId: b.bankAccountId,
+        bankAccountName: accountById.get(b.bankAccountId)?.nickname ?? b.accountNumber,
+        periodStart: b.earliestRowDate,
+        periodEnd: b.latestRowDate,
+        lineCount: b.rowCount,
+        duplicatesHeld: b.heldCount,
+        rejectedCount: b.rejectedCount,
+        netCents: cents(b.netCents),
+        status: b.status as "parsed" | "in_review",
+        createdAt: b.createdAt,
+        mappingError: open ? open.errorMessage : null,
+      };
+    }),
+  );
+  return { clientId, items: items.sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1)) };
 }
 
 /* ---------------- Open items ---------------- */
