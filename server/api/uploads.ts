@@ -48,6 +48,11 @@ const MAPPING_FAILURE_CODES: ReadonlySet<string> = new Set([
   PARSE_ERROR_CODES.headerMismatch,
 ]);
 
+const periodEndSchema = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/)
+  .nullable();
+
 const headerSchema = z.object({
   filename: z.string().trim().min(1).max(255),
   docType: z.string().refine((v) => DOC_TYPE_IDS.has(v), "unknown document type"),
@@ -56,6 +61,7 @@ const headerSchema = z.object({
   vendorId: z.string().trim().min(1).nullable(),
   assetId: z.string().trim().min(1).nullable(),
   loanId: z.string().trim().min(1).nullable(),
+  periodEnd: periodEndSchema,
 });
 
 const uploadUrlBodySchema = z.object({
@@ -72,6 +78,7 @@ const finalizeBodySchema = z.object({
   vendorId: z.string().trim().min(1).nullable().optional(),
   assetId: z.string().trim().min(1).nullable().optional(),
   loanId: z.string().trim().min(1).nullable().optional(),
+  periodEnd: periodEndSchema.optional(),
 });
 
 const downloadParamsSchema = z.object({ clientId: z.string().min(1), documentId: z.string().length(26) });
@@ -185,11 +192,12 @@ async function recordDocument(args: {
   vendorId: string | null;
   assetId: string | null;
   loanId: string | null;
+  periodEnd: string | null;
   inspected: UploadAccepted;
   byteSize: number;
   now: Date;
 }): Promise<UploadDocumentResult> {
-  const { deps, storage, actor, firmId, clientId, via, documentId, objectKey, filename, docType, requestId, bankAccountId, vendorId, assetId, loanId, inspected, byteSize, now } = args;
+  const { deps, storage, actor, firmId, clientId, via, documentId, objectKey, filename, docType, requestId, bankAccountId, vendorId, assetId, loanId, periodEnd, inspected, byteSize, now } = args;
   const scope = {
     clientId,
     documentId,
@@ -206,6 +214,7 @@ async function recordDocument(args: {
     vendorId,
     assetId,
     loanId,
+    periodEnd,
   };
   const common = { db: deps.db, actor, firmId, clientId, via, runCode: "DOC-RECORD-UPLOAD", scope, now };
   let recorded = false;
@@ -458,6 +467,7 @@ export function createDocumentRoutes(args: { deps: ApiDeps; gate: RequestHandler
         vendorId: headerValue(req, "x-vendor-id"),
         assetId: headerValue(req, "x-asset-id"),
         loanId: headerValue(req, "x-loan-id"),
+        periodEnd: headerValue(req, "x-period-end"),
       });
       const bytes = Buffer.isBuffer(req.body) ? (req.body as Buffer) : Buffer.alloc(0);
       const filename = safeFilename(meta.filename);
@@ -490,6 +500,7 @@ export function createDocumentRoutes(args: { deps: ApiDeps; gate: RequestHandler
         vendorId: meta.vendorId,
         assetId: meta.assetId,
         loanId: meta.loanId,
+        periodEnd: meta.periodEnd,
         inspected,
         byteSize: bytes.length,
         now,
@@ -583,6 +594,7 @@ export function createDocumentRoutes(args: { deps: ApiDeps; gate: RequestHandler
         vendorId: body.vendorId ?? null,
         assetId: body.assetId ?? null,
         loanId: body.loanId ?? null,
+        periodEnd: body.periodEnd ?? null,
         inspected,
         byteSize: obj.bytes.length,
         now,

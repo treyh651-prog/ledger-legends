@@ -30,7 +30,7 @@ import {
   type RunResult,
   type Ulid,
 } from "./contract";
-import { applyProposals, requireTx } from "./apply-writer";
+import { NOW_PLACEHOLDER, RUN_ID_PLACEHOLDER, applyProposals, requireTx } from "./apply-writer";
 import type { RunDb } from "./db";
 import { firstDayOfEarliestOpenPeriod, isLockedDay } from "./dates";
 import { execute, type ExecuteOptions, type RunOutcome } from "./execute";
@@ -67,15 +67,23 @@ export function reverseEntry(
   };
 }
 
-/** Swap before and after, which is how an unposted field write reverts. */
+/**
+ * Swap before and after, which is how an unposted field write reverts. A
+ * reversal of a transaction row also stamps which run undid it, so the
+ * reversal is visible on the row itself rather than only on the run log.
+ */
 export function revertFieldWrite(p: Proposal): Proposal {
   if (!isFieldWrite(p)) return p;
+  const after =
+    p.table === "transactions"
+      ? { ...p.before, reversedByRunId: RUN_ID_PLACEHOLDER, reversedAt: NOW_PLACEHOLDER }
+      : { ...p.before };
   return {
     kind: "field_write",
     table: p.table,
     rowId: p.rowId,
     before: { ...p.after },
-    after: { ...p.before },
+    after,
     provenance: { ...p.provenance },
   };
 }

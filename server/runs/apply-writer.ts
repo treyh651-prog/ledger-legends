@@ -251,12 +251,22 @@ export async function applyProposals(
     }
 
     if (isFieldWrite(p)) {
-      await writeField(tx, p.table, p.rowId, materialize(p.after, ctx));
+      // Every transaction field-write bumps updated_at, from here rather than
+      // from each of the thirteen runs that touch this table, including
+      // undo's own reverted writes (undo.ts:revertFieldWrite).
+      const after = p.table === "transactions" ? { ...p.after, updatedAt: NOW_PLACEHOLDER } : p.after;
+      await writeField(tx, p.table, p.rowId, materialize(after, ctx));
       continue;
     }
 
     if (isRowInsert(p)) {
-      await insertRow(tx, p.table, p.rowId, materialize(p.row, ctx));
+      // imported_at mirrors import_batch_id: set only when this transaction
+      // actually came from an import, never guessed for any other insert path.
+      const row =
+        p.table === "transactions"
+          ? { ...p.row, importedAt: (p.row as Record<string, unknown>).importBatchId ? NOW_PLACEHOLDER : null }
+          : p.row;
+      await insertRow(tx, p.table, p.rowId, materialize(row, ctx));
       continue;
     }
 

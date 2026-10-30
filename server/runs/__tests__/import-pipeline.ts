@@ -55,6 +55,7 @@ import {
   FIRM_B,
   importBatch,
   mappingProfile,
+  NOW,
   opts,
   stagedRow,
   txn,
@@ -335,6 +336,14 @@ test("import dedup rejects a repeated bank supplied id outright", async () => {
     register.filter((r) => r.bankTransactionId === "FB-0002").length === 1,
     "FB-0002 exists exactly once in the register",
   );
+  // FB-0002 is the pre-existing row (the commit skipped creating a new one for
+  // it, per the dedup check above); FB-0001 is one of the two genuinely new
+  // rows this commit actually inserted.
+  const committed = register.find((r) => r.bankTransactionId === "FB-0001");
+  assertEqual(committed?.importedAt, NOW.toISOString(), "a genuinely import-sourced row is stamped");
+  const preexisting = register.find((r) => r.id === "TX-EXISTING");
+  assertEqual(preexisting?.importBatchId ?? null, null, "the pre-seeded row was never from this import");
+  assertEqual(preexisting?.importedAt ?? null, null, "so it was never stamped");
   assert(
     applied.result.skips.some(
       (s) =>

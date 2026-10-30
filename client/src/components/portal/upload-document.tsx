@@ -40,6 +40,11 @@ const LINK_PICKERS: ReadonlyArray<{
  * or a failure sentence from the server. Nothing is staged in the browser; a
  * file either lands in storage with a record or it does not.
  *
+ * An optional period date travels alongside every upload (doc 05 D7):
+ * retention counts from a document's own period, not the day it was
+ * uploaded, specifically so a late upload of an old document does not
+ * outlive its cohort. Left blank, DOC-RECORD-UPLOAD falls back to today.
+ *
  * The picker for a given type appears only when the client has a row to pick
  * from; everything else uploads exactly as it always has. Only the bank and
  * card statement picker changes what happens next (it is what
@@ -58,6 +63,7 @@ export function UploadDocumentControl({
   const inputRef = useRef<HTMLInputElement>(null);
   const [docType, setDocType] = useState("bank_statement");
   const [linkId, setLinkId] = useState<string>("");
+  const [periodEnd, setPeriodEnd] = useState<string>("");
   const [note, setNote] = useState<{ tone: "good" | "risk"; text: string } | null>(null);
   const upload = useUploadDocument(clientId);
   const busy = upload.isPending;
@@ -87,7 +93,7 @@ export function UploadDocumentControl({
     };
     if (picker && showPicker && selectedLinkId) linkArgs[picker.field] = selectedLinkId;
     try {
-      const r = await upload.mutateAsync({ file, docType, ...linkArgs });
+      const r = await upload.mutateAsync({ file, docType, periodEnd: periodEnd || null, ...linkArgs });
       const outcome = r.importOutcome;
       if (outcome?.status === "staged") {
         setNote({ tone: "good", text: `${r.document.title} is on file and staged for review.` });
@@ -150,6 +156,16 @@ export function UploadDocumentControl({
           </select>
         ) : null}
         <input
+          type="date"
+          className="h-8 rounded-md border border-input bg-background px-2 text-sm"
+          value={periodEnd}
+          disabled={busy}
+          onChange={(e) => setPeriodEnd(e.target.value)}
+          title="Which period does this cover? Leave blank if it does not apply."
+          aria-label="Period this document covers"
+          data-testid={`${testId}-period`}
+        />
+        <input
           ref={inputRef}
           type="file"
           accept={UPLOAD_ACCEPT}
@@ -165,6 +181,7 @@ export function UploadDocumentControl({
         PDF, PNG, JPEG, CSV or Excel, up to {fmtLimit(data.uploadMaxBytes)}.
         {data.storageProvider === "memory" ? " Development store: files are kept only while this server runs." : ""}
         {showPicker && isStatementType ? " A CSV statement with an account named is read automatically." : ""}
+        {" Which period a document covers is optional, but keeps retention counted from the right year rather than the day it was uploaded."}
       </p>
       {note ? (
         <p className={`flex items-center gap-1 text-xs ${note.tone === "good" ? "text-emerald-700" : "text-destructive"}`} role="status" data-testid={`${testId}-note`}>

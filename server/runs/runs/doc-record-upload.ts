@@ -23,6 +23,13 @@
  * actor could otherwise reach through: the id travels in the body of a run a
  * client is allowed to trigger.
  *
+ * periodEnd, migration 0008, doc 05 D7 ("retention starts at the document's
+ * period end, not its upload date, so a document uploaded late for an old
+ * period does not outlive its cohort"). An uploader who names no period
+ * falls back to today; period_start/period_end/retention_starts_on all carry
+ * the same single anchor date, which is as much period range as this run
+ * tries to know.
+ *
  * Undo. Deleting a record while the object stays would orphan bytes, so
  * undoPlan is empty. Archiving is a separate action.
  *
@@ -76,6 +83,12 @@ export const recordUploadScopeSchema = z.object({
   vendorId: z.string().min(1).nullable().default(null),
   assetId: z.string().min(1).nullable().default(null),
   loanId: z.string().min(1).nullable().default(null),
+  /** Which period this document covers, when the uploader named one. Doc 05 D7: retention is counted from here, not the upload date, so a late upload of an old document does not outlive its cohort. */
+  periodEnd: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .nullable()
+    .default(null),
 });
 
 export type RecordUploadScope = z.infer<typeof recordUploadScopeSchema>;
@@ -150,14 +163,22 @@ export const docRecordUpload: Run<RecordUploadScope, Proposal> = {
       }
     }
 
+    // Doc 05 D7: retention is counted from the document's own period end, not
+    // the upload date, so a late upload of an old document does not outlive
+    // its cohort. Most document types carry no real "period" at all, so an
+    // uploader who named none falls back to today -- the same day resolveScope
+    // already derived for the frozen scope.
+    const effectivePeriodEnd = scope.periodEnd ?? frozen.periodStart ?? ctx.now.toISOString().slice(0, 10);
+
     const row: DocumentRow = {
       id: scope.documentId,
       firmId: ctx.firmId,
       clientId: scope.clientId,
       docType: scope.docType,
       title: scope.title,
-      periodStart: null,
-      periodEnd: null,
+      periodStart: effectivePeriodEnd,
+      periodEnd: effectivePeriodEnd,
+      retentionStartsOn: effectivePeriodEnd,
       status: "uploaded",
       byteSize: scope.byteSize,
       contentType: scope.contentType,

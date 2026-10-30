@@ -121,6 +121,18 @@ export interface TransactionRow {
   manualOverrideBy: Ulid | null;
   manualOverrideAt: string | null;
   version: number;
+  /**
+   * Audit columns, migration 0011. Stamped from the single choke point in
+   * apply-writer.ts rather than by each of the thirteen runs that touch this
+   * table; the reads leave them out, same convention as DocumentRow's
+   * write-only fields.
+   */
+  updatedAt?: string;
+  /** Set only when source is "import" (importBatchId is non-null); never guessed otherwise. */
+  importedAt?: string | null;
+  /** Stamped by undo.ts's revertFieldWrite when an undone run's write touched this row. */
+  reversedByRunId?: string | null;
+  reversedAt?: string | null;
 }
 
 /**
@@ -842,6 +854,8 @@ export interface DocumentRow {
   magicVerified?: boolean;
   headVerifiedAt?: string | null;
   storageProvider?: "s3" | "supabase";
+  /** Doc 05 D7. Counted from the document's period end, same anchor as periodStart/periodEnd. */
+  retentionStartsOn?: string | null;
   /** Which bank or card account a bank_statement or card_statement document is for. */
   linkedBankAccountId?: Ulid | null;
   /** Which vendor an invoice_ap document is a bill from. */

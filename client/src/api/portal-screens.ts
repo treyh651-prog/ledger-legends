@@ -142,6 +142,8 @@ export interface UploadDocumentArgs {
   assetId?: string | null;
   /** Which loan this file is the agreement for, when it is one. */
   loanId?: string | null;
+  /** Which period (YYYY-MM-DD) this document covers, when the uploader named one. Retention counts from here, not the upload date. */
+  periodEnd?: string | null;
 }
 
 /**
@@ -170,6 +172,7 @@ async function uploadDirect(clientId: string, args: UploadDocumentArgs): Promise
   if (args.vendorId) headers["x-vendor-id"] = args.vendorId;
   if (args.assetId) headers["x-asset-id"] = args.assetId;
   if (args.loanId) headers["x-loan-id"] = args.loanId;
+  if (args.periodEnd) headers["x-period-end"] = args.periodEnd;
   let res: Response;
   try {
     res = await fetch(`${API_BASE}/api/portal/${clientId}/documents`, { method: "POST", headers, body: args.file });
@@ -232,6 +235,7 @@ async function uploadViaSignedUrl(clientId: string, args: UploadDocumentArgs): P
         vendorId: args.vendorId ?? null,
         assetId: args.assetId ?? null,
         loanId: args.loanId ?? null,
+        periodEnd: args.periodEnd ?? null,
       }),
     });
   } catch {

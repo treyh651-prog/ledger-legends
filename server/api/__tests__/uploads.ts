@@ -107,7 +107,7 @@ const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0
 
 async function upload(
   path: string,
-  opts: { token?: string | null; filename: string; docType: string; bytes: Buffer; contentType?: string; requestId?: string; bankAccountId?: string; vendorId?: string; assetId?: string; loanId?: string },
+  opts: { token?: string | null; filename: string; docType: string; bytes: Buffer; contentType?: string; requestId?: string; bankAccountId?: string; vendorId?: string; assetId?: string; loanId?: string; periodEnd?: string },
 ): Promise<{ status: number; body: any; headers: Headers }> {
   const headers: Record<string, string> = {
     "content-type": opts.contentType ?? "application/octet-stream",
@@ -119,6 +119,7 @@ async function upload(
   if (opts.vendorId) headers["x-vendor-id"] = opts.vendorId;
   if (opts.assetId) headers["x-asset-id"] = opts.assetId;
   if (opts.loanId) headers["x-loan-id"] = opts.loanId;
+  if (opts.periodEnd) headers["x-period-end"] = opts.periodEnd;
   if (opts.token !== null) headers.authorization = `Bearer ${opts.token ?? "owner"}`;
   const res = await fetch(world.base + path, { method: "POST", headers, body: new Uint8Array(opts.bytes) });
   const text = await res.text();
@@ -707,6 +708,44 @@ test("uploads: a loan from another client is refused before the file is kept", a
   assertEqual(r.status, 500, `refused: ${JSON.stringify(r.body)}`);
   assertEqual(r.body.error.code, "run_refused", "DOC-RECORD-UPLOAD refused it");
   world.setClientFor(clientId);
+});
+
+test("uploads: with no period named, retention falls back to the upload day", async () => {
+  const r = await upload(`/api/portal/${otherClientId}/documents`, {
+    token: "owner",
+    filename: "no-period.pdf",
+    docType: "other",
+    bytes: PDF,
+    contentType: "application/pdf",
+  });
+  assertEqual(r.status, 201, "created");
+  const rows = await world.db.tx(readSession(DEV_ACTOR, DEV_FIRM_ID, otherClientId), (tx) =>
+    tx.query("document_by_id", { firmId: DEV_FIRM_ID, clientId: otherClientId, documentId: r.body.document.id }),
+  );
+  const row = rows[0] as any;
+  const today = new Date().toISOString().slice(0, 10);
+  assertEqual(row.periodStart, today, "falls back to the upload day");
+  assertEqual(row.periodEnd, today, "falls back to the upload day");
+  assertEqual(row.retentionStartsOn, today, "retention starts at the fallback period end");
+});
+
+test("uploads: a named period sets retention to start there, not the upload day", async () => {
+  const r = await upload(`/api/portal/${otherClientId}/documents`, {
+    token: "owner",
+    filename: "with-period.pdf",
+    docType: "bank_statement",
+    bytes: PDF,
+    contentType: "application/pdf",
+    periodEnd: "2023-03-31",
+  });
+  assertEqual(r.status, 201, "created");
+  const rows = await world.db.tx(readSession(DEV_ACTOR, DEV_FIRM_ID, otherClientId), (tx) =>
+    tx.query("document_by_id", { firmId: DEV_FIRM_ID, clientId: otherClientId, documentId: r.body.document.id }),
+  );
+  const row = rows[0] as any;
+  assertEqual(row.periodStart, "2023-03-31", "the named period, not the upload day");
+  assertEqual(row.periodEnd, "2023-03-31", "the named period, not the upload day");
+  assertEqual(row.retentionStartsOn, "2023-03-31", "retention starts at the document's own period end, doc 05 D7");
 });
 
 test("uploads: the world stops", async () => {

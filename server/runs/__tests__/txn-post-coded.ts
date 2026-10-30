@@ -7,8 +7,9 @@
 
 import { assert, assertEqual, test } from "./harness";
 import { execute } from "../execute";
+import { executeUndo } from "../undo";
 import { isJournalEntry } from "../contract";
-import { CLIENT_A1, FIRM_A, opts, scopeFor, txn } from "./fixtures";
+import { ACTOR, CLIENT_A1, FIRM_A, NOW, opts, scopeFor, txn } from "./fixtures";
 import { codingDb, standardCategories } from "./coding-fixtures";
 import { txnPostCoded, postedEntryIdFor } from "../runs/txn-post-coded";
 import type { TransactionRow } from "../tables";
@@ -51,6 +52,31 @@ test("txn-post-coded: a rule-coded transaction posts to its own account", async 
 
   const row = (db.all("transactions") as TransactionRow[]).find((t) => t.id === "TX-1");
   assertEqual(row?.journalEntryId, postedEntryIdFor("TX-1"), "the register row now points at the entry that made it accounting");
+  assertEqual(row?.updatedAt, NOW.toISOString(), "updated_at bumped from the single choke point in apply-writer.ts");
+});
+
+test("txn-post-coded: undo reverts the field write and stamps who reversed it", async () => {
+  const db = codingDb();
+  db.seed("categories", standardCategories());
+  db.seed("transactions", [ruleCodedTxn("TX-1")]);
+  const preview = await execute(db, txnPostCoded, scopeFor(CLIENT_A1), opts("preview"));
+  const applied = await execute(db, txnPostCoded, scopeFor(CLIENT_A1), opts("apply", { previewRunId: preview.executionId }));
+
+  const undone = await executeUndo(db, txnPostCoded, applied.executionId, {
+    mode: "apply",
+    firmId: FIRM_A,
+    clientId: CLIENT_A1,
+    actor: { userId: ACTOR, kind: "human" },
+    now: NOW,
+    source: "button",
+  });
+  assertEqual(undone.status, "completed", "undo completed");
+
+  const row = (db.all("transactions") as TransactionRow[]).find((t) => t.id === "TX-1");
+  assertEqual(row?.journalEntryId, null, "the journal entry link reverted");
+  assertEqual(row?.reversedByRunId, undone.executionId, "the reversing run is named on the row itself, not only the run log");
+  assertEqual(row?.reversedAt, NOW.toISOString(), "reversed_at stamped");
+  assertEqual(row?.updatedAt, NOW.toISOString(), "updated_at bumped by the reverting write too");
 });
 
 test("txn-post-coded: an already posted transaction is a no op the second time", async () => {
