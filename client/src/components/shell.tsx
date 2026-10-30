@@ -28,6 +28,7 @@ import {
   Settings2,
   Sun,
   Table2,
+  Tag,
   Timer,
   Upload,
   UserPlus,
@@ -82,6 +83,7 @@ const FIRM_NAV: NavGroup[] = [
     label: "Accounting",
     items: [
       { href: "/transactions", label: "Transactions", icon: Table2, badge: (c) => c.needsReview || undefined },
+      { href: "/categories", label: "Categories", icon: Tag },
       { href: "/rules", label: "Categorization rules", icon: Repeat },
       { href: "/reconcile", label: "Reconciliation", icon: BadgeCheck },
       { href: "/staged-statements", label: "Staged statements", icon: Table2 },

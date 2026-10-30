@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { Aging, Budget, ClientSetup, CloseChecklist, FirmRequests, FirmTasks, FirmTeam, RunOutcomeDto, UpdateTaskBody, Forecast, Journal, Narratives, PortalStatements, Reconcile, ReportPackages, Rules, StagedBatches, Substantiation, TaxForms, TrialBalance } from "@shared/api";
+import type { Aging, Budget, Categories, ClientSetup, CloseChecklist, FirmRequests, FirmTasks, FirmTeam, RunOutcomeDto, UpdateTaskBody, Forecast, Journal, Narratives, PortalStatements, Reconcile, ReportPackages, Rules, StagedBatches, Substantiation, TaxForms, TrialBalance } from "@shared/api";
 import { api, toQuery } from "./http";
 
 /** Reads for the firm screens. Keys live under the client so run mutations invalidate them. */
@@ -16,6 +16,7 @@ export const screenKeys = {
   forecast: (clientId: string, runId: string | null) => ["api", "firm", "clients", clientId, "forecast", runId ?? "latest"] as const,
   journal: (clientId: string, period: string) => ["api", "firm", "clients", clientId, "journal", period] as const,
   rules: (clientId: string) => ["api", "firm", "clients", clientId, "rules"] as const,
+  categories: (clientId: string) => ["api", "firm", "clients", clientId, "categories"] as const,
 };
 
 /** A YYYY-MM from the header becomes the first of that month for the API. */
@@ -149,6 +150,14 @@ export function useRules(clientId: string | null) {
   return useQuery({
     queryKey: screenKeys.rules(clientId ?? "none"),
     queryFn: () => api<Rules>("GET", `/api/firm/clients/${clientId}/rules`),
+    enabled: !!clientId,
+  });
+}
+
+export function useCategories(clientId: string | null) {
+  return useQuery({
+    queryKey: screenKeys.categories(clientId ?? "none"),
+    queryFn: () => api<Categories>("GET", `/api/firm/clients/${clientId}/categories`),
     enabled: !!clientId,
   });
 }

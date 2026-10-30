@@ -46,7 +46,7 @@ import { scopeHashFor, canonicalJson } from "../ids";
 import { revertFieldWrite } from "../undo";
 import type { RuleCondition, RuleRow } from "../tables";
 
-const ruleConditionSchema: z.ZodType<RuleCondition> = z.union([
+export const ruleConditionSchema: z.ZodType<RuleCondition> = z.union([
   z.object({ type: z.literal("vendor_equals"), value: z.string().min(1) }),
   z.object({ type: z.literal("vendor_prefix"), value: z.string().min(1) }),
   z.object({

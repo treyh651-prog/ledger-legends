@@ -1,14 +1,27 @@
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { Pencil } from "lucide-react";
+import { Pencil, Plus } from "lucide-react";
 import { DataGrid, EmptyState, ErrorState, Kpi, PageHeader, Pill, SectionCard } from "@/components/kit";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { useActiveClient } from "@/lib/active-client";
-import { useRules, useTriggerRun, errorMessage, screenKeys } from "@/api";
+import { useCategories, useRules, useTriggerRun, errorMessage, screenKeys } from "@/api";
 import { usd } from "@/lib/money";
 import type { Rule } from "@shared/api";
+
+const CONDITION_TYPES = ["vendor_equals", "vendor_prefix", "amount_range", "sign", "bank_account", "bank_code"] as const;
+type ConditionType = (typeof CONDITION_TYPES)[number];
+
+const CONDITION_LABELS: Record<ConditionType, string> = {
+  vendor_equals: "Vendor name equals",
+  vendor_prefix: "Vendor name starts with",
+  amount_range: "Amount is between",
+  sign: "Transaction side is",
+  bank_account: "Bank account is",
+  bank_code: "Bank code is",
+};
 
 /**
  * Coding rules, read from GET /api/firm/clients/:id/rules. The order shown is
@@ -28,7 +41,11 @@ export default function Rules() {
 
   return (
     <div className="space-y-4" data-testid="page-rules">
-      <PageHeader title="Rules" subtitle={`${client?.name ?? ""}. ${d ? `${d.items.length} active rules, ${d.autoPostCount} with auto post on.` : ""}`} />
+      <PageHeader
+        title="Rules"
+        subtitle={`${client?.name ?? ""}. ${d ? `${d.items.length} active rules, ${d.autoPostCount} with auto post on.` : ""}`}
+        actions={clientId ? <CreateRuleDialog clientId={clientId} /> : null}
+      />
       <div className="grid gap-3 sm:grid-cols-3">
         <Kpi label="Active rules" value={d ? d.items.length : "…"} testId="kpi-rules" />
         <Kpi label="Auto post enabled" value={d ? d.autoPostCount : "…"} />
@@ -158,5 +175,203 @@ function EditRulePopover({ clientId, rule }: { clientId: string; rule: Rule }) {
         </div>
       </PopoverContent>
     </Popover>
+  );
+}
+
+/**
+ * Creating a rule needs a category picker and a condition builder, a
+ * strictly bigger surface than EditRulePopover's name/priority/active, so
+ * this is a Dialog rather than a Popover. One condition per rule for now:
+ * the schema already accepts an array, so multi-condition composition can
+ * be added to this same Dialog later without a backend change.
+ */
+function CreateRuleDialog({ clientId }: { clientId: string }) {
+  const [open, setOpen] = useState(false);
+  const [name, setName] = useState("");
+  const [priority, setPriority] = useState("500");
+  const [targetCategoryId, setTargetCategoryId] = useState("");
+  const [conditionType, setConditionType] = useState<ConditionType>("vendor_equals");
+  const [vendorValue, setVendorValue] = useState("");
+  const [minDollars, setMinDollars] = useState("");
+  const [maxDollars, setMaxDollars] = useState("");
+  const [sign, setSign] = useState<"debit" | "credit">("debit");
+  const [bankValue, setBankValue] = useState("");
+  const [isActive, setIsActive] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const trigger = useTriggerRun(clientId);
+  const categories = useCategories(clientId);
+  const qc = useQueryClient();
+
+  const reset = () => {
+    setName("");
+    setPriority("500");
+    setTargetCategoryId(categories.data?.items[0]?.id ?? "");
+    setConditionType("vendor_equals");
+    setVendorValue("");
+    setMinDollars("");
+    setMaxDollars("");
+    setSign("debit");
+    setBankValue("");
+    setIsActive(true);
+    setError(null);
+  };
+
+  const conditionFor = (): Record<string, unknown> | null => {
+    switch (conditionType) {
+      case "vendor_equals":
+      case "vendor_prefix":
+        return vendorValue.trim() ? { type: conditionType, value: vendorValue.trim() } : null;
+      case "amount_range": {
+        const min = Number(minDollars);
+        const max = Number(maxDollars);
+        if (!Number.isFinite(min) || !Number.isFinite(max)) return null;
+        return { type: "amount_range", minCents: BigInt(Math.round(min * 100)), maxCents: BigInt(Math.round(max * 100)) };
+      }
+      case "sign":
+        return { type: "sign", value: sign };
+      case "bank_account":
+      case "bank_code":
+        return bankValue.trim() ? { type: conditionType, value: bankValue.trim() } : null;
+    }
+  };
+
+  const save = async () => {
+    setError(null);
+    const condition = conditionFor();
+    if (!name.trim() || !targetCategoryId || !condition) {
+      setError("A name, a target category, and a complete condition are required.");
+      return;
+    }
+    const parsedPriority = Number(priority);
+    const scope = {
+      clientId,
+      changeNote: "created from the rules screen",
+      fields: {
+        name: name.trim(),
+        priority: Number.isInteger(parsedPriority) ? parsedPriority : 500,
+        conditions: [condition],
+        targetCategoryId,
+        isActive,
+      },
+    };
+    try {
+      const preview = await trigger.mutateAsync({ runCode: "CFG-CREATE-RULE", body: { mode: "preview", scope } });
+      if (preview.status !== "completed") {
+        setError(preview.errors[0]?.message ?? `The run ended ${preview.status}.`);
+        return;
+      }
+      const applied = await trigger.mutateAsync({
+        runCode: "CFG-CREATE-RULE",
+        body: { mode: "apply", scope, previewRunId: preview.executionId },
+      });
+      if (applied.status !== "completed") {
+        setError(applied.errors[0]?.message ?? `The run ended ${applied.status}.`);
+        return;
+      }
+      void qc.invalidateQueries({ queryKey: screenKeys.rules(clientId) });
+      setOpen(false);
+    } catch (e) {
+      setError(errorMessage(e));
+    }
+  };
+
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        setOpen(next);
+        if (next) reset();
+      }}
+    >
+      <DialogTrigger asChild>
+        <Button size="sm" data-testid="rule-create">
+          <Plus className="mr-1.5 h-3.5 w-3.5" /> Create rule
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>Create a rule</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-3">
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-muted-foreground">Name</label>
+              <Input value={name} onChange={(e) => setName(e.target.value)} data-testid="rule-create-name" />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-muted-foreground">Priority</label>
+              <Input type="number" value={priority} onChange={(e) => setPriority(e.target.value)} data-testid="rule-create-priority" />
+            </div>
+          </div>
+          <div className="space-y-1">
+            <label className="text-xs font-medium text-muted-foreground">Codes to</label>
+            <select
+              className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
+              value={targetCategoryId}
+              onChange={(e) => setTargetCategoryId(e.target.value)}
+              data-testid="rule-create-category"
+            >
+              <option value="">Choose a category…</option>
+              {(categories.data?.items ?? []).map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="space-y-1">
+            <label className="text-xs font-medium text-muted-foreground">Match when</label>
+            <select
+              className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
+              value={conditionType}
+              onChange={(e) => setConditionType(e.target.value as ConditionType)}
+              data-testid="rule-create-condition-type"
+            >
+              {CONDITION_TYPES.map((t) => (
+                <option key={t} value={t}>
+                  {CONDITION_LABELS[t]}
+                </option>
+              ))}
+            </select>
+          </div>
+          {(conditionType === "vendor_equals" || conditionType === "vendor_prefix") && (
+            <Input value={vendorValue} onChange={(e) => setVendorValue(e.target.value)} placeholder="Vendor name" data-testid="rule-create-condition-value" />
+          )}
+          {conditionType === "amount_range" && (
+            <div className="grid grid-cols-2 gap-3">
+              <Input type="number" value={minDollars} onChange={(e) => setMinDollars(e.target.value)} placeholder="Min $" data-testid="rule-create-amount-min" />
+              <Input type="number" value={maxDollars} onChange={(e) => setMaxDollars(e.target.value)} placeholder="Max $" data-testid="rule-create-amount-max" />
+            </div>
+          )}
+          {conditionType === "sign" && (
+            <select
+              className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
+              value={sign}
+              onChange={(e) => setSign(e.target.value as "debit" | "credit")}
+              data-testid="rule-create-sign"
+            >
+              <option value="debit">Debit</option>
+              <option value="credit">Credit</option>
+            </select>
+          )}
+          {(conditionType === "bank_account" || conditionType === "bank_code") && (
+            <Input value={bankValue} onChange={(e) => setBankValue(e.target.value)} data-testid="rule-create-condition-value" />
+          )}
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" checked={isActive} onChange={(e) => setIsActive(e.target.checked)} data-testid="rule-create-active" />
+            Active
+          </label>
+          {error ? <p className="break-words text-xs text-destructive">{error}</p> : null}
+        </div>
+        <DialogFooter>
+          <Button size="sm" variant="outline" onClick={() => setOpen(false)}>
+            Cancel
+          </Button>
+          <Button size="sm" onClick={() => void save()} disabled={trigger.isPending} data-testid="rule-create-save">
+            Create
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

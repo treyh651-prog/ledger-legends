@@ -23,27 +23,50 @@
  */
 
 import { useMemo, useState } from "react";
-import { FileWarning } from "lucide-react";
+import { useQueryClient } from "@tanstack/react-query";
+import { FileWarning, Plus } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { EmptyState, ErrorState, LoadingRows, PageHeader, Pill, SectionCard } from "@/components/kit";
 import { useActiveClient } from "@/lib/active-client";
-import { useClientSetup, errorMessage } from "@/api";
+import { useClientSetup, useTriggerRun, errorMessage, firmKeys } from "@/api";
 import { parseSampleRows } from "@/lib/sample-rows";
-import type { SetupMappingProfile } from "@shared/api";
+import type { SetupBankAccount, SetupMappingProfile } from "@shared/api";
 
-/** Where each canonical field lands in a pasted header row, or nothing. */
+/**
+ * Which source column each of a profile's own named fields points at.
+ * import.mapping_profile_columns exists in the schema but nothing has ever
+ * written to it (CFG-EDIT-MAPPING-PROFILE and CFG-CREATE-MAPPING-PROFILE
+ * both checked; neither does), and its five-value canonical field vocabulary
+ * (date/description/amount_cents/memo/external_id) does not even cover
+ * everything a profile row itself carries (debit and credit columns have no
+ * slot in it at all). The profile row's own eight column-name fields are
+ * the live source of truth, so this reads directly from those instead.
+ */
+function namedColumnsOf(profile: SetupMappingProfile): Array<{ field: string; sourceColumn: string }> {
+  const out: Array<{ field: string; sourceColumn: string }> = [
+    { field: "date", sourceColumn: profile.dateColumn },
+    { field: "description", sourceColumn: profile.descriptionColumn },
+  ];
+  if (profile.amountColumn) out.push({ field: "amount", sourceColumn: profile.amountColumn });
+  if (profile.debitColumn) out.push({ field: "debit", sourceColumn: profile.debitColumn });
+  if (profile.creditColumn) out.push({ field: "credit", sourceColumn: profile.creditColumn });
+  return out;
+}
+
+/** Where each of a profile's named fields lands in a pasted header row, or nothing. */
 function matchAgainstHeader(
   profile: SetupMappingProfile,
   header: readonly string[],
 ): Array<{ canonicalField: string; sourceColumn: string; columnIndex: number | null }> {
   const normalized = header.map((h) => h.trim().toUpperCase());
-  return profile.columns
-    .filter((c) => c.canonicalField !== "unmapped")
-    .map((c) => {
-      const index = normalized.indexOf(c.sourceName.trim().toUpperCase());
-      return { canonicalField: c.canonicalField, sourceColumn: c.sourceName, columnIndex: index === -1 ? null : index };
-    });
+  return namedColumnsOf(profile).map(({ field, sourceColumn }) => {
+    const index = normalized.indexOf(sourceColumn.trim().toUpperCase());
+    return { canonicalField: field, sourceColumn, columnIndex: index === -1 ? null : index };
+  });
 }
 
 export default function PortalMappingProfiles() {
@@ -70,12 +93,13 @@ export default function PortalMappingProfiles() {
       <PageHeader
         title="Mapping profiles"
         subtitle={`Saved column layouts for the spreadsheet exports we import for ${client?.name ?? "this client"}. One profile per institution layout, attached to the account that uses it.`}
+        actions={clientId ? <CreateMappingProfileDialog clientId={clientId} bankAccounts={banks} /> : null}
       />
 
       {profiles.length === 0 ? (
         <EmptyState
           title="No saved profiles"
-          body="A profile is written to import.mapping_profiles when the first CSV or XLSX for an account is mapped. No run writes one yet."
+          body="A profile is written to import.mapping_profiles when the first CSV or XLSX for an account is mapped, or created directly below."
         />
       ) : (
         <div className="grid gap-4 lg:grid-cols-[1fr_1fr]">
@@ -94,7 +118,7 @@ export default function PortalMappingProfiles() {
                       <Pill tone="neutral">{p.fileFormat.toUpperCase()}</Pill>
                     </div>
                     <p className="mt-1 text-muted-foreground">
-                      version {p.version}, {String(p.columns.length)} columns, dates read as {p.dateFormat}
+                      version {p.version}, {String(namedColumnsOf(p).length)} columns, dates read as {p.dateFormat}
                     </p>
                     <p className="mt-0.5 text-muted-foreground">{accountLabel(p.accountNumber)}</p>
                   </button>
@@ -114,15 +138,11 @@ export default function PortalMappingProfiles() {
                     </tr>
                   </thead>
                   <tbody>
-                    {active.columns.map((c) => (
-                      <tr key={c.sourceIndex} className="border-b border-border/60" data-testid={`row-column-${c.sourceIndex}`}>
-                        <td className="px-4 py-1.5">{c.sourceName}</td>
+                    {namedColumnsOf(active).map((c) => (
+                      <tr key={c.field} className="border-b border-border/60" data-testid={`row-column-${c.field}`}>
+                        <td className="px-4 py-1.5">{c.sourceColumn}</td>
                         <td className="px-4 py-1.5">
-                          {c.canonicalField === "unmapped" ? (
-                            <span className="text-muted-foreground">not imported</span>
-                          ) : (
-                            <span className="tnum">{c.canonicalField}</span>
-                          )}
+                          <span className="tnum">{c.field}</span>
                         </td>
                       </tr>
                     ))}
@@ -198,5 +218,276 @@ export default function PortalMappingProfiles() {
         </div>
       )}
     </>
+  );
+}
+
+const SIGN_CONVENTIONS = ["debit_positive", "credit_positive", "separate_columns"] as const;
+
+/**
+ * Column names must be picked from a header the firm actually pasted, never
+ * typed blind: a column name string that does not exactly match the real
+ * file's header is the "silently shifted column" failure doc 05 Part 3
+ * refuses to allow, the same reasoning the read only preview above already
+ * follows. headerFingerprint itself is never computed here -- the run
+ * derives it server side from the exact pasted header, the same function
+ * IMPORT-PARSE-FEED uses to check a real file against it.
+ */
+function CreateMappingProfileDialog({ clientId, bankAccounts }: { clientId: string; bankAccounts: readonly SetupBankAccount[] }) {
+  const [open, setOpen] = useState(false);
+  const [sample, setSample] = useState("");
+  const [institutionName, setInstitutionName] = useState("");
+  const [accountNumber, setAccountNumber] = useState("");
+  const [fileFormat, setFileFormat] = useState<"csv" | "xlsx">("csv");
+  const [dateFormat, setDateFormat] = useState("MM/DD/YYYY");
+  const [currency, setCurrency] = useState("USD");
+  const [signConvention, setSignConvention] = useState<(typeof SIGN_CONVENTIONS)[number]>("debit_positive");
+  const [dateColumn, setDateColumn] = useState("");
+  const [descriptionColumn, setDescriptionColumn] = useState("");
+  const [amountColumn, setAmountColumn] = useState("");
+  const [debitColumn, setDebitColumn] = useState("");
+  const [creditColumn, setCreditColumn] = useState("");
+  const [bankIdColumn, setBankIdColumn] = useState("");
+  const [checkNumberColumn, setCheckNumberColumn] = useState("");
+  const [bankCodeColumn, setBankCodeColumn] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const trigger = useTriggerRun(clientId);
+  const qc = useQueryClient();
+
+  const parsed = useMemo(() => parseSampleRows(sample), [sample]);
+
+  const reset = () => {
+    setSample("");
+    setInstitutionName("");
+    setAccountNumber(bankAccounts[0]?.accountNumber ?? "");
+    setFileFormat("csv");
+    setDateFormat("MM/DD/YYYY");
+    setCurrency("USD");
+    setSignConvention("debit_positive");
+    setDateColumn("");
+    setDescriptionColumn("");
+    setAmountColumn("");
+    setDebitColumn("");
+    setCreditColumn("");
+    setBankIdColumn("");
+    setCheckNumberColumn("");
+    setBankCodeColumn("");
+    setError(null);
+  };
+
+  const save = async () => {
+    setError(null);
+    if (!institutionName.trim() || !accountNumber || !dateColumn || !descriptionColumn) {
+      setError("Institution, account, date column, and description column are required.");
+      return;
+    }
+    if (signConvention === "separate_columns" ? !debitColumn || !creditColumn : !amountColumn) {
+      setError(signConvention === "separate_columns" ? "Debit and credit columns are required." : "An amount column is required.");
+      return;
+    }
+    const scope = {
+      clientId,
+      changeNote: "created from the mapping profiles screen",
+      fields: {
+        institutionName: institutionName.trim(),
+        accountNumber,
+        fileFormat,
+        headerCells: parsed.header,
+        dateColumn,
+        dateFormat: dateFormat.trim(),
+        descriptionColumn,
+        amountColumn: signConvention === "separate_columns" ? null : amountColumn,
+        debitColumn: signConvention === "separate_columns" ? debitColumn : null,
+        creditColumn: signConvention === "separate_columns" ? creditColumn : null,
+        signConvention,
+        currency: currency.trim().toUpperCase(),
+        bankIdColumn: bankIdColumn || null,
+        checkNumberColumn: checkNumberColumn || null,
+        bankCodeColumn: bankCodeColumn || null,
+      },
+    };
+    try {
+      const preview = await trigger.mutateAsync({ runCode: "CFG-CREATE-MAPPING-PROFILE", body: { mode: "preview", scope } });
+      if (preview.status !== "completed") {
+        setError(preview.errors[0]?.message ?? `The run ended ${preview.status}.`);
+        return;
+      }
+      const applied = await trigger.mutateAsync({
+        runCode: "CFG-CREATE-MAPPING-PROFILE",
+        body: { mode: "apply", scope, previewRunId: preview.executionId },
+      });
+      if (applied.status !== "completed") {
+        setError(applied.errors[0]?.message ?? `The run ended ${applied.status}.`);
+        return;
+      }
+      void qc.invalidateQueries({ queryKey: firmKeys.setup(clientId) });
+      setOpen(false);
+    } catch (e) {
+      setError(errorMessage(e));
+    }
+  };
+
+  const columnSelect = (value: string, onChange: (v: string) => void, testId: string, allowEmpty = false) => (
+    <select
+      className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      data-testid={testId}
+    >
+      <option value="">{allowEmpty ? "Not in this file" : "Choose a column…"}</option>
+      {parsed.header.map((h, i) => (
+        <option key={`${h}-${String(i)}`} value={h}>
+          {h}
+        </option>
+      ))}
+    </select>
+  );
+
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        setOpen(next);
+        if (next) reset();
+      }}
+    >
+      <DialogTrigger asChild>
+        <Button size="sm" data-testid="profile-create">
+          <Plus className="mr-1.5 h-3.5 w-3.5" /> Create profile
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>Create a mapping profile</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-3">
+          <div className="space-y-1.5">
+            <Label className="text-xs font-medium">Paste the real header row and a sample row or two</Label>
+            <Textarea
+              value={sample}
+              onChange={(e) => setSample(e.target.value)}
+              rows={4}
+              placeholder={"Posting Date,Description,Amount,Check Number,Reference\n07/03/2026,FERGUSON ENTERPRISES,-1284.55,,INB88213"}
+              data-testid="profile-create-sample"
+            />
+            <p className="text-xs text-muted-foreground">Columns below are picked from this header, never typed blind, so a saved profile always matches the real file.</p>
+          </div>
+
+          {parsed.header.length > 0 ? (
+            <>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-muted-foreground">Institution</label>
+                  <Input value={institutionName} onChange={(e) => setInstitutionName(e.target.value)} data-testid="profile-create-institution" />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-muted-foreground">Account</label>
+                  <select
+                    className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
+                    value={accountNumber}
+                    onChange={(e) => setAccountNumber(e.target.value)}
+                    data-testid="profile-create-account"
+                  >
+                    <option value="">Choose an account…</option>
+                    {bankAccounts.map((a) => (
+                      <option key={a.id} value={a.accountNumber}>
+                        {a.nickname} {a.accountNumber}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+              <div className="grid grid-cols-3 gap-3">
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-muted-foreground">File format</label>
+                  <select
+                    className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
+                    value={fileFormat}
+                    onChange={(e) => setFileFormat(e.target.value as "csv" | "xlsx")}
+                    data-testid="profile-create-format"
+                  >
+                    <option value="csv">CSV</option>
+                    <option value="xlsx">Excel</option>
+                  </select>
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-muted-foreground">Date format</label>
+                  <Input value={dateFormat} onChange={(e) => setDateFormat(e.target.value)} data-testid="profile-create-date-format" />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-muted-foreground">Currency</label>
+                  <Input value={currency} onChange={(e) => setCurrency(e.target.value)} maxLength={3} data-testid="profile-create-currency" />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-muted-foreground">Date column</label>
+                  {columnSelect(dateColumn, setDateColumn, "profile-create-date-column")}
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-muted-foreground">Description column</label>
+                  {columnSelect(descriptionColumn, setDescriptionColumn, "profile-create-description-column")}
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-muted-foreground">Amount is</label>
+                <select
+                  className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
+                  value={signConvention}
+                  onChange={(e) => setSignConvention(e.target.value as (typeof SIGN_CONVENTIONS)[number])}
+                  data-testid="profile-create-sign-convention"
+                >
+                  <option value="debit_positive">One column, money out is positive</option>
+                  <option value="credit_positive">One column, money in is positive</option>
+                  <option value="separate_columns">Separate debit and credit columns</option>
+                </select>
+              </div>
+              {signConvention === "separate_columns" ? (
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium text-muted-foreground">Debit column</label>
+                    {columnSelect(debitColumn, setDebitColumn, "profile-create-debit-column")}
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium text-muted-foreground">Credit column</label>
+                    {columnSelect(creditColumn, setCreditColumn, "profile-create-credit-column")}
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-muted-foreground">Amount column</label>
+                  {columnSelect(amountColumn, setAmountColumn, "profile-create-amount-column")}
+                </div>
+              )}
+
+              <div className="grid grid-cols-3 gap-3">
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-muted-foreground">Bank id column (optional)</label>
+                  {columnSelect(bankIdColumn, setBankIdColumn, "profile-create-bank-id-column", true)}
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-muted-foreground">Check number column (optional)</label>
+                  {columnSelect(checkNumberColumn, setCheckNumberColumn, "profile-create-check-number-column", true)}
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-muted-foreground">Bank code column (optional)</label>
+                  {columnSelect(bankCodeColumn, setBankCodeColumn, "profile-create-bank-code-column", true)}
+                </div>
+              </div>
+            </>
+          ) : null}
+          {error ? <p className="break-words text-xs text-destructive">{error}</p> : null}
+        </div>
+        <DialogFooter>
+          <Button size="sm" variant="outline" onClick={() => setOpen(false)}>
+            Cancel
+          </Button>
+          <Button size="sm" onClick={() => void save()} disabled={trigger.isPending || parsed.header.length === 0} data-testid="profile-create-save">
+            Create
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

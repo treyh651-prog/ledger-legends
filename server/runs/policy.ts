@@ -453,6 +453,21 @@ export const RUN_POLICIES: Readonly<Record<string, RunPolicy>> = {
     reason:
       "functional currency, entity kind, and which account equity closes into are judgments a person makes about who this client is, never something a run infers",
   },
+  "CFG-CREATE-CATEGORY": {
+    tier: "manual",
+    reason:
+      "what a category is called, where it posts, and how it is taxed is a person's judgment to invent, never something a run infers, the same reason CFG-EDIT-CATEGORY gives for editing one",
+  },
+  "CFG-CREATE-RULE": {
+    tier: "manual",
+    reason:
+      "a rule is configurable by a user and therefore capable of encoding a mistake at scale, the same reason CFG-EDIT-RULE and TXN-APPLY-RULES itself give for why a rule is a person's decision",
+  },
+  "CFG-CREATE-MAPPING-PROFILE": {
+    tier: "manual",
+    reason:
+      "which bank column means what is a judgment a person makes once per institution, and a wrong guess here silently books amounts to the wrong sign or date, the same reason CFG-EDIT-MAPPING-PROFILE gives for editing one",
+  },
 };
 
 export const RUN_TIER_VALUES: readonly RunTier[] = [

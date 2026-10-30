@@ -33,6 +33,7 @@ import type {
   ChartAccountRow,
   ClientPolicyRow,
   ClientPolicyVersionRow,
+  RuleRow,
   CreditMemoRow,
   CustomerPaymentRow,
   VendorRow,
@@ -806,7 +807,11 @@ async function insertRow(
         withId as unknown as PracticeTaskCatalogRow,
       ]);
       return;
-    // CFG-EDIT-RULE never inserts; a rule is edited in place, never replaced.
+    // CFG-EDIT-RULE never inserts a rule row; a rule is edited in place,
+    // never replaced. CFG-CREATE-RULE is the only writer of a brand new one.
+    case "rules":
+      await tx.insert("rules", [withId as unknown as RuleRow]);
+      return;
     // CFG-EDIT-CATEGORY and CFG-EDIT-MAPPING-PROFILE both insert the history
     // row below, and the mapping profile edit also inserts a fresh profile
     // row, because unlike a category a profile is never edited in place

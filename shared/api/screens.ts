@@ -362,6 +362,38 @@ export const rulesSchema = z.object({
 });
 export type Rules = z.infer<typeof rulesSchema>;
 
+export const categorySchema = z.object({
+  id: z.string(),
+  version: z.number().int(),
+  name: z.string(),
+  accountNumber: z.string(),
+  normalSide: z.enum(["debit", "credit"]),
+  taxTreatment: z.enum([
+    "deductible",
+    "meals_50",
+    "nondeductible",
+    "owner_draw",
+    "owner_contribution",
+    "personal",
+    "capital",
+    "transfer",
+    "not_applicable",
+  ]),
+  class1099: z.enum(["none", "nec", "misc_rent", "misc_other", "attorney"]),
+  requiresReceiptOverCents: centsSchema.nullable(),
+  requiresClass: z.boolean(),
+  capitalizeOverCents: centsSchema.nullable(),
+  restrictionRelevant: z.boolean(),
+  isActive: z.boolean(),
+});
+export type Category = z.infer<typeof categorySchema>;
+
+export const categoriesSchema = z.object({
+  clientId: idSchema,
+  items: z.array(categorySchema),
+});
+export type Categories = z.infer<typeof categoriesSchema>;
+
 /* ------------------------------------------------------------------------ */
 /* Tax forms, the 1099 compilation                                           */
 /* ------------------------------------------------------------------------ */

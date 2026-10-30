@@ -6,6 +6,7 @@
 
 import type {
   Aging,
+  Categories,
   ClientSetup,
   FirmTask,
   FirmTasks,
@@ -557,6 +558,29 @@ export async function rules(tx: RunTx, firmId: string, clientId: string): Promis
     version: r.version,
   }));
   return { clientId, items, autoPostCount: items.filter((r) => r.autoPostEnabled).length };
+}
+
+/* ---------------- Categories ---------------- */
+
+export async function categoriesForClient(tx: RunTx, firmId: string, clientId: string): Promise<Categories> {
+  const rows = await tx.query("categories_for_client", { firmId, clientId });
+  return {
+    clientId,
+    items: rows.map((c) => ({
+      id: c.id,
+      version: c.version,
+      name: c.name,
+      accountNumber: c.accountNumber,
+      normalSide: c.normalSide,
+      taxTreatment: c.taxTreatment,
+      class1099: c.class1099,
+      requiresReceiptOverCents: cents(c.requiresReceiptOverCents),
+      requiresClass: c.requiresClass,
+      capitalizeOverCents: cents(c.capitalizeOverCents),
+      restrictionRelevant: c.restrictionRelevant,
+      isActive: c.isActive,
+    })),
+  };
 }
 
 /* ---------------- Tax forms ---------------- */

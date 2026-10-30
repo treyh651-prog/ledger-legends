@@ -130,7 +130,10 @@ export type RunTypeId =
   | "CFG-EDIT-CATEGORY"
   | "CFG-EDIT-RULE"
   | "CFG-EDIT-MAPPING-PROFILE"
-  | "CFG-EDIT-CLIENT-POLICY";
+  | "CFG-EDIT-CLIENT-POLICY"
+  | "CFG-CREATE-CATEGORY"
+  | "CFG-CREATE-RULE"
+  | "CFG-CREATE-MAPPING-PROFILE";
 
 /** Doc 03 Part 7 names the reversal of a run `<ORIGINAL>-UNDO`. */
 export type UndoRunTypeId = `${RunTypeId}-UNDO`;
