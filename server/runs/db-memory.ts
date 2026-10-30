@@ -36,6 +36,7 @@ import {
   INSERT_ONLY_TABLES,
   OVERRIDE_WATCHED_FIELDS,
   type CategoryVersionRow,
+  type ClientPolicyVersionRow,
   type RuleVersionRow,
   type ImportBatchRow,
   type JournalEntryRow,
@@ -137,6 +138,7 @@ const TABLES: TableName[] = [
   "bank_code_mappings",
   "settlement_rows",
   "client_policies",
+  "client_policy_versions",
   "document_links",
   "portal_requests",
   "portal_messages",
@@ -225,11 +227,11 @@ export function storageIdOf(table: TableName, rowId: string, clientId: string): 
 }
 
 /**
- * category_versions, rule_versions, and mapping_profile_versions have no
- * synthetic id (CategoryVersionRow's own comment says why: the primary key
- * is (entityId, version)). insert() needs a storage key regardless, so this
- * mirrors that composite key for the three rather than reading a column
- * that does not exist on the row.
+ * category_versions, rule_versions, mapping_profile_versions, and
+ * client_policy_versions have no synthetic id (CategoryVersionRow's own
+ * comment says why: the primary key is (entityId, version)). insert() needs
+ * a storage key regardless, so this mirrors that composite key for each
+ * rather than reading a column that does not exist on the row.
  */
 function naturalInsertId(table: TableName, row: AnyRow): string {
   switch (table) {
@@ -239,6 +241,8 @@ function naturalInsertId(table: TableName, row: AnyRow): string {
       return `${String(row.ruleId)}:${String(row.version)}`;
     case "mapping_profile_versions":
       return `${String(row.profileId)}:${String(row.version)}`;
+    case "client_policy_versions":
+      return `${String(row.clientId)}:${String(row.version)}`;
     default:
       return row.id;
   }
@@ -1047,6 +1051,15 @@ class MemoryTx implements RunTx {
           .filter((r) => r.firmId === p.firmId && r.clientId === p.clientId)
           .sort(byId)
           .map(clone);
+      }
+      case "client_policy_versions_for_client": {
+        const p =
+          rawParams as QueryCatalog["client_policy_versions_for_client"]["params"];
+        return this.view("client_policy_versions")
+          .map((r) => r as unknown as ClientPolicyVersionRow)
+          .filter((r) => r.firmId === p.firmId && r.clientId === p.clientId)
+          .sort((a, b) => a.version - b.version)
+          .map((r) => clone(r as unknown as AnyRow));
       }
       case "document_links_for_transactions": {
         const p =

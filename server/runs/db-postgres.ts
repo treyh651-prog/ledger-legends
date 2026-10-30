@@ -508,6 +508,12 @@ const CATEGORY_VERSION_COLUMNS = `
   valid_from::text as "validFrom", valid_to::text as "validTo",
   changed_by as "changedBy", change_note as "changeNote"`;
 
+const CLIENT_POLICY_VERSION_COLUMNS = `
+  client_id as "clientId", version,
+  firm_id as "firmId", snapshot,
+  valid_from::text as "validFrom", valid_to::text as "validTo",
+  changed_by as "changedBy", change_note as "changeNote"`;
+
 const RULE_COLUMNS = `
   id, firm_id as "firmId", client_id as "clientId", version,
   name, priority, condition_count as "conditionCount", conditions,
@@ -1863,10 +1869,19 @@ export const QUERIES: Record<QueryName, SqlSpec> = {
               as "netAssetsWithoutRestrictionsAccount",
             net_assets_with_restrictions_account
               as "netAssetsWithRestrictionsAccount",
-            fiscal_year_end_month as "fiscalYearEndMonth"
+            fiscal_year_end_month as "fiscalYearEndMonth",
+            version, updated_at::text as "updatedAt"
           from ${SCHEMA}.client_policies
           where firm_id = $1 and client_id = $2
           order by id asc`,
+    params: (p) => [p.firmId, p.clientId],
+  },
+  client_policy_versions_for_client: {
+    table: "client_policy_versions",
+    sql: `select ${CLIENT_POLICY_VERSION_COLUMNS}
+          from ${SCHEMA}.client_policy_versions
+          where firm_id = $1 and client_id = $2
+          order by version asc`,
     params: (p) => [p.firmId, p.clientId],
   },
   document_links_for_transactions: {

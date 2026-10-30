@@ -126,6 +126,7 @@ import { perDisposeAsset } from "./runs/per-dispose-asset";
 import { cfgEditCategory } from "./runs/cfg-edit-category";
 import { cfgEditRule } from "./runs/cfg-edit-rule";
 import { cfgEditMappingProfile } from "./runs/cfg-edit-mapping-profile";
+import { cfgEditClientPolicy } from "./runs/cfg-edit-client-policy";
 
 /** Scope types differ per run, so the registry stores erased entries. */
 export interface RegistryEntry {
@@ -250,6 +251,7 @@ export const registry: readonly RegistryEntry[] = [
   entry(cfgEditCategory),
   entry(cfgEditRule),
   entry(cfgEditMappingProfile),
+  entry(cfgEditClientPolicy),
 ];
 
 /**

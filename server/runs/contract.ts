@@ -129,7 +129,8 @@ export type RunTypeId =
   // this family: a person correcting reference data after it was created.
   | "CFG-EDIT-CATEGORY"
   | "CFG-EDIT-RULE"
-  | "CFG-EDIT-MAPPING-PROFILE";
+  | "CFG-EDIT-MAPPING-PROFILE"
+  | "CFG-EDIT-CLIENT-POLICY";
 
 /** Doc 03 Part 7 names the reversal of a run `<ORIGINAL>-UNDO`. */
 export type UndoRunTypeId = `${RunTypeId}-UNDO`;

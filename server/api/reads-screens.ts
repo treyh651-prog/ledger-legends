@@ -802,14 +802,16 @@ export async function firmTasks(tx: RunTx, firmId: string, period: string): Prom
 
 /** Bank accounts, active mapping profiles with their columns, and tasks for one client. */
 export async function clientSetup(tx: RunTx, firmId: string, clientId: string): Promise<ClientSetup> {
-  const [client, banks, profiles, columns, tasks] = await Promise.all([
+  const [client, banks, profiles, columns, tasks, policies] = await Promise.all([
     tx.query("client_by_id", { firmId, clientId }),
     tx.query("bank_accounts_for_client", { firmId, clientId }),
     tx.query("mapping_profiles_for_client", { firmId, clientId }),
     tx.query("mapping_profile_columns_for_client", { firmId, clientId }),
     tx.query("practice_tasks_for_client", { firmId, clientId }),
+    tx.query("client_policy", { firmId, clientId }),
   ]);
   const name = client[0]?.name ?? clientId;
+  const policy = policies[0] ?? null;
   return {
     clientId,
     bankAccounts: banks.map((b) => ({
@@ -841,5 +843,19 @@ export async function clientSetup(tx: RunTx, firmId: string, clientId: string): 
     })),
     tasks: tasks.map((t) => taskDto(t, name)).sort(byDueThenId),
     uploadsConfigured: false,
+    policy:
+      policy === null
+        ? null
+        : {
+            functionalCurrency: policy.functionalCurrency,
+            capitalizeOverCents: policy.capitalizeOverCents === null ? null : Number(policy.capitalizeOverCents),
+            grossAtSaleTime: policy.grossAtSaleTime,
+            cleanupEngagement: policy.cleanupEngagement,
+            entityKind: policy.entityKind,
+            retainedEarningsAccount: policy.retainedEarningsAccount,
+            netAssetsWithoutRestrictionsAccount: policy.netAssetsWithoutRestrictionsAccount,
+            netAssetsWithRestrictionsAccount: policy.netAssetsWithRestrictionsAccount,
+            fiscalYearEndMonth: policy.fiscalYearEndMonth,
+          },
   };
 }

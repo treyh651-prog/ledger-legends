@@ -39,6 +39,16 @@ export async function api<T>(method: "GET" | "POST", url: string, body?: unknown
           const code = (flat.code ?? "unknown").toLowerCase() === "feature_not_in_tier" ? "feature_not_included" : (flat.code ?? "unknown");
           throw new ApiRequestError(Number(m[1]), code, flat.message);
         }
+        // The run trigger route answers 409 with the run outcome itself, not
+        // the error envelope (router.ts: refused/rejected_locked), so a
+        // screen can still read outcome.status/errors on success. Here, on
+        // the error path, pull the first named error's own message out of it
+        // rather than falling through to the raw JSON dump below.
+        const runOutcome = raw as { errors?: Array<{ code?: string; message?: string }> };
+        const firstError = runOutcome?.errors?.[0];
+        if (firstError && typeof firstError.message === "string") {
+          throw new ApiRequestError(Number(m[1]), firstError.code ?? "unknown", firstError.message, raw);
+        }
         throw new Error("unrecognised");
       } catch (inner) {
         if (inner instanceof ApiRequestError) throw inner;

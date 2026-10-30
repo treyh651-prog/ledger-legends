@@ -448,6 +448,11 @@ export const RUN_POLICIES: Readonly<Record<string, RunPolicy>> = {
     reason:
       "which bank column means what is a judgment a person makes once per institution, and a wrong guess here silently books amounts to the wrong sign or date",
   },
+  "CFG-EDIT-CLIENT-POLICY": {
+    tier: "manual",
+    reason:
+      "functional currency, entity kind, and which account equity closes into are judgments a person makes about who this client is, never something a run infers",
+  },
 };
 
 export const RUN_TIER_VALUES: readonly RunTier[] = [

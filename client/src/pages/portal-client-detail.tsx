@@ -12,13 +12,18 @@
  * was filed and no agent service was performed.
  */
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useRoute } from "wouter";
-import { Check } from "lucide-react";
+import { Check, Pencil } from "lucide-react";
+import { useQueryClient } from "@tanstack/react-query";
 import { EmptyState, ErrorState, KeyValue, Kpi, LoadingRows, PageHeader, Pill, SectionCard } from "@/components/kit";
-import { useClient, useClientSetup, errorMessage } from "@/api";
-import { fmtDate } from "@/lib/money";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { firmKeys, useClient, useClientSetup, useTriggerRun, errorMessage } from "@/api";
+import { fmtDate, usd } from "@/lib/money";
 import { tierMeta, isTierId } from "@shared/tiers";
+import type { SetupClientPolicy } from "@shared/api";
 
 /** True when the wizard just routed here. Query only, nothing is stored. */
 function cameFromWizard(): boolean {
@@ -56,6 +61,7 @@ export default function PortalClientDetail() {
   const banks = setup.data?.bankAccounts ?? [];
   const profiles = setup.data?.mappingProfiles ?? [];
   const tasks = setup.data?.tasks ?? [];
+  const policy = setup.data?.policy ?? null;
   const level = c.engagement && isTierId(c.engagement.serviceLevel) ? tierMeta(c.engagement.serviceLevel).name : c.engagement?.serviceLevel ?? "No engagement";
 
   return (
@@ -101,6 +107,28 @@ export default function PortalClientDetail() {
               { label: "Service level", value: level },
               { label: "Reporting basis", value: c.engagement?.reportingBasis ?? "No engagement" },
               { label: "Scope", value: c.scopeKeys.join(", ") || "None" },
+            ]}
+          />
+        </SectionCard>
+
+        <SectionCard
+          title="Client policy"
+          description="Overrides the coding and close runs read at execution. No row yet means every default applies."
+          actions={id ? <ClientPolicyDialog clientId={id} policy={policy} /> : null}
+        >
+          <KeyValue
+            items={[
+              { label: "Functional currency", value: policy?.functionalCurrency ?? "USD (default)" },
+              {
+                label: "Capitalize over",
+                value: policy?.capitalizeOverCents != null ? usd(policy.capitalizeOverCents) : `${usd(250000)} (default)`,
+              },
+              { label: "Gross at sale time", value: policy?.grossAtSaleTime ? "Yes" : "No" },
+              { label: "Cleanup engagement", value: policy?.cleanupEngagement ? "Yes" : "No" },
+              { label: "Entity kind", value: policy?.entityKind === "nonprofit" ? "Nonprofit" : "For profit (default)" },
+              { label: "Retained earnings account", value: policy?.retainedEarningsAccount ?? "Not set" },
+              { label: "Net assets without restrictions", value: policy?.netAssetsWithoutRestrictionsAccount ?? "Not set" },
+              { label: "Net assets with restrictions", value: policy?.netAssetsWithRestrictionsAccount ?? "Not set" },
             ]}
           />
         </SectionCard>
@@ -183,5 +211,160 @@ export default function PortalClientDetail() {
         </SectionCard>
       </div>
     </>
+  );
+}
+
+/**
+ * Edit affordance for ledger.client_policies, via CFG-EDIT-CLIENT-POLICY.
+ * A Dialog rather than a Popover (EditRulePopover's pattern in rules.tsx):
+ * eight fields, two of them account numbers only relevant depending on
+ * entity kind, need more room than a small popover gives.
+ */
+function ClientPolicyDialog({ clientId, policy }: { clientId: string; policy: SetupClientPolicy | null }) {
+  const [open, setOpen] = useState(false);
+  const [functionalCurrency, setFunctionalCurrency] = useState("USD");
+  const [capitalizeOverDollars, setCapitalizeOverDollars] = useState("2500");
+  const [grossAtSaleTime, setGrossAtSaleTime] = useState(false);
+  const [cleanupEngagement, setCleanupEngagement] = useState(false);
+  const [entityKind, setEntityKind] = useState<"for_profit" | "nonprofit">("for_profit");
+  const [retainedEarningsAccount, setRetainedEarningsAccount] = useState("");
+  const [netAssetsWithoutRestrictionsAccount, setNetAssetsWithoutRestrictionsAccount] = useState("");
+  const [netAssetsWithRestrictionsAccount, setNetAssetsWithRestrictionsAccount] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const trigger = useTriggerRun(clientId);
+  const qc = useQueryClient();
+
+  const reset = () => {
+    setFunctionalCurrency(policy?.functionalCurrency ?? "USD");
+    setCapitalizeOverDollars(policy?.capitalizeOverCents != null ? String(policy.capitalizeOverCents / 100) : "2500");
+    setGrossAtSaleTime(policy?.grossAtSaleTime ?? false);
+    setCleanupEngagement(policy?.cleanupEngagement ?? false);
+    setEntityKind(policy?.entityKind ?? "for_profit");
+    setRetainedEarningsAccount(policy?.retainedEarningsAccount ?? "");
+    setNetAssetsWithoutRestrictionsAccount(policy?.netAssetsWithoutRestrictionsAccount ?? "");
+    setNetAssetsWithRestrictionsAccount(policy?.netAssetsWithRestrictionsAccount ?? "");
+    setError(null);
+  };
+
+  const save = async () => {
+    setError(null);
+    const fields: Record<string, unknown> = {};
+    if (functionalCurrency !== (policy?.functionalCurrency ?? "USD")) fields.functionalCurrency = functionalCurrency;
+    const parsedCents = Math.round(Number(capitalizeOverDollars) * 100);
+    if (Number.isFinite(parsedCents) && parsedCents !== (policy?.capitalizeOverCents ?? 250000)) {
+      fields.capitalizeOverCents = BigInt(parsedCents);
+    }
+    if (grossAtSaleTime !== (policy?.grossAtSaleTime ?? false)) fields.grossAtSaleTime = grossAtSaleTime;
+    if (cleanupEngagement !== (policy?.cleanupEngagement ?? false)) fields.cleanupEngagement = cleanupEngagement;
+    if (entityKind !== (policy?.entityKind ?? "for_profit")) fields.entityKind = entityKind;
+    const retained = retainedEarningsAccount.trim() || null;
+    if (retained !== (policy?.retainedEarningsAccount ?? null)) fields.retainedEarningsAccount = retained;
+    const netWithout = netAssetsWithoutRestrictionsAccount.trim() || null;
+    if (netWithout !== (policy?.netAssetsWithoutRestrictionsAccount ?? null)) fields.netAssetsWithoutRestrictionsAccount = netWithout;
+    const netWith = netAssetsWithRestrictionsAccount.trim() || null;
+    if (netWith !== (policy?.netAssetsWithRestrictionsAccount ?? null)) fields.netAssetsWithRestrictionsAccount = netWith;
+    if (Object.keys(fields).length === 0) {
+      setOpen(false);
+      return;
+    }
+    const scope = { clientId, changeNote: "edited from the client setup record", fields };
+    try {
+      const preview = await trigger.mutateAsync({ runCode: "CFG-EDIT-CLIENT-POLICY", body: { mode: "preview", scope } });
+      if (preview.status !== "completed") {
+        setError(preview.errors[0]?.message ?? `The run ended ${preview.status}.`);
+        return;
+      }
+      const applied = await trigger.mutateAsync({
+        runCode: "CFG-EDIT-CLIENT-POLICY",
+        body: { mode: "apply", scope, previewRunId: preview.executionId },
+      });
+      if (applied.status !== "completed") {
+        setError(applied.errors[0]?.message ?? `The run ended ${applied.status}.`);
+        return;
+      }
+      void qc.invalidateQueries({ queryKey: firmKeys.setup(clientId) });
+      setOpen(false);
+    } catch (e) {
+      setError(errorMessage(e));
+    }
+  };
+
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        setOpen(next);
+        if (next) reset();
+      }}
+    >
+      <DialogTrigger asChild>
+        <Button size="sm" variant="outline" data-testid="client-policy-edit">
+          <Pencil className="mr-1.5 h-3.5 w-3.5" /> Edit policy
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>Client policy</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-3">
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-muted-foreground">Functional currency</label>
+              <Input value={functionalCurrency} onChange={(e) => setFunctionalCurrency(e.target.value.toUpperCase())} maxLength={3} data-testid="policy-currency" />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-muted-foreground">Capitalize over ($)</label>
+              <Input type="number" value={capitalizeOverDollars} onChange={(e) => setCapitalizeOverDollars(e.target.value)} data-testid="policy-capitalize" />
+            </div>
+          </div>
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" checked={grossAtSaleTime} onChange={(e) => setGrossAtSaleTime(e.target.checked)} data-testid="policy-gross" />
+            Gross booked at sale time
+          </label>
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" checked={cleanupEngagement} onChange={(e) => setCleanupEngagement(e.target.checked)} data-testid="policy-cleanup" />
+            Cleanup engagement
+          </label>
+          <div className="space-y-1">
+            <label className="text-xs font-medium text-muted-foreground">Entity kind</label>
+            <select
+              className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
+              value={entityKind}
+              onChange={(e) => setEntityKind(e.target.value as "for_profit" | "nonprofit")}
+              data-testid="policy-entity-kind"
+            >
+              <option value="for_profit">For profit</option>
+              <option value="nonprofit">Nonprofit</option>
+            </select>
+          </div>
+          {entityKind === "for_profit" ? (
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-muted-foreground">Retained earnings account</label>
+              <Input value={retainedEarningsAccount} onChange={(e) => setRetainedEarningsAccount(e.target.value)} placeholder="3200" data-testid="policy-retained" />
+            </div>
+          ) : (
+            <>
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-muted-foreground">Net assets without donor restrictions</label>
+                <Input value={netAssetsWithoutRestrictionsAccount} onChange={(e) => setNetAssetsWithoutRestrictionsAccount(e.target.value)} placeholder="3100" data-testid="policy-net-without" />
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-muted-foreground">Net assets with donor restrictions (optional)</label>
+                <Input value={netAssetsWithRestrictionsAccount} onChange={(e) => setNetAssetsWithRestrictionsAccount(e.target.value)} placeholder="3300" data-testid="policy-net-with" />
+              </div>
+            </>
+          )}
+          {error ? <p className="break-words text-xs text-destructive">{error}</p> : null}
+        </div>
+        <DialogFooter>
+          <Button size="sm" variant="outline" onClick={() => setOpen(false)}>
+            Cancel
+          </Button>
+          <Button size="sm" onClick={() => void save()} disabled={trigger.isPending} data-testid="policy-save">
+            Save
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

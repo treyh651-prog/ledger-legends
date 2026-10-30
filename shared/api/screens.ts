@@ -608,6 +608,20 @@ export const setupMappingProfileSchema = z.object({
 });
 export type SetupMappingProfile = z.infer<typeof setupMappingProfileSchema>;
 
+/** Null means no ledger.client_policies row exists yet, i.e. every default applies. */
+export const setupClientPolicySchema = z.object({
+  functionalCurrency: z.string(),
+  capitalizeOverCents: centsSchema.nullable(),
+  grossAtSaleTime: z.boolean(),
+  cleanupEngagement: z.boolean(),
+  entityKind: z.enum(["for_profit", "nonprofit"]),
+  retainedEarningsAccount: z.string().nullable(),
+  netAssetsWithoutRestrictionsAccount: z.string().nullable(),
+  netAssetsWithRestrictionsAccount: z.string().nullable(),
+  fiscalYearEndMonth: z.number().int(),
+});
+export type SetupClientPolicy = z.infer<typeof setupClientPolicySchema>;
+
 export const clientSetupSchema = z.object({
   clientId: idSchema,
   bankAccounts: z.array(setupBankAccountSchema),
@@ -615,5 +629,6 @@ export const clientSetupSchema = z.object({
   tasks: z.array(firmTaskSchema),
   /** False until object storage exists. The upload screen reads it. */
   uploadsConfigured: z.boolean(),
+  policy: setupClientPolicySchema.nullable(),
 });
 export type ClientSetup = z.infer<typeof clientSetupSchema>;

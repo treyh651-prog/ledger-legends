@@ -140,6 +140,7 @@ import "./eng-set-billing-status";
 import "./cfg-edit-category";
 import "./cfg-edit-rule";
 import "./cfg-edit-mapping-profile";
+import "./cfg-edit-client-policy";
 import "./intake-open-requests";
 import "./setup-add-bank-account";
 import "./setup-import-balances";

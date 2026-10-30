@@ -731,6 +731,25 @@ export interface ClientPolicyRow {
   netAssetsWithRestrictionsAccount: string | null;
   /** 12 for a calendar fiscal year. Read, never assumed. */
   fiscalYearEndMonth: number;
+  version: number;
+  updatedAt: string;
+}
+
+/**
+ * ledger.client_policy_versions, migration 0054. Keyed by clientId rather
+ * than the policy row's own synthetic id, since unique(client_id) is this
+ * table's real identity; the id column exists only for test-fixture
+ * readability per client_policies' own migration comment.
+ */
+export interface ClientPolicyVersionRow {
+  clientId: Ulid;
+  version: number;
+  firmId: Ulid;
+  snapshot: Record<string, unknown>;
+  validFrom: string;
+  validTo: string | null;
+  changedBy: Ulid;
+  changeNote: string | null;
 }
 
 /** A document linked to a transaction. The receipt check reads only this. */
@@ -2755,6 +2774,7 @@ export interface RowMap {
   bank_code_mappings: BankCodeMappingRow;
   settlement_rows: SettlementRowRow;
   client_policies: ClientPolicyRow;
+  client_policy_versions: ClientPolicyVersionRow;
   document_links: DocumentLinkRow;
   portal_requests: PortalRequestRow;
   portal_messages: PortalMessageRow;

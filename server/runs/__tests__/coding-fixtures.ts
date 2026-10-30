@@ -289,6 +289,8 @@ export function clientPolicy(
     netAssetsWithoutRestrictionsAccount: null,
     netAssetsWithRestrictionsAccount: null,
     fiscalYearEndMonth: 12,
+    version: 1,
+    updatedAt: NOW.toISOString(),
     ...extra,
   };
 }

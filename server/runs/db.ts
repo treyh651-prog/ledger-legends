@@ -39,6 +39,7 @@ import type {
   LoanScheduleRow,
   ChartAccountRow,
   ClientPolicyRow,
+  ClientPolicyVersionRow,
   ClosePeriodRow,
   CloseGateResultRow,
   ClosingEntryRow,
@@ -349,6 +350,10 @@ export interface QueryCatalog {
   client_policy: {
     params: { firmId: Ulid; clientId: Ulid };
     row: ClientPolicyRow;
+  };
+  client_policy_versions_for_client: {
+    params: { firmId: Ulid; clientId: Ulid };
+    row: ClientPolicyVersionRow;
   };
   document_links_for_transactions: {
     params: { firmId: Ulid; clientId: Ulid; transactionIds: Ulid[] };

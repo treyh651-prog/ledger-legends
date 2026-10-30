@@ -31,6 +31,8 @@ import type {
   CategoryRow,
   CategoryVersionRow,
   ChartAccountRow,
+  ClientPolicyRow,
+  ClientPolicyVersionRow,
   CreditMemoRow,
   CustomerPaymentRow,
   VendorRow,
@@ -497,6 +499,10 @@ async function writeField(
     case "mapping_profiles":
       await tx.update("mapping_profiles", rowId, after);
       return;
+    // CFG-EDIT-CLIENT-POLICY's edit path, once a row already exists.
+    case "client_policies":
+      await tx.update("client_policies", rowId, after);
+      return;
     /*
      * practice_escalations is absent on purpose. Doc 02 PRAC-ESCALATE-OVERDUE
      * says an escalation record is never edited and never removed, so there is
@@ -821,6 +827,17 @@ async function insertRow(
     case "mapping_profile_versions":
       await tx.insert("mapping_profile_versions", [
         row as unknown as MappingProfileVersionRow,
+      ]);
+      return;
+    // CFG-EDIT-CLIENT-POLICY inserts the first row for a client that has
+    // none yet (client_policies has a synthetic id, unlike its own version
+    // history below, which is keyed by (clientId, version) instead).
+    case "client_policies":
+      await tx.insert("client_policies", [withId as unknown as ClientPolicyRow]);
+      return;
+    case "client_policy_versions":
+      await tx.insert("client_policy_versions", [
+        row as unknown as ClientPolicyVersionRow,
       ]);
       return;
     /**
