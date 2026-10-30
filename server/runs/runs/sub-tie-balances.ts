@@ -155,7 +155,7 @@ export const subTieBalances: Run<TieBalancesScope, Proposal> = {
         state,
         detail: source.detail,
       };
-      const rowId = tieoutId(data.periodStart, account.accountNumber);
+      const rowId = tieoutId(frozen.clientId, data.periodStart, account.accountNumber);
       const prior = priorById.get(rowId);
       if (prior === undefined) {
         proposals.push(insertTieout(frozen, data.periodStart, data.periodEnd, rowId, content));
@@ -220,8 +220,8 @@ export const subTieBalances: Run<TieBalancesScope, Proposal> = {
   },
 };
 
-export function tieoutId(periodStart: string, accountNumber: string): Ulid {
-  return derivedId(`${periodStart}:${accountNumber}`, "sub-tie-balances", 0);
+export function tieoutId(clientId: Ulid, periodStart: string, accountNumber: string): Ulid {
+  return derivedId(`${clientId}:${periodStart}:${accountNumber}`, "sub-tie-balances", 0);
 }
 
 /**

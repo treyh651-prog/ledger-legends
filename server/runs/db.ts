@@ -20,6 +20,7 @@ import type {
   BankCodeMappingRow,
   BillRow,
   CategoryRow,
+  CategoryVersionRow,
   CreditMemoRow,
   CustomerPaymentRow,
   CustomerRow,
@@ -52,6 +53,8 @@ import type {
   JournalLineRow,
   MappingProfileRow,
   MappingProfileColumnRow,
+  MappingProfileVersionRow,
+  MappingExceptionRow,
   PeriodLockRow,
   PortalRequestRow,
   PortalMessageRow,
@@ -63,6 +66,7 @@ import type {
   RecurringTemplateRow,
   RowMap,
   RuleRow,
+  RuleVersionRow,
   SettlementRowRow,
   RunLogEventRow,
   RunLogItemRow,
@@ -225,6 +229,15 @@ export interface QueryCatalog {
     params: { firmId: Ulid; clientId: Ulid };
     row: MappingProfileRow;
   };
+  /** CFG-EDIT-MAPPING-PROFILE. Unfiltered by is_active, same reason as rule_by_id. */
+  mapping_profile_by_id: {
+    params: { firmId: Ulid; clientId: Ulid; mappingProfileId: Ulid };
+    row: MappingProfileRow;
+  };
+  mapping_profile_versions_for_profile: {
+    params: { firmId: Ulid; clientId: Ulid; mappingProfileId: Ulid };
+    row: MappingProfileVersionRow;
+  };
   /** The active column rows of every profile the client has. */
   mapping_profile_columns_for_client: {
     params: { firmId: Ulid; clientId: Ulid };
@@ -234,9 +247,19 @@ export interface QueryCatalog {
     params: { firmId: Ulid; clientId: Ulid; batchId: Ulid };
     row: ImportBatchRow;
   };
+  /** The firm's staged statements screen: batches still waiting on a decision. */
+  import_batches_awaiting_review: {
+    params: { firmId: Ulid; clientId: Ulid };
+    row: ImportBatchRow;
+  };
   staged_rows_by_batch: {
     params: { firmId: Ulid; clientId: Ulid; batchId: Ulid };
     row: StagedRowRow;
+  };
+  /** The one open or resolved mapping exception row for a bank account, if any. */
+  mapping_exception_for_account: {
+    params: { firmId: Ulid; clientId: Ulid; bankAccountId: Ulid };
+    row: MappingExceptionRow;
   };
   /** Import dedup, first test: the bank supplied id is the key. */
   transactions_by_bank_ids: {
@@ -275,6 +298,15 @@ export interface QueryCatalog {
     params: { firmId: Ulid; clientId: Ulid };
     row: CategoryRow;
   };
+  /** CFG-EDIT-CATEGORY. Unfiltered by is_active, unlike categories_for_client's callers. */
+  category_by_id: {
+    params: { firmId: Ulid; clientId: Ulid; categoryId: string };
+    row: CategoryRow;
+  };
+  category_versions_for_category: {
+    params: { firmId: Ulid; clientId: Ulid; categoryId: string };
+    row: CategoryVersionRow;
+  };
   /**
    * Active rules in the doc 00 tie break order already applied: priority
    * descending, condition count descending, rule id ascending.
@@ -282,6 +314,15 @@ export interface QueryCatalog {
   active_rules_for_client: {
     params: { firmId: Ulid; clientId: Ulid };
     row: RuleRow;
+  };
+  /** CFG-EDIT-RULE. Unfiltered by is_active, so an inactive rule stays reachable. */
+  rule_by_id: {
+    params: { firmId: Ulid; clientId: Ulid; ruleId: string };
+    row: RuleRow;
+  };
+  rule_versions_for_rule: {
+    params: { firmId: Ulid; clientId: Ulid; ruleId: string };
+    row: RuleVersionRow;
   };
   recurring_templates_for_client: {
     params: { firmId: Ulid; clientId: Ulid };
@@ -479,6 +520,17 @@ export interface QueryCatalog {
    */
   customer_payments_in_window: {
     params: { firmId: Ulid; clientId: Ulid; from: string; to: string };
+    row: CustomerPaymentRow;
+  };
+  /**
+   * Every payment of a client, unfiltered by date. AR-RECORD-PAYMENT reads
+   * this to refuse a second payment against the same register transaction,
+   * the same reason AR-CREATE-INVOICE reads invoices_for_client before
+   * posting: the window query exists for AR-APPLY-PAYMENTS' own period scope
+   * and is the wrong shape for a one time existence check.
+   */
+  customer_payments_for_client: {
+    params: { firmId: Ulid; clientId: Ulid };
     row: CustomerPaymentRow;
   };
   /** Structured remittance advice, ordered by payment then line number. */

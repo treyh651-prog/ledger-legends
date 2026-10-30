@@ -13,6 +13,7 @@
  */
 
 import { assert, assertEqual, test } from "./harness";
+import { CLIENT_A1 } from "./fixtures";
 import { PERIOD, gateResult, recBatch, seedEntry } from "./close-fixtures";
 import {
   applyReport,
@@ -57,7 +58,7 @@ test("the narrative id is derived, so a rerun is a no operation", async () => {
   await applyReport(db, rptComposeNarrative, scope);
   assertEqual(
     narrativesOf(db)[0].id,
-    narrativeIdOf(PERIOD, "owner"),
+    narrativeIdOf(CLIENT_A1, PERIOD, "owner"),
     "the id is derived from the period and the audience",
   );
   const again = await previewReport(db, rptComposeNarrative, scope);
@@ -77,7 +78,7 @@ test("two periods do not collide because the period is in the scope hash", async
   });
   assert(january.scopeHash !== february.scopeHash, "the two hashes differ");
   assert(
-    narrativeIdOf(PERIOD, "owner") !== narrativeIdOf("2026-02-01", "owner"),
+    narrativeIdOf(CLIENT_A1, PERIOD, "owner") !== narrativeIdOf(CLIENT_A1, "2026-02-01", "owner"),
     "and the two narratives are different rows",
   );
 });

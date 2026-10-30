@@ -47,10 +47,7 @@ import { isLockedDay } from "../dates";
 import { derivedId, scopeHashFor } from "../ids";
 import { reverseEntry, revertFieldWrite } from "../undo";
 import type { StagedRowRow, TransactionRow } from "../tables";
-import {
-  DESCRIPTOR_NORMALIZATION_VERSION,
-  normalizeDescriptor,
-} from "./import-parse-feed";
+import { DESCRIPTOR_NORMALIZATION_VERSION } from "./import-parse-feed";
 
 export const COMMIT_ERROR_CODES = {
   unknownBatch: "UNKNOWN_IMPORT_BATCH",
@@ -263,9 +260,6 @@ export const importCommitBatch: Run<CommitBatchScope, Proposal> = {
       }
 
       const registerId = registerIdFor(batch.id, row.rowNumber);
-      const normalized =
-        row.normalizedDescription ??
-        normalizeDescriptor(row.description ?? "");
       const register: TransactionRow = {
         id: registerId,
         firmId: frozen.firmId,
@@ -277,10 +271,13 @@ export const importCommitBatch: Run<CommitBatchScope, Proposal> = {
         currency: row.currency,
         description: row.description ?? "",
         bankMerchantName: null,
-        normalizedVendor: normalized,
-        // Left null on purpose. The import normalizer is the staging one, not the
-        // vendor normalizer, so TXN-NORMALIZE-VENDORS still has work to do and
-        // reports the row as unnormalized rather than as already at version.
+        // Both left null on purpose. The staging normalizer that produced
+        // row.normalizedDescription is not the vendor normalizer, and
+        // txn_normalization_versioned (migration 0011) requires a version
+        // whenever normalizedVendor is set, so the pair stays null together
+        // until TXN-NORMALIZE-VENDORS sets both at once -- the same
+        // uncoded-on-arrival treatment as categoryId below.
+        normalizedVendor: null,
         vendorNormalizationVersion: null,
         normalizationDegraded: false,
         vendorId: null,
@@ -354,10 +351,12 @@ export const importCommitBatch: Run<CommitBatchScope, Proposal> = {
         before: {
           dedupState: row.dedupState,
           committedTransactionId: row.committedTransactionId,
+          committedAt: row.committedAt,
         },
         after: {
           dedupState: "committed",
           committedTransactionId: registerId,
+          committedAt: NOW_PLACEHOLDER,
         },
         provenance: { cascadeLevel: 0 },
       });
@@ -368,6 +367,14 @@ export const importCommitBatch: Run<CommitBatchScope, Proposal> = {
       net += row.amountCents;
     }
 
+    // A row still held with nobody having decided it yet means this pass did
+    // not finish the batch: IMPORT-REVIEW-STAGED-ROW still has work to do,
+    // and the batch has to stay in a status IMPORT-COMMIT-BATCH will still
+    // accept once that review lands, rather than closing as committed with
+    // the row stuck behind it forever.
+    const stillHeld = staged.some(
+      (row) => row.dedupState === "held_for_review" && row.reviewState === "pending",
+    );
     proposals.push({
       kind: "field_write",
       table: "import_batches",
@@ -377,12 +384,14 @@ export const importCommitBatch: Run<CommitBatchScope, Proposal> = {
         committedRunId: batch.committedRunId,
         committedAt: batch.committedAt,
       },
-      after: {
-        status: "committed",
-        // Substituted by the writer. See RUN_ID_PLACEHOLDER.
-        committedRunId: RUN_ID_PLACEHOLDER,
-        committedAt: NOW_PLACEHOLDER,
-      },
+      after: stillHeld
+        ? { status: "in_review", committedRunId: batch.committedRunId, committedAt: batch.committedAt }
+        : {
+            status: "committed",
+            // Substituted by the writer. See RUN_ID_PLACEHOLDER.
+            committedRunId: RUN_ID_PLACEHOLDER,
+            committedAt: NOW_PLACEHOLDER,
+          },
       provenance: { cascadeLevel: 0 },
     });
 

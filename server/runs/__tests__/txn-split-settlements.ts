@@ -192,7 +192,11 @@ test("split settlements, ordering, a rule may not code the net deposit as revenu
   // Rules first, which is the wrong order. The rule codes the net as revenue.
   const outOfOrder = seed();
   const early = await previewCoding(outOfOrder, txnApplyRules, scopeFor(CLIENT_A1));
-  assertEqual(early.result.proposals.length, 1, "the rule would happily fire");
+  assertEqual(
+    early.result.proposals.length,
+    2,
+    "the rule would happily fire, coding the row and moving its hit count",
+  );
 
   // Documented order. Split first, then rules, and the rule now stands down.
   const inOrder = seed();

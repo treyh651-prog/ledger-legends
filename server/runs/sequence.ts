@@ -80,7 +80,7 @@ export async function executeSequence(
 
   for (let i = 0; i < steps.length; i += 1) {
     const current = steps[i];
-    const preview = await current.invoke(db, { ...base, mode: "preview" });
+    const preview = await current.invoke(db, { ...base, mode: "preview", sequenceStep: i + 1 });
     childRunIds.push(preview.executionId);
     outcomes.push(preview);
     if (STOPPING_STATUSES.includes(preview.status)) {
@@ -95,6 +95,7 @@ export async function executeSequence(
       ...base,
       mode: "apply",
       previewRunId: preview.executionId,
+      sequenceStep: i + 1,
     });
     childRunIds.push(applied.executionId);
     outcomes.push(applied);

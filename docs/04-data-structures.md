@@ -954,9 +954,12 @@ create table ledger.run_log (
 create table ledger.run_log_2026_09 partition of ledger.run_log
   for values from ('2026-09-01') to ('2026-10-01');
 
-create unique index run_log_idem
-  on ledger.run_log (idempotency_key)
-  where mode = 'apply' and status in ('completed','completed_with_skips','no_op');
+-- No partial unique index here. run_log.status is always 'started' -- the
+-- row is insert only (trg_run_log_insert_only), and every real status
+-- transition is an appended run_log_events row instead. A partial index on
+-- run_log.status could never fire; migration 0041 removed the one that used
+-- to be documented at this spot for exactly that reason. The real
+-- idempotency guarantee is run_log_events_idem, below.
 
 create index on ledger.run_log (client_id, run_type, started_at desc);
 create index on ledger.run_log (firm_id, started_at desc);
@@ -1011,8 +1014,20 @@ create table ledger.run_log_events (
   firm_id        uuid not null,
   event          text not null,               -- 'completed','failed','retried','undone','abandoned'
   detail         jsonb not null default '{}',
-  created_at     timestamptz not null default now()
+  created_at     timestamptz not null default now(),
+
+  -- Migration 0041. Set only on the terminal event of an apply execution
+  -- that actually completed ('completed','completed_with_skips','no_op');
+  -- null on every preview event and every apply event that did not
+  -- complete. This is where the idempotency guarantee actually lives, since
+  -- run_log.status can never reflect it (see the note above run_log_idem's
+  -- old spot, further up this file).
+  idempotency_key text
 );
+
+create unique index run_log_events_idem
+  on ledger.run_log_events (idempotency_key)
+  where idempotency_key is not null;
 
 create table ledger.run_sequences (
   id             char(26) primary key,

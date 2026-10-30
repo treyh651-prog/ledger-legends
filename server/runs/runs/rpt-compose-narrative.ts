@@ -366,7 +366,7 @@ export const rptComposeNarrative: Run<ComposeNarrativeScope, Proposal> = {
     const skips: Skip[] = [];
     const errors: RunError[] = [];
 
-    const rowId = narrativeIdOf(data.periodStart, frozen.input.audience);
+    const rowId = narrativeIdOf(frozen.clientId, data.periodStart, frozen.input.audience);
     const prior = data.narratives.find((n) => n.id === rowId);
 
     if (prior !== undefined && prior.manualOverride) {
@@ -461,8 +461,8 @@ export const rptComposeNarrative: Run<ComposeNarrativeScope, Proposal> = {
   },
 };
 
-export function narrativeIdOf(periodStart: string, audience: string): Ulid {
-  return derivedId(`${periodStart}:${audience}`, "rpt-compose-narrative", 0);
+export function narrativeIdOf(clientId: Ulid, periodStart: string, audience: string): Ulid {
+  return derivedId(`${clientId}:${periodStart}:${audience}`, "rpt-compose-narrative", 0);
 }
 
 function auditIdOf(narrativeId: Ulid): Ulid {

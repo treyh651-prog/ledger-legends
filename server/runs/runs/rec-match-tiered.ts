@@ -243,7 +243,9 @@ export const recMatchTiered: Run<MatchTieredScope, Proposal> = {
     }
 
     const batchId =
-      openBatch !== null ? openBatch.id : derivedId(scope.statementId, "rec-batch", 0);
+      openBatch !== null
+        ? openBatch.id
+        : derivedId(`${frozen.clientId}:${scope.statementId}`, "rec-batch", 0);
 
     const lines = await tx.query("statement_lines_for_statement", {
       firmId: frozen.firmId,

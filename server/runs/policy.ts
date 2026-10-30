@@ -94,6 +94,11 @@ export const RUN_POLICIES: Readonly<Record<string, RunPolicy>> = {
     reason:
       "one time wizard step whose output is a list of asks addressed to the client, and the first thing a new client hears from the firm is not a thing a clock decides to send",
   },
+  "SETUP-ADD-BANK-ACCOUNT": {
+    tier: "manual",
+    reason:
+      "names a bank or card account and which chart account it feeds, once, and a clock has no account of its own to discover",
+  },
   "SETUP-IMPORT-BALANCES": {
     tier: "manual",
     reason:
@@ -108,6 +113,26 @@ export const RUN_POLICIES: Readonly<Record<string, RunPolicy>> = {
     tier: "propose",
     reason:
       "commits a staged batch into the register and the ledger, and which batch commits is a decision a person makes after looking at the mapping",
+  },
+  "IMPORT-FLAG-MAPPING-NEEDED": {
+    tier: "unattended",
+    reason:
+      "records that a parse could not get past the mapping check, touches no ledger account, and a repeat of the same failure lands on the same open row",
+  },
+  "IMPORT-REJECT-BATCH": {
+    tier: "manual",
+    reason:
+      "throwing out a staged statement is a decision a person makes once, looking at the mapping, the same reasoning IMPORT-COMMIT-BATCH itself is not unattended for",
+  },
+  "PER-DISPOSE-ASSET": {
+    tier: "manual",
+    reason:
+      "which asset left the books, on what day, and for how much is a decision a person makes once, looking at a bill of sale or a disposal memo, and a clock has no sale of its own to discover",
+  },
+  "IMPORT-REVIEW-STAGED-ROW": {
+    tier: "manual",
+    reason:
+      "whether two same day, same amount charges are one purchase repeated or two different ones is a judgment a person makes once, looking at the statement, the same reasoning IMPORT-COMMIT-BATCH itself is not unattended for",
   },
 
   // ---------------------------------------------------------------------
@@ -158,10 +183,21 @@ export const RUN_POLICIES: Readonly<Record<string, RunPolicy>> = {
     reason:
       "parks a transaction in a clearing account with a ledger entry and opens a portal request the client reads",
   },
+  "TXN-POST-CODED": {
+    tier: "propose",
+    reason:
+      "posts the ordinary coded transaction to its own real account, a general ledger write, the same reasoning TXN-SWEEP-SUSPENSE gives for posting to suspense",
+  },
 
   // ---------------------------------------------------------------------
-  // Module 3, reconciliation. None of the three posts anything.
+  // Module 3, reconciliation. REC-IMPORT-STATEMENT puts the bank's own lines
+  // on the books; none of the four posts anything.
   // ---------------------------------------------------------------------
+  "REC-IMPORT-STATEMENT": {
+    tier: "unattended",
+    reason:
+      "records exactly what the bank statement says, touches no ledger account, and a repeat on the same statement id changes nothing",
+  },
   "REC-MATCH-TIERED": {
     tier: "unattended",
     reason:
@@ -209,8 +245,42 @@ export const RUN_POLICIES: Readonly<Record<string, RunPolicy>> = {
   },
 
   // ---------------------------------------------------------------------
-  // Module 5, AR and AP. Four post, two reach a customer, one measures.
+  // Module 5, AR and AP. AR-CREATE-CUSTOMER and AR-CREATE-INVOICE put the
+  // first customer and the first bill on the books; AP-CREATE-VENDOR and
+  // AP-CREATE-BILL do the identical thing for the payable side, and
+  // AR-RECORD-PAYMENT puts the first received payment on the books. Four of
+  // the documented six post, two reach a customer, one measures.
   // ---------------------------------------------------------------------
+  "AR-CREATE-CUSTOMER": {
+    tier: "manual",
+    reason:
+      "a person at the firm records a new customer by name, once, and a clock has no customer of its own to discover",
+  },
+  "AR-CREATE-INVOICE": {
+    tier: "manual",
+    reason:
+      "posts the sale to the general ledger and bills a named customer, so the run prepares and a person decides, the same reasoning SETUP-IMPORT-BALANCES gives for the opening entry",
+  },
+  "AP-CREATE-VENDOR": {
+    tier: "manual",
+    reason:
+      "a person at the firm records a new vendor by legal name, once, and a clock has no vendor of its own to discover",
+  },
+  "AP-CREATE-BILL": {
+    tier: "manual",
+    reason:
+      "posts the payable to the general ledger from a named vendor's bill, so the run prepares and a person decides, the same reasoning AR-CREATE-INVOICE gives for billing a customer",
+  },
+  "AR-RECORD-PAYMENT": {
+    tier: "manual",
+    reason:
+      "names which customer a deposit already on the register belongs to, once, and a clock cannot discover whose cash it is",
+  },
+  "AR-CREATE-CREDITMEMO": {
+    tier: "manual",
+    reason:
+      "posts a reversal to the general ledger and credits a named customer's balance, so the run prepares and a person decides, the same reasoning AR-CREATE-INVOICE gives for billing one",
+  },
   "AR-APPLY-PAYMENTS": {
     tier: "propose",
     reason:
@@ -335,6 +405,10 @@ export const RUN_POLICIES: Readonly<Record<string, RunPolicy>> = {
     tier: "manual",
     reason: "a person at the firm completes, reopens, or reassigns one task from the board, and a clock has no opinion on that",
   },
+  "ENG-SET-BILLING-STATUS": {
+    tier: "manual",
+    reason: "a person at the firm marks the engagement current or past due by hand, because this system has no payment event for a clock to read",
+  },
 
   // ---------------------------------------------------------------------
   // D5 payroll and the two deliverables.
@@ -358,6 +432,21 @@ export const RUN_POLICIES: Readonly<Record<string, RunPolicy>> = {
     tier: "manual",
     reason:
       "a client is offboarded because a contract ended, which is a fact no table in this system holds, so nothing here should be able to start it",
+  },
+  "CFG-EDIT-CATEGORY": {
+    tier: "manual",
+    reason:
+      "a person at the firm decides what a category is called, where it posts, and how it is taxed, never something a clock infers",
+  },
+  "CFG-EDIT-RULE": {
+    tier: "manual",
+    reason:
+      "a rule is configurable by a user and therefore capable of encoding a mistake at scale, the same reason TXN-APPLY-RULES itself names for why editing one is a person's decision",
+  },
+  "CFG-EDIT-MAPPING-PROFILE": {
+    tier: "manual",
+    reason:
+      "which bank column means what is a judgment a person makes once per institution, and a wrong guess here silently books amounts to the wrong sign or date",
   },
 };
 

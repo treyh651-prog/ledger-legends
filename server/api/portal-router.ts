@@ -196,9 +196,13 @@ async function messagesFor(tx: RunTx, firmId: string, clientId: string, userId: 
 }
 
 async function documentsFor(tx: RunTx, firmId: string, clientId: string, storage: DocumentStorage | null): Promise<PortalDocuments> {
-  const [docs, requests] = await Promise.all([
+  const [docs, requests, bankAccounts, vendors, fixedAssets, loans] = await Promise.all([
     tx.query("documents_for_client", { firmId, clientId }),
     requestsFor(tx, firmId, clientId),
+    tx.query("bank_accounts_for_client", { firmId, clientId }),
+    tx.query("vendors_for_client", { firmId, clientId }),
+    tx.query("fixed_assets_for_client", { firmId, clientId }),
+    tx.query("loans_for_client", { firmId, clientId }),
   ]);
   return {
     items: docs.map(documentDto),
@@ -206,6 +210,10 @@ async function documentsFor(tx: RunTx, firmId: string, clientId: string, storage
     storageConfigured: storage !== null,
     storageProvider: storage ? storage.provider : null,
     uploadMaxBytes: uploadMaxBytes(),
+    bankAccounts: bankAccounts.map((a) => ({ id: a.id, nickname: a.nickname, accountNumber: a.accountNumber })),
+    vendors: vendors.filter((v) => v.isActive).map((v) => ({ id: v.id, legalName: v.legalName })),
+    fixedAssets: fixedAssets.map((a) => ({ id: a.id, description: a.description })),
+    loans: loans.map((l) => ({ id: l.id, lenderName: l.lenderName })),
   };
 }
 

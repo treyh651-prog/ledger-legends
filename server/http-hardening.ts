@@ -17,7 +17,7 @@
  */
 
 import cors from "cors";
-import type { Express, NextFunction, Request, Response } from "express";
+import type { Express, NextFunction, Request, RequestHandler, Response } from "express";
 import express from "express";
 import helmet from "helmet";
 
@@ -99,8 +99,77 @@ export function applyHardening(app: Express, opts: HardeningOptions): void {
     }),
   );
 
-  app.use(express.json({ limit: opts.jsonLimit ?? "64kb", strict: true }));
+  app.use(jsonBodyParser({ limit: opts.jsonLimit ?? "64kb" }));
   app.use(express.urlencoded({ extended: false, limit: "16kb" }));
+}
+
+/**
+ * serverless-http's reconstructed request stream reads the body exactly
+ * once; whatever in the stack reads it a second time gets nothing, and
+ * express.json's raw-body based parser reads it as part of detecting
+ * whether a body is even present, which is that second read. The parsed
+ * route ends up with req.body undefined on Netlify, though never on a
+ * traditional server, which is why this was never seen locally.
+ *
+ * serverless-http already set req.body to the raw request string before
+ * Express saw it (lib/request.js, part of its Node IncomingMessage shim),
+ * so the fix is to read that instead of the stream whenever it is there,
+ * and fall back to express.json's own stream based parser for the
+ * traditional path (`npm start`, local dev), where no such property
+ * exists and the stream is the only way to read the body at all.
+ */
+function jsonBodyParser(opts: { limit: string }): RequestHandler {
+  const streamFallback = express.json({ limit: opts.limit, strict: true });
+  const maxBytes = parseByteLimit(opts.limit);
+  return (req, res, next) => {
+    const raw = (req as unknown as { body?: unknown }).body;
+    // serverless-http sets req.body to a Buffer (not the string the docs
+    // implied), already decoded from base64 when the event said so.
+    const preset = Buffer.isBuffer(raw) ? raw.toString("utf8") : typeof raw === "string" ? raw : undefined;
+    if (preset === undefined) {
+      streamFallback(req, res, next);
+      return;
+    }
+    const contentType = (req.header("content-type") ?? "").split(";")[0].trim().toLowerCase();
+    if (contentType !== "application/json") {
+      (req as unknown as { body: unknown }).body = {};
+      next();
+      return;
+    }
+    if (preset.length === 0) {
+      (req as unknown as { body: unknown }).body = {};
+      next();
+      return;
+    }
+    if (Buffer.byteLength(preset, "utf8") > maxBytes) {
+      next(Object.assign(new Error("request entity too large"), { type: "entity.too.large", status: 413 }));
+      return;
+    }
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(preset);
+    } catch {
+      next(Object.assign(new Error("invalid JSON"), { type: "entity.parse.failed", status: 400 }));
+      return;
+    }
+    // express.json's strict mode: only an object or array at the top level.
+    if (parsed === null || typeof parsed !== "object") {
+      next(Object.assign(new Error("invalid JSON"), { type: "entity.parse.failed", status: 400 }));
+      return;
+    }
+    (req as unknown as { body: unknown }).body = parsed;
+    next();
+  };
+}
+
+function parseByteLimit(limit: string): number {
+  const m = /^(\d+(?:\.\d+)?)\s*(kb|mb|b)?$/i.exec(limit.trim());
+  if (!m) return 64 * 1024;
+  const n = Number(m[1]);
+  const unit = (m[2] ?? "b").toLowerCase();
+  if (unit === "mb") return n * 1024 * 1024;
+  if (unit === "kb") return n * 1024;
+  return n;
 }
 
 /**

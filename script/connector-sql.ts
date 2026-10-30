@@ -1,10 +1,20 @@
 /**
- * Read only SQL against the project database, through the Supabase connector.
+ * Read only SQL against the project database, for the two schema gates.
  *
- * Both schema gates need the live catalog and neither may see a password. The
- * connector holds its own credentials, so the gates shell out to it and parse
- * what comes back. This module exists because the parsing is fiddly and having
- * it written twice is the drift the gates are there to catch.
+ * Two ways in, tried in this order:
+ *
+ *   1. The Supabase connector (`pplx`), which holds its own credentials.
+ *      Nothing here reads, asks for, or stores a password on this path, which
+ *      is why it is tried first: a contributor who has the connector but not
+ *      `DATABASE_URL` should never need the password to run these gates.
+ *   2. A direct Postgres connection through `DATABASE_URL`, the same variable
+ *      `server/db/pool.ts` reads, for an environment that has the password
+ *      but not the connector. This path does see the password, because it is
+ *      the one thing it has to read to work at all; it still prints nothing
+ *      from it, the same discipline `npm run db:verify` follows.
+ *
+ * If neither is available the gate cannot run, and says so by naming both
+ * missing paths rather than guessing which one the caller meant to set up.
  *
  * The connector is an HTTP hop and occasionally answers a large catalog read
  * with a 504, which failed a gate on a green tree while the database was
@@ -31,7 +41,7 @@ function sleep(ms: number): void {
  * The connector returns the rows inside an untrusted data envelope, because
  * query output is data and not instruction. Strip the envelope, parse the JSON.
  */
-export function query(sql: string): Array<Record<string, unknown>> {
+function queryViaConnector(sql: string): Array<Record<string, unknown>> {
   const input = JSON.stringify({ project_id: PROJECT_ID, query: sql });
   let last: unknown;
   for (let attempt = 1; attempt <= ATTEMPTS; attempt += 1) {
@@ -57,4 +67,37 @@ export function query(sql: string): Array<Record<string, unknown>> {
   throw new Error(
     `connector call failed ${ATTEMPTS} times: ${String(last)}`.slice(0, 600),
   );
+}
+
+/**
+ * A fresh client per call rather than a shared pool, because these scripts
+ * run a handful of queries and exit; a pool left open is a pool left holding
+ * the process open past its last query, for no benefit at this call volume.
+ */
+async function queryViaDatabaseUrl(sql: string): Promise<Array<Record<string, unknown>>> {
+  const { Client } = await import("pg");
+  const client = new Client({
+    connectionString: process.env.DATABASE_URL,
+    ssl: { rejectUnauthorized: false },
+  });
+  await client.connect();
+  try {
+    const res = await client.query(sql);
+    return res.rows as Array<Record<string, unknown>>;
+  } finally {
+    await client.end();
+  }
+}
+
+export async function query(sql: string): Promise<Array<Record<string, unknown>>> {
+  try {
+    return queryViaConnector(sql);
+  } catch (connectorErr) {
+    if (!process.env.DATABASE_URL) {
+      throw new Error(
+        `no way to reach the database: the connector failed (${String(connectorErr).slice(0, 200)}) and DATABASE_URL is not set`,
+      );
+    }
+    return queryViaDatabaseUrl(sql);
+  }
 }

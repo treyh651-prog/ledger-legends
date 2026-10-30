@@ -28,7 +28,7 @@ import type {
   CashForecastWeekRow,
   ReportNarrativeRow,
 } from "../tables";
-import { CLIENT_A1, FIRM_A, NOW, lock, opts } from "./fixtures";
+import { ACTOR, CLIENT_A1, FIRM_A, NOW, lock, opts } from "./fixtures";
 import {
   PERIOD,
   PERIOD_END,
@@ -150,6 +150,7 @@ export function invoiceRow(
     arAccount: "1100",
     revenueAccount: "4100",
     manualOverride: false,
+    createdBy: ACTOR,
     ...extra,
   };
 }
@@ -183,6 +184,7 @@ export function billRow(id: string, extra: Partial<BillRow> = {}): BillRow {
     apAccount: "2000",
     expenseAccount: "6100",
     manualOverride: false,
+    createdBy: ACTOR,
     ...extra,
   };
 }

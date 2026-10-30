@@ -51,7 +51,9 @@ import {
 import { derivedId, scopeHashFor } from "../ids";
 import type { CategoryRow, ChartAccountRow } from "../tables";
 import { ZERO } from "./close-shared";
+import { ARAP_DEFAULTS } from "./arap-shared";
 import { periodWindow } from "./per-shared";
+import { statementLineOf } from "./statement-taxonomy";
 import {
   MANDATORY_CLEARING_ACCOUNTS,
   assembleAccounts,
@@ -318,6 +320,24 @@ function insertAccount(
       clientId: frozen.clientId,
       accountNumber: account.accountNumber,
       name: account.name,
+      // Only ever set for the 8000 and 9000 blocks (TemplateAccount's own
+      // comment says why); ledger.chart_accounts_insert derives every other
+      // block from the account number itself and ignores this column there,
+      // same as it always has. Undefined serializes to column default (null),
+      // so every other account's insert is byte for byte what it was before.
+      accountType: account.accountType,
+      normalSide: account.normalSide,
+      // Derived from the account number, per doc 01's STATEMENT grouping
+      // ("derived, never hand maintained"), never a template-supplied value.
+      statementLine: statementLineOf(account.accountNumber),
+      parentNumber: null,
+      // True for exactly the two accounts the app already treats as the
+      // canonical subledger controls (arap-shared.ts's ARAP_DEFAULTS), when
+      // the template assigns those same numbers. Not a new decision, a
+      // persisted flag for one the app already makes.
+      isControl:
+        account.accountNumber === ARAP_DEFAULTS.accounts.arControl ||
+        account.accountNumber === ARAP_DEFAULTS.accounts.apControl,
     },
     provenance: { cascadeLevel: null },
   };

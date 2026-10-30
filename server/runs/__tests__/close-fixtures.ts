@@ -28,7 +28,7 @@ import type {
   SubTieoutRow,
   SubstantiationRecordRow,
 } from "../tables";
-import { CLIENT_A1, FIRM_A, NOW, chartAccount, opts } from "./fixtures";
+import { ACTOR, CLIENT_A1, FIRM_A, NOW, chartAccount, opts } from "./fixtures";
 
 export const PERIOD = "2026-01-01";
 export const PERIOD_END = "2026-01-31";
@@ -79,6 +79,7 @@ export function closeDb(): MemoryRunDb {
       nickname: "A1 operating",
       kind: "bank",
       isProcessorDestination: false,
+      institutionName: "First Bank",
     },
   ]);
   db.seed("client_policies", [policy()]);
@@ -160,6 +161,9 @@ export function closeEntry(
     createdByRunId: "RUNX-SEED",
     runType: "SEED",
     runVersion: 1,
+    createdBy: ACTOR,
+    postedAt: NOW.toISOString(),
+    postedBy: ACTOR,
     ...extra,
   };
 }
@@ -177,6 +181,7 @@ export function closeLine(
     firmId: FIRM_A,
     clientId: CLIENT_A1,
     entryId,
+    lineNumber: 1,
     accountNumber,
     categoryId: null,
     amountCents,

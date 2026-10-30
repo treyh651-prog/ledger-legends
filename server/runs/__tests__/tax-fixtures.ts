@@ -105,6 +105,7 @@ export function cardAccount(extra: Partial<BankAccountRow> = {}): BankAccountRow
     nickname: "A1 card",
     kind: "card",
     isProcessorDestination: false,
+    institutionName: "First Bank",
     ...extra,
   };
 }

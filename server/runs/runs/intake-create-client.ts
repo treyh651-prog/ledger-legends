@@ -190,6 +190,7 @@ export const intakeCreateClient: Run<CreateClientScope, Proposal> = {
       terminatedAt: null,
       terminationReason: null,
       offboardingExportDays: 15,
+      billingStatus: "current",
       createdAt: NOW_PLACEHOLDER,
       createdBy: ACTOR_PLACEHOLDER,
     };

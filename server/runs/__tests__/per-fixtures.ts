@@ -25,7 +25,7 @@ import type {
   RecurringSplitRow,
   RecurringTemplateRow,
 } from "../tables";
-import { CLIENT_A1, FIRM_A, NOW, baseDb, chartAccount, opts } from "./fixtures";
+import { ACTOR, CLIENT_A1, FIRM_A, NOW, baseDb, chartAccount, opts } from "./fixtures";
 
 /** The period every module 4 suite works on unless it says otherwise. */
 export const PERIOD = "2026-01-01";
@@ -168,7 +168,10 @@ export function loan(id: string, extra: Partial<LoanRow> = {}): LoanRow {
     termMonths: 12,
     annualRateBps: 600,
     paymentCents: BigInt(100000),
+    balloonCents: BigInt(0),
+    rateType: "fixed",
     status: "active",
+    payoffDate: null,
     manualOverride: false,
     version: 1,
     ...extra,
@@ -272,6 +275,8 @@ export function asset(
     halfMonthConvention: false,
     status: "active",
     disposedOn: null,
+    disposalEntryId: null,
+    disposalProceedsCents: null,
     manualOverride: false,
     version: 1,
     ...extra,
@@ -309,6 +314,9 @@ export function entry(
     createdByRunId: "RUNX-SEED",
     runType: "SEED",
     runVersion: 1,
+    createdBy: ACTOR,
+    postedAt: NOW.toISOString(),
+    postedBy: ACTOR,
     ...extra,
   };
 }
@@ -326,6 +334,7 @@ export function jline(
     firmId: FIRM_A,
     clientId: CLIENT_A1,
     entryId,
+    lineNumber: 1,
     accountNumber,
     categoryId: null,
     amountCents,

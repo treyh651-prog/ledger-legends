@@ -25,6 +25,13 @@
  * routed to suspense and left for a person. Plugging the difference into
  * interest would hide a fee, a rate change, or an escrow adjustment, and all
  * three are things somebody needs to see.
+ *
+ * A loan paid off early stops here too. loans.payoff_date has carried that
+ * date since migration 0005; once set, a schedule row due after it is out of
+ * scope rather than left waiting forever on a payment that will never clear.
+ * balloon_cents and rate_type are informational only, for the reason the
+ * schedule is authoritative above: nothing here regenerates a schedule from
+ * either one.
  */
 
 import { z } from "zod";
@@ -230,6 +237,17 @@ export const perSplitLoan: Run<SplitLoanScope, Proposal> = {
         });
         continue;
       }
+      // payoff_date has carried this since migration 0005 and nothing had ever
+      // read it: a loan paid off early still expected every remaining
+      // scheduled payment forever.
+      if (loan.payoffDate !== null && row.dueDate > loan.payoffDate) {
+        skips.push({
+          rowId: row.id,
+          reason: "out_of_scope_engagement",
+          detail: `loan ${loan.id} was paid off on ${loan.payoffDate}, before payment ${String(row.paymentNumber)}'s due date ${row.dueDate}`,
+        });
+        continue;
+      }
 
       const components =
         row.principalCents + row.interestCents + row.escrowCents + row.feesCents;
@@ -329,7 +347,7 @@ export const perSplitLoan: Run<SplitLoanScope, Proposal> = {
       const entry = entryFor(loan, row, payment, postingDay);
       proposals.push(entry);
       proposals.push(markSchedulePosted(row, payment.id, entry.targetId));
-      proposals.push(linkTransaction(payment, entry.targetId));
+      proposals.push(linkTransaction(payment, entry.targetId, row.id));
       for (const l of entry.lines) net += l.amountCents;
 
       // Doc 02 asks the run to check its own arithmetic against the balance the
@@ -550,7 +568,7 @@ function markSchedulePosted(
       postedRunId: RUN_ID_PLACEHOLDER,
       postedAt: NOW_PLACEHOLDER,
     },
-    provenance: { cascadeLevel: null },
+    provenance: { cascadeLevel: null, scheduleLineId: row.id },
   };
 }
 
@@ -561,6 +579,7 @@ function markSchedulePosted(
 function linkTransaction(
   payment: TransactionRow,
   entryId: Ulid | null,
+  scheduleLineId: Ulid,
 ): ProposedFieldWrite {
   return {
     kind: "field_write",
@@ -568,7 +587,7 @@ function linkTransaction(
     rowId: payment.id,
     before: { journalEntryId: payment.journalEntryId },
     after: { journalEntryId: entryId },
-    provenance: { cascadeLevel: null },
+    provenance: { cascadeLevel: null, scheduleLineId },
   };
 }
 

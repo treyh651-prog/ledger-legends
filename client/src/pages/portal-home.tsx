@@ -1,13 +1,45 @@
 import { useLocation } from "wouter";
+import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { ArrowRight, CalendarClock, FileText, MessageSquare, PenLine, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { EmptyState, ErrorState, Kpi, LoadingRows, Pill, SectionCard } from "@/components/kit";
 import { PortalHero } from "@/components/portal/portal-kit";
 import { usePortalClient } from "@/lib/use-portal-client";
 import { usePortalHome, errorMessage } from "@/api";
-import { fmtPeriod, fmtTimestamp } from "@/lib/money";
+import { fmtCompactUsd, fmtPeriod, fmtTimestamp, usd } from "@/lib/money";
 import { NO_CLIENTS_COPY } from "./firm-overview";
 import type { TierId } from "@shared/tiers";
+import type { MonthlyRevenueExpense } from "@shared/api";
+
+/**
+ * Revenue beside expense, one grouped bar per month. Two series means a
+ * legend; colors are fixed (revenue first, expense second) so the bars never
+ * repaint which hue means what.
+ */
+function RevenueExpenseChart({ months }: { months: MonthlyRevenueExpense[] }) {
+  const data = months.map((m) => ({
+    label: fmtPeriod(m.month.slice(0, 7)),
+    revenue: m.revenueCents / 100,
+    expense: m.expenseCents / 100,
+  }));
+  return (
+    <ResponsiveContainer width="100%" height={240}>
+      <BarChart data={data} margin={{ top: 8, right: 12, bottom: 0, left: 0 }}>
+        <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
+        <XAxis dataKey="label" tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} axisLine={{ stroke: "hsl(var(--border))" }} tickLine={false} />
+        <YAxis tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} axisLine={false} tickLine={false} tickFormatter={(v: number) => fmtCompactUsd(v * 100)} width={56} />
+        <Tooltip
+          formatter={((value: number, key: string) => [usd(Math.round(value * 100)), key === "revenue" ? "Revenue" : "Expense"]) as never}
+          contentStyle={{ background: "hsl(var(--popover))", border: "1px solid hsl(var(--border))", borderRadius: 6, fontSize: 12 }}
+          labelStyle={{ color: "hsl(var(--foreground))" }}
+        />
+        <Legend wrapperStyle={{ fontSize: 12 }} formatter={(key: string) => (key === "revenue" ? "Revenue" : "Expense")} />
+        <Bar dataKey="revenue" fill="hsl(var(--chart-1))" radius={[3, 3, 0, 0]} maxBarSize={28} />
+        <Bar dataKey="expense" fill="hsl(var(--chart-2))" radius={[3, 3, 0, 0]} maxBarSize={28} />
+      </BarChart>
+    </ResponsiveContainer>
+  );
+}
 
 /**
  * The client's front door, read from GET /api/portal/:clientId/home. The
@@ -55,6 +87,7 @@ export default function PortalHome() {
             {home.engagementStatus && home.engagementStatus !== "active" ? (
               <Pill tone="watch">Engagement {home.engagementStatus}</Pill>
             ) : null}
+            {home.billingStatus === "past_due" ? <Pill tone="risk">Payment needed</Pill> : null}
           </>
         }
         actions={
@@ -87,12 +120,19 @@ export default function PortalHome() {
       ) : null}
 
       {home.hasBooks && readPeriod ? (
-        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-          <Kpi label="Closed months" value={home.closedPeriods.length} testId="kpi-portal-closed" />
-          <Kpi label="Latest closed" value={home.latestClosedPeriod ? fmtPeriod(home.latestClosedPeriod.slice(0, 7)) : "none"} testId="kpi-portal-latest" />
-          <Kpi label="Last run" value={home.lastRunAt ? fmtTimestamp(home.lastRunAt) : "never"} testId="kpi-portal-lastrun" />
-          <Kpi label="Open with us" value={requests.length} tone={requests.length ? "watch" : "good"} hint="Documents or answers" testId="kpi-portal-open" />
-        </div>
+        <>
+          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+            <Kpi label="Closed months" value={home.closedPeriods.length} testId="kpi-portal-closed" />
+            <Kpi label="Latest closed" value={home.latestClosedPeriod ? fmtPeriod(home.latestClosedPeriod.slice(0, 7)) : "none"} testId="kpi-portal-latest" />
+            <Kpi label="Last run" value={home.lastRunAt ? fmtTimestamp(home.lastRunAt) : "never"} testId="kpi-portal-lastrun" />
+            <Kpi label="Open with us" value={requests.length} tone={requests.length ? "watch" : "good"} hint="Documents or answers" testId="kpi-portal-open" />
+          </div>
+          {home.monthlyTrend.some((m) => m.revenueCents !== 0 || m.expenseCents !== 0) ? (
+            <SectionCard title="Revenue and expense" description="The last six months, from your posted books." testId="card-portal-trend">
+              <RevenueExpenseChart months={home.monthlyTrend} />
+            </SectionCard>
+          ) : null}
+        </>
       ) : (
         <SectionCard title="Your numbers" testId="card-portal-nofigures">
           <EmptyState

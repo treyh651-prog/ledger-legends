@@ -77,6 +77,22 @@ test("per loan split, a cleared payment splits into principal, interest, and cas
   assertEqual(row.matchedTransactionId, "TX-PMT", "and points at the register row");
   const register = db.all("transactions").find((t) => t.id === "TX-PMT");
   assertEqual(register?.journalEntryId, entries[0].id, "the register points back");
+
+  // run_log_items.schedule_line_id has carried this provenance since the run
+  // log was built and nothing had ever written it. The journal entry proposal
+  // also logs against loan_schedule, by sourceRef rather than provenance, so
+  // the field write is picked out by having a before value to distinguish it.
+  const items = db.all("run_log_items");
+  const scheduleWrite = items.find(
+    (i) => i.rowTable === "loan_schedule" && i.rowId === "LS-1" && i.beforeJson !== null,
+  );
+  assertEqual(scheduleWrite?.scheduleLineId, "LS-1", "the schedule row's own write names itself");
+  const txnWrite = items.find((i) => i.rowTable === "transactions" && i.rowId === "TX-PMT");
+  assertEqual(
+    txnWrite?.scheduleLineId,
+    "LS-1",
+    "the register write is traceable back to the schedule row that drove it",
+  );
 });
 
 test("per loan split, escrow and fees ride on the same entry", async () => {
@@ -222,6 +238,34 @@ test("per loan split, the same period twice splits once", async () => {
   assert(
     skippedFor(second.preview, "LS-1", "already_applied"),
     `expected already_applied, got ${show(reasons(second.preview))}`,
+  );
+});
+
+test("per loan split, a loan paid off early stops expecting its remaining payments", async () => {
+  const db = perDb();
+  // payoff_date before the schedule row's due date: this payment was never
+  // going to clear, because the loan it belongs to does not exist anymore.
+  db.seed("loans", [loan("LN-PAID", { payoffDate: "2026-01-01" })]);
+  db.seed("loan_schedule", [loanPayment("LS-PAID", "LN-PAID")]);
+
+  const preview = await previewPer(db, perSplitLoan, periodScope());
+  assert(
+    skippedFor(preview, "LS-PAID", "out_of_scope_engagement"),
+    `expected out_of_scope_engagement, got ${show(reasons(preview))}`,
+  );
+  assertEqual(preview.result.proposals.length, 0, "nothing proposed for a payoff loan");
+
+  // A due date on or before the payoff date still has standing, since a loan
+  // paid off on its own final due date has one real payment left to reconcile.
+  const stillDue = perDb();
+  stillDue.seed("loans", [loan("LN-LATER", { payoffDate: "2026-01-20" })]);
+  stillDue.seed("loan_schedule", [loanPayment("LS-LATER", "LN-LATER")]);
+  stillDue.seed("transactions", [payment("TX-LATER", "2026-01-15", BigInt(-100000))]);
+  const { applied } = await applyPer(stillDue, perSplitLoan, periodScope());
+  assertEqual(stillDue.all("journal_entries").length, 1, "the payment due before the payoff still posts");
+  assert(
+    applied.status === "completed" || applied.status === "completed_with_skips",
+    `status ${applied.status}`,
   );
 });
 

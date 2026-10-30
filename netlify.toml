@@ -1,0 +1,46 @@
+# Netlify configuration for the accounting application.
+#
+# This site is the app only: app.ledgerlegends.pro. The marketing site at
+# ledgerlegends.pro is a separate Netlify site built from a separate
+# repository and is untouched by anything here.
+#
+# Build: the same `npm run build` used everywhere else, which runs
+# script/build.ts. That script also bundles server/index.ts into
+# dist/index.cjs for `npm start`; Netlify ignores that file and bundles
+# netlify/functions/api.ts separately, through node_bundler below.
+[build]
+  command = "npm run build"
+  publish = "dist/public"
+  functions = "netlify/functions"
+
+[functions]
+  node_bundler = "esbuild"
+  # pg ships a native path its own bundler should not try to inline, same
+  # exception trigger.config.ts carries for the Trigger.dev build.
+  external_node_modules = ["pg"]
+
+# API first, forced, so it is never shadowed by the SPA fallback below.
+# serverless-http sees the path after the function name is stripped, so the
+# Express app inside still mounts on "/api" exactly as it does locally.
+[[redirects]]
+  from = "/api/*"
+  to = "/.netlify/functions/api/:splat"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/healthz"
+  to = "/.netlify/functions/api/healthz"
+  status = 200
+  force = true
+
+# Everything else is the single page app. Client side routing (Wouter) picks
+# the real screen up from there; a direct load or a refresh on a nested route
+# lands here and resolves client side rather than 404ing on the CDN.
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+
+[build.environment]
+  NODE_VERSION = "20"

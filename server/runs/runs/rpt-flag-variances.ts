@@ -165,7 +165,7 @@ export const rptFlagVariances: Run<FlagVariancesScope, Proposal> = {
 
     for (const accountNumber of evaluatedAccounts(data)) {
       const content = varianceContentFor(data, accountNumber);
-      const rowId = varianceIdOf(data.periodStart, accountNumber);
+      const rowId = varianceIdOf(frozen.clientId, data.periodStart, accountNumber);
       const prior = priorById.get(rowId);
       if (prior === undefined) {
         proposals.push(insertVariance(frozen, data, rowId, content));
@@ -240,8 +240,8 @@ export const rptFlagVariances: Run<FlagVariancesScope, Proposal> = {
   },
 };
 
-export function varianceIdOf(periodStart: string, accountNumber: string): Ulid {
-  return derivedId(`${periodStart}:${accountNumber}`, "rpt-flag-variances", 0);
+export function varianceIdOf(clientId: Ulid, periodStart: string, accountNumber: string): Ulid {
+  return derivedId(`${clientId}:${periodStart}:${accountNumber}`, "rpt-flag-variances", 0);
 }
 
 /**

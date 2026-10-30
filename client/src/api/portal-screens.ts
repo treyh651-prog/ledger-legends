@@ -134,33 +134,120 @@ export interface UploadDocumentArgs {
   file: File;
   docType: string;
   requestId?: string | null;
+  /** Which bank or card account this file is a statement for, when it is one. */
+  bankAccountId?: string | null;
+  /** Which vendor this file is a bill from, when it is one. */
+  vendorId?: string | null;
+  /** Which fixed asset this file is the receipt for, when it is one. */
+  assetId?: string | null;
+  /** Which loan this file is the agreement for, when it is one. */
+  loanId?: string | null;
 }
+
+/**
+ * Above this size the file goes straight to storage (step 2 below) instead of
+ * through this server's own request body. A standard Netlify function caps a
+ * request at 6 MB, about 4.5 MB once a binary body is base64 encoded; this
+ * threshold leaves margin under that for a platform that enforces it, and
+ * changes nothing for a host that does not.
+ */
+const DIRECT_UPLOAD_THRESHOLD_BYTES = 4 * 1024 * 1024;
 
 /**
  * POST /api/portal/:clientId/documents with the raw bytes. The server inspects
  * name, type, size and first bytes, stores the object, then writes the row;
- * 201 means both exist. The documents query is refreshed on success so the
- * list shows the new row without a reload.
+ * 201 means both exist.
  */
+async function uploadDirect(clientId: string, args: UploadDocumentArgs): Promise<UploadDocumentResult> {
+  const headers: Record<string, string> = {
+    ...(await authHeaders()),
+    "content-type": args.file.type || "application/octet-stream",
+    "x-file-name": encodeURIComponent(args.file.name),
+    "x-doc-type": args.docType,
+  };
+  if (args.requestId) headers["x-request-id"] = args.requestId;
+  if (args.bankAccountId) headers["x-bank-account-id"] = args.bankAccountId;
+  if (args.vendorId) headers["x-vendor-id"] = args.vendorId;
+  if (args.assetId) headers["x-asset-id"] = args.assetId;
+  if (args.loanId) headers["x-loan-id"] = args.loanId;
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE}/api/portal/${clientId}/documents`, { method: "POST", headers, body: args.file });
+  } catch {
+    throw new ApiRequestError(0, "network", "The server could not be reached.");
+  }
+  if (!res.ok) throw await errorFromResponse(res);
+  return (await res.json()) as UploadDocumentResult;
+}
+
+/**
+ * Three steps for a file too large for this server's own request body: ask
+ * for a signed upload target scoped to a fresh document id, write the bytes
+ * straight to storage with it, then finalize so the server reads the object
+ * back, runs the same inspection the small path runs inline, and records the
+ * row. If the server answers 501 (no direct upload mechanism, the in memory
+ * development store), this falls back to the small path, which still works
+ * for anything under that store's own ceiling.
+ */
+async function uploadViaSignedUrl(clientId: string, args: UploadDocumentArgs): Promise<UploadDocumentResult> {
+  let signRes: Response;
+  try {
+    signRes = await fetch(`${API_BASE}/api/portal/${clientId}/documents/upload-url`, {
+      method: "POST",
+      headers: { ...(await authHeaders()), "content-type": "application/json" },
+      body: JSON.stringify({ filename: args.file.name, docType: args.docType }),
+    });
+  } catch {
+    throw new ApiRequestError(0, "network", "The server could not be reached.");
+  }
+  if (!signRes.ok) {
+    if (signRes.status === 501) return uploadDirect(clientId, args);
+    throw await errorFromResponse(signRes);
+  }
+  const target = (await signRes.json()) as { documentId: string; objectKey: string; uploadUrl: string };
+
+  let putRes: Response;
+  try {
+    putRes = await fetch(target.uploadUrl, {
+      method: "PUT",
+      headers: { "content-type": args.file.type || "application/octet-stream" },
+      body: args.file,
+    });
+  } catch {
+    throw new ApiRequestError(0, "network", "The file could not be uploaded.");
+  }
+  if (!putRes.ok) throw new ApiRequestError(putRes.status, "upload_failed", "The file could not be uploaded.");
+
+  let finRes: Response;
+  try {
+    finRes = await fetch(`${API_BASE}/api/portal/${clientId}/documents/${target.documentId}/finalize`, {
+      method: "POST",
+      headers: { ...(await authHeaders()), "content-type": "application/json" },
+      body: JSON.stringify({
+        filename: args.file.name,
+        docType: args.docType,
+        objectKey: target.objectKey,
+        requestId: args.requestId ?? null,
+        bankAccountId: args.bankAccountId ?? null,
+        vendorId: args.vendorId ?? null,
+        assetId: args.assetId ?? null,
+        loanId: args.loanId ?? null,
+      }),
+    });
+  } catch {
+    throw new ApiRequestError(0, "network", "The server could not be reached.");
+  }
+  if (!finRes.ok) throw await errorFromResponse(finRes);
+  return (await finRes.json()) as UploadDocumentResult;
+}
+
+/** The documents query is refreshed on success so the list shows the new row without a reload. */
 export function useUploadDocument(clientId: string | null) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (args: UploadDocumentArgs): Promise<UploadDocumentResult> => {
-      const headers: Record<string, string> = {
-        ...(await authHeaders()),
-        "content-type": args.file.type || "application/octet-stream",
-        "x-file-name": encodeURIComponent(args.file.name),
-        "x-doc-type": args.docType,
-      };
-      if (args.requestId) headers["x-request-id"] = args.requestId;
-      let res: Response;
-      try {
-        res = await fetch(`${API_BASE}/api/portal/${clientId}/documents`, { method: "POST", headers, body: args.file });
-      } catch {
-        throw new ApiRequestError(0, "network", "The server could not be reached.");
-      }
-      if (!res.ok) throw await errorFromResponse(res);
-      return (await res.json()) as UploadDocumentResult;
+      if (!clientId) throw new ApiRequestError(400, "client_required", "A client is required.");
+      return args.file.size > DIRECT_UPLOAD_THRESHOLD_BYTES ? uploadViaSignedUrl(clientId, args) : uploadDirect(clientId, args);
     },
     onSuccess: () => void qc.invalidateQueries({ queryKey: portalScreenKeys.documents(clientId ?? "none") }),
   });

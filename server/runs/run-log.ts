@@ -51,6 +51,7 @@ export interface IntentRowArgs<S> {
   actorKind: string;
   source: string;
   parentSequenceId: string | null;
+  sequenceStep: number | null;
   previewRunId: string | null;
   originalRunId: string | null;
   startedAt: Date;
@@ -77,6 +78,7 @@ export function buildIntentRow<S>(args: IntentRowArgs<S>): RunLogRow {
     actorKind: args.actorKind,
     source: args.source,
     parentSequenceId: args.parentSequenceId,
+    sequenceStep: args.sequenceStep,
     previewRunId: args.previewRunId,
     originalRunId: args.originalRunId,
     periodStart: args.frozen.periodStart,
@@ -188,6 +190,7 @@ export async function writeRunLog<S, P>(
       ruleVersion: provenance?.ruleVersion ?? null,
       templateId: provenance?.templateId ?? null,
       templateVersion: provenance?.templateVersion ?? null,
+      scheduleLineId: provenance?.scheduleLineId ?? null,
       suspenseReasonCode: isSuspenseRouting(p) ? p.reasonCode : null,
       journalEntryId: args.entryIdByProposalIndex?.[index] ?? null,
       beforeJson: isFieldWrite(p) ? toJsonValue(p.before) : null,
@@ -217,6 +220,7 @@ export async function writeRunLog<S, P>(
       ruleVersion: null,
       templateId: null,
       templateVersion: null,
+      scheduleLineId: null,
       suspenseReasonCode: null,
       journalEntryId: null,
       beforeJson: null,
@@ -242,6 +246,7 @@ export async function writeRunLog<S, P>(
       ruleVersion: null,
       templateId: null,
       templateVersion: null,
+      scheduleLineId: null,
       suspenseReasonCode: null,
       journalEntryId: null,
       beforeJson: null,
@@ -254,8 +259,15 @@ export async function writeRunLog<S, P>(
 
   if (items.length > 0) await tx.insert("run_log_items", items);
 
+  const COMPLETE_STATUSES = new Set<RunStatus>([
+    "completed",
+    "completed_with_skips",
+    "no_op",
+  ]);
+
   await appendEvent(tx, {
     firmId: frozen.firmId,
+    clientId: frozen.clientId,
     runExecutionId: ctx.runExecutionId,
     event: args.status,
     attempt: args.attempt,
@@ -270,11 +282,21 @@ export async function writeRunLog<S, P>(
     durationMs: args.finishedAt.getTime() - args.startedAt.getTime(),
     relatedRunId: args.relatedRunId ?? null,
     occurredAt: args.finishedAt.toISOString(),
+    // Only an apply that actually completed is a legitimate dedup target
+    // (doc 03 Part 4 "Idempotency keys"). A preview's key never collides
+    // with an apply's -- the key formula includes mode -- but a preview is
+    // also never meant to be deduplicated against itself, so it never
+    // carries the key either.
+    idempotencyKey:
+      args.mode === "apply" && COMPLETE_STATUSES.has(args.status)
+        ? ctx.idempotencyKey
+        : null,
   });
 }
 
 export interface AppendEventArgs {
   firmId: Ulid;
+  clientId: Ulid;
   runExecutionId: string;
   event: RunLogEventRow["event"];
   attempt: number;
@@ -289,6 +311,7 @@ export interface AppendEventArgs {
   durationMs: number;
   relatedRunId: string | null;
   occurredAt: string;
+  idempotencyKey: string | null;
 }
 
 export async function appendEvent(
@@ -298,6 +321,7 @@ export async function appendEvent(
   const row: RunLogEventRow = {
     id: ulid(new Date(args.occurredAt)),
     firmId: args.firmId,
+    clientId: args.clientId,
     runExecutionId: args.runExecutionId,
     event: args.event,
     attempt: args.attempt,
@@ -312,6 +336,7 @@ export async function appendEvent(
     durationMs: args.durationMs,
     relatedRunId: args.relatedRunId,
     occurredAt: args.occurredAt,
+    idempotencyKey: args.idempotencyKey,
   };
   await tx.insert("run_log_events", [row]);
 }
@@ -320,6 +345,7 @@ export async function appendEvent(
 export async function appendBareEvent(
   tx: RunTx,
   firmId: Ulid,
+  clientId: Ulid,
   runExecutionId: string,
   event: RunLogEventRow["event"],
   attempt: number,
@@ -329,6 +355,7 @@ export async function appendBareEvent(
 ): Promise<void> {
   await appendEvent(tx, {
     firmId,
+    clientId,
     runExecutionId,
     event,
     attempt,
@@ -343,5 +370,6 @@ export async function appendBareEvent(
     durationMs: 0,
     relatedRunId,
     occurredAt: occurredAt.toISOString(),
+    idempotencyKey: null,
   });
 }

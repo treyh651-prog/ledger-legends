@@ -247,7 +247,7 @@ export const rptRebuildForecast: Run<RebuildForecastScope, Proposal> = {
     const errors: RunError[] = [];
 
     const scenario = frozen.input.scenario;
-    const headerId = forecastIdOf(data.periodStart, scenario);
+    const headerId = forecastIdOf(frozen.clientId, data.periodStart, scenario);
     const priorHeader = data.forecasts.find((f) => f.id === headerId);
 
     // Invariant 8. A forecast a person took over is left alone, and so are its
@@ -367,8 +367,8 @@ export const rptRebuildForecast: Run<RebuildForecastScope, Proposal> = {
   },
 };
 
-export function forecastIdOf(periodStart: string, scenario: string): Ulid {
-  return derivedId(`${periodStart}:${scenario}`, "rpt-rebuild-forecast", 0);
+export function forecastIdOf(clientId: Ulid, periodStart: string, scenario: string): Ulid {
+  return derivedId(`${clientId}:${periodStart}:${scenario}`, "rpt-rebuild-forecast", 0);
 }
 
 export function weekIdOf(forecastRunId: Ulid, weekNumber: number): Ulid {

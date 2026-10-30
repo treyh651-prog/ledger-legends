@@ -25,8 +25,12 @@ import { z } from "zod";
 
 const runSucceeded = (status: string) => status === "completed" || status === "completed_with_skips" || status === "deduplicated";
 const taskParamsSchema = clientParamsSchema.extend({ taskId: z.string().min(1) });
-import { aging, budget, clientSetup, closeChecklist, firmRequests, firmTasks, forecast, journal, narratives, reconcile, reportPackages, rules, substantiation, taxForms, trialBalance } from "./reads-screens";
-import { updateTaskBodySchema, type FirmMember, type FirmTeam } from "../../shared/api/screens";
+const batchParamsSchema = clientParamsSchema.extend({ batchId: z.string().min(1) });
+const setBillingStatusBodySchema = z.object({ billingStatus: z.enum(["current", "past_due"]) });
+import { aging, budget, clientSetup, closeChecklist, firmRequests, firmTasks, forecast, journal, narratives, reconcile, reportPackages, rules, stagedBatches, substantiation, taxForms, trialBalance } from "./reads-screens";
+import { rejectBatchBodySchema, updateTaskBodySchema, type FirmMember, type FirmTeam } from "../../shared/api/screens";
+import { CODING_CASCADE_ORDER, lookupRun } from "../runs/registry";
+import { executeSequence, step } from "../runs/sequence";
 import type { ActorMiddleware } from "../auth/middleware";
 import {
   featuresForTier,
@@ -41,6 +45,7 @@ import {
   type EntitlementRow,
   type EntitlementSource,
 } from "../entitlement";
+import type { Actor } from "../db/with-actor";
 import type { RunDb } from "../runs/db";
 import { ApiFailure, notConfigured, notFound, withOneRetry } from "./errors";
 import type { DocumentStorage } from "../storage/document-storage";
@@ -53,7 +58,7 @@ import {
   runHistory,
   transactionPage,
 } from "./reads";
-import { applyPreview, createClient, runCatalog, triggerRun, undoApplied } from "./runs";
+import { applyPreview, createClientFirstStep, dispatchOnboardingContinuation, runCatalog, triggerRun, undoApplied } from "./runs";
 import { readSession } from "./session";
 import { createFirmMessagesRouter, createPortalScreensRouter } from "./portal-router";
 
@@ -123,6 +128,48 @@ function todayOf(deps: ApiDeps): string {
   return deps.today ? deps.today() : new Date().toISOString().slice(0, 10);
 }
 
+/**
+ * The ten run coding cascade, over exactly the dates a just committed batch
+ * covers and the one account it posted to. Reached only from the staged
+ * batches approve route below, as one sequence attributed to the approving
+ * firm member, with the "sequence" actor kind server/runs/sequence.ts itself
+ * uses for the month end prep order: the decision is the approval, and
+ * everything after it runs as one automated step rather than ten separate
+ * button presses.
+ */
+async function runCodingCascadeForBatch(
+  db: RunDb,
+  actor: Actor,
+  firmId: string,
+  clientId: string,
+  bankAccountId: string,
+  batchId: string,
+  now: Date,
+) {
+  const rows = await db.tx(readSession(actor, firmId, clientId), (tx) =>
+    tx.query("staged_rows_by_batch", { firmId, clientId, batchId }),
+  );
+  const dates = rows.map((r) => r.postedOn).filter((d): d is string => d !== null).sort();
+  const runDay = now.toISOString().slice(0, 10);
+  const from = dates[0] ?? runDay;
+  const to = dates[dates.length - 1] ?? runDay;
+  const codingScope = { clientId, from, to, bankAccountIds: [bankAccountId] };
+
+  const steps = CODING_CASCADE_ORDER.map((type) => {
+    const entry = lookupRun(type);
+    if (!entry) throw new ApiFailure(500, "internal", `${type} is in the coding cascade order but not in the registry`);
+    return step(entry.run, codingScope);
+  });
+  return executeSequence(db, steps, {
+    name: `coding cascade for batch ${batchId}`,
+    firmId,
+    clientId,
+    actorId: actor.userId,
+    now,
+    mode: "apply",
+  });
+}
+
 export function createApiRouter(deps: ApiDeps): Router {
   const api = Router();
   const { requireFirm, requireClient } = deps.guards;
@@ -167,9 +214,22 @@ export function createApiRouter(deps: ApiDeps): Router {
       const actor = req.actor!;
       const firmId = req.firm!.firmId;
       const body = parse(createClientBodySchema, req.body);
-      const result = await createClient(deps.db, actor, firmId, body, now());
-      const client = await deps.db.tx(readSession(actor, firmId, result.clientId), (tx) => getClient(tx, firmId, result.clientId));
-      return { status: result.complete ? 201 : 207, body: { client, runs: result.runs, complete: result.complete } };
+      const started = now();
+      const first = await createClientFirstStep(deps.db, actor, firmId, body, started);
+      if (!first.firstStepComplete) {
+        const client = await deps.db.tx(readSession(actor, firmId, first.clientId), (tx) => getClient(tx, firmId, first.clientId));
+        return { status: 207, body: { client, runs: first.runs, complete: false } };
+      }
+      // The client and its draft engagement exist. Awaited for the dispatch
+      // itself, not for the chart and workload it starts: in background
+      // mode this is only the fast call that hands the rest to
+      // finish-client-onboarding-background.ts, not the up to fifteen
+      // minutes that function may take, and a function runtime can freeze
+      // or recycle this invocation the moment the response below is sent,
+      // so the dispatch has to be sent before then, not fired and left.
+      const rest = await dispatchOnboardingContinuation(deps.db, actor, firmId, first.clientId, body, started);
+      const client = await deps.db.tx(readSession(actor, firmId, first.clientId), (tx) => getClient(tx, firmId, first.clientId));
+      return { status: 201, body: { client, runs: [...first.runs, ...rest.runs], complete: rest.complete } };
     }),
   );
 
@@ -287,6 +347,41 @@ export function createApiRouter(deps: ApiDeps): Router {
     }),
   );
 
+  /**
+   * Marks the client's engagement current or past due, firm staff only.
+   * ENG-SET-BILLING-STATUS is a manual run; same preview then apply in one
+   * request as the task route above. The engagement is the client's own, so
+   * the route resolves it rather than trusting an id from the caller.
+   */
+  firmClient.post(
+    "/billing-status",
+    route(async (req) => {
+      const { clientId } = parse(clientParamsSchema, req.params);
+      const body = parse(setBillingStatusBodySchema, req.body ?? {});
+      const firmId = req.firm!.firmId;
+      const engagements = await deps.db.tx(readSession(req.actor!, firmId, clientId), (tx) =>
+        tx.query("engagements_for_client", { firmId, clientId }),
+      );
+      const engagement = engagements[0];
+      if (!engagement) throw notFound("engagement");
+      const common = {
+        db: deps.db,
+        actor: req.actor!,
+        firmId,
+        clientId,
+        runCode: "ENG-SET-BILLING-STATUS",
+        via: "firm" as const,
+        scope: { clientId, engagementId: engagement.id, billingStatus: body.billingStatus },
+        now: now(),
+      };
+      const preview = await triggerRun({ ...common, mode: "preview" });
+      if (preview.status === "no_op") return { body: { preview, applied: null, done: true } };
+      if (!runSucceeded(preview.status)) return { body: { preview, applied: null, done: false } };
+      const applied = await triggerRun({ ...common, mode: "apply", previewRunId: preview.executionId });
+      return { body: { preview, applied, done: runSucceeded(applied.status) } };
+    }),
+  );
+
   firmClient.get(
     "/close",
     route(async (req) => {
@@ -309,6 +404,92 @@ export function createApiRouter(deps: ApiDeps): Router {
         reconcile(tx, firmId, clientId, period, batchId ?? null),
       );
       return { body };
+    }),
+  );
+
+  firmClient.get(
+    "/staged-batches",
+    route(async (req) => {
+      const { clientId } = parse(clientParamsSchema, req.params);
+      const firmId = req.firm!.firmId;
+      const body = await deps.db.tx(readSession(req.actor!, firmId, clientId), (tx) => stagedBatches(tx, firmId, clientId));
+      return { body };
+    }),
+  );
+
+  /**
+   * Approve. IMPORT-COMMIT-BATCH first, preview then apply, the same shape
+   * every manual run route in this file uses. A batch that commits clean then
+   * runs the ten run coding cascade over exactly the dates the batch covers
+   * and the one account it posted to, as one sequence under the approving
+   * firm member's own id, the same "sequence" convention
+   * server/runs/sequence.ts uses for the month end prep order. A row the
+   * cascade cannot finish coding lands in suspense, same as any other day;
+   * this route does not wait for a person to clear it.
+   */
+  firmClient.post(
+    "/staged-batches/:batchId/approve",
+    route(async (req) => {
+      const { clientId, batchId } = parse(batchParamsSchema, req.params);
+      const firmId = req.firm!.firmId;
+      const actor = req.actor!;
+      const whenNow = now();
+      const commitCommon = {
+        db: deps.db,
+        actor,
+        firmId,
+        clientId,
+        via: "firm" as const,
+        runCode: "IMPORT-COMMIT-BATCH",
+        scope: { clientId, batchId },
+        now: whenNow,
+      };
+      const preview = await triggerRun({ ...commitCommon, mode: "preview" });
+      if (preview.status !== "no_op" && !runSucceeded(preview.status)) {
+        return { body: { commit: preview, applied: null, cascade: null, done: false } };
+      }
+      const applied = preview.status === "no_op" ? preview : await triggerRun({ ...commitCommon, mode: "apply", previewRunId: preview.executionId });
+      if (!runSucceeded(applied.status)) {
+        return { body: { commit: preview, applied, cascade: null, done: false } };
+      }
+
+      const batches = await deps.db.tx(readSession(actor, firmId, clientId), (tx) => tx.query("import_batch_by_id", { firmId, clientId, batchId }));
+      const batch = batches[0];
+      const sequence = batch
+        ? await runCodingCascadeForBatch(deps.db, actor, firmId, clientId, batch.bankAccountId, batchId, whenNow)
+        : null;
+      // Only the shape the firm screen needs: a RunOutcome carries bigint
+      // fields (net cents) that JSON cannot serialize on its own.
+      const cascade = sequence ? { stoppedAtStep: sequence.stoppedAtStep, stoppedBy: sequence.stoppedBy } : null;
+      return { body: { commit: preview, applied, cascade, done: true } };
+    }),
+  );
+
+  /**
+   * Reject. IMPORT-REJECT-BATCH, preview then apply, same shape as approve's
+   * first half. Nothing downstream of a rejected batch ever ran, so there is
+   * no cascade to run and nothing in the ledger to undo.
+   */
+  firmClient.post(
+    "/staged-batches/:batchId/reject",
+    route(async (req) => {
+      const { clientId, batchId } = parse(batchParamsSchema, req.params);
+      const body = parse(rejectBatchBodySchema, req.body ?? {});
+      const common = {
+        db: deps.db,
+        actor: req.actor!,
+        firmId: req.firm!.firmId,
+        clientId,
+        via: "firm" as const,
+        runCode: "IMPORT-REJECT-BATCH",
+        scope: { clientId, batchId, reason: body.reason },
+        now: now(),
+      };
+      const preview = await triggerRun({ ...common, mode: "preview" });
+      if (preview.status === "no_op") return { body: { preview, applied: null, done: true } };
+      if (!runSucceeded(preview.status)) return { body: { preview, applied: null, done: false } };
+      const applied = await triggerRun({ ...common, mode: "apply", previewRunId: preview.executionId });
+      return { body: { preview, applied, done: runSucceeded(applied.status) } };
     }),
   );
 
@@ -507,7 +688,7 @@ export function createApiRouter(deps: ApiDeps): Router {
       const { clientId } = parse(clientParamsSchema, req.params);
       const firmId = req.client!.firmId;
       const ent = await entitlementFor(req);
-      const body = await deps.db.tx(readSession(req.actor!, firmId, clientId), (tx) => portalHome(tx, firmId, clientId, ent));
+      const body = await deps.db.tx(readSession(req.actor!, firmId, clientId), (tx) => portalHome(tx, firmId, clientId, ent, todayOf(deps)));
       if (!body) throw notFound("client");
       return { body };
     }),

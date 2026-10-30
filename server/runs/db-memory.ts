@@ -35,11 +35,15 @@ import { ulid } from "./ids";
 import {
   INSERT_ONLY_TABLES,
   OVERRIDE_WATCHED_FIELDS,
+  type CategoryVersionRow,
+  type RuleVersionRow,
   type ImportBatchRow,
   type JournalEntryRow,
   type JournalLineRow,
+  type MappingExceptionRow,
   type MappingProfileRow,
   type MappingProfileColumnRow,
+  type MappingProfileVersionRow,
   type PeriodLockRow,
   type RowMap,
   type AgingSnapshotRow,
@@ -85,6 +89,7 @@ import {
   type ReportPackageRow,
   type ReportSectionRow,
   type ReportVarianceRow,
+  type RunLogEventRow,
   type RunLogRow,
   type StagedRowRow,
   type StatementLineRow,
@@ -113,6 +118,7 @@ const TABLES: TableName[] = [
   "statement_lines",
   "mapping_profiles",
   "mapping_profile_columns",
+  "mapping_profile_versions",
   "wizard_sessions",
   "import_batches",
   "staged_rows",
@@ -122,7 +128,9 @@ const TABLES: TableName[] = [
   "journal_lines",
   "suspense_items",
   "categories",
+  "category_versions",
   "rules",
+  "rule_versions",
   "recurring_templates",
   "recurring_splits",
   "vendors",
@@ -133,8 +141,11 @@ const TABLES: TableName[] = [
   "portal_requests",
   "portal_messages",
   "documents",
+  "audit_events",
   "signature_evidence",
+  "signature_events",
   "documentation_exceptions",
+  "mapping_exceptions",
   "fixed_assets",
   "depreciation_schedule",
   "deferral_schedules",
@@ -211,6 +222,26 @@ const CLIENT_KEYED_TABLES: readonly TableName[] = ["categories"];
 export function storageIdOf(table: TableName, rowId: string, clientId: string): string {
   if (!CLIENT_KEYED_TABLES.includes(table)) return rowId;
   return rowId.includes("/") ? rowId : `${clientId}/${rowId}`;
+}
+
+/**
+ * category_versions, rule_versions, and mapping_profile_versions have no
+ * synthetic id (CategoryVersionRow's own comment says why: the primary key
+ * is (entityId, version)). insert() needs a storage key regardless, so this
+ * mirrors that composite key for the three rather than reading a column
+ * that does not exist on the row.
+ */
+function naturalInsertId(table: TableName, row: AnyRow): string {
+  switch (table) {
+    case "category_versions":
+      return `${String(row.categoryId)}:${String(row.version)}`;
+    case "rule_versions":
+      return `${String(row.ruleId)}:${String(row.version)}`;
+    case "mapping_profile_versions":
+      return `${String(row.profileId)}:${String(row.version)}`;
+    default:
+      return row.id;
+  }
 }
 
 function byId(a: { id: string }, b: { id: string }): number {
@@ -373,7 +404,11 @@ class MemoryTx implements RunTx {
     }
     for (const row of rows) {
       const r = { ...(row as unknown as AnyRow) };
-      const sid = storageIdOf(table, r.id, String(r.clientId ?? this.session.clientId));
+      const sid = storageIdOf(
+        table,
+        naturalInsertId(table, r),
+        String(r.clientId ?? this.session.clientId),
+      );
       if (this.lookup(table, sid)) {
         throw new UniqueViolation(`${table}_pkey`);
       }
@@ -517,15 +552,22 @@ class MemoryTx implements RunTx {
     }
   }
 
-  /** The unique idempotency key on run_log for mode apply. */
+  /**
+   * The real idempotency guarantee, migration 0041: a partial unique index
+   * on run_log_events.idempotency_key, set only on the terminal event of an
+   * apply that actually completed (run-log.ts writeRunLog). Not on run_log
+   * itself -- run_log.status is always 'started' (insert only), so the
+   * documented partial index there (migration 0003) can never fire, and this
+   * port must not simulate a constraint real Postgres cannot enforce.
+   */
   private guardIdempotency(table: TableName, row: AnyRow): void {
-    if (table !== "run_log") return;
-    const candidate = row as unknown as RunLogRow;
-    if (candidate.mode !== "apply") return;
-    for (const existing of this.view("run_log")) {
-      const r = existing as unknown as RunLogRow;
-      if (r.mode === "apply" && r.idempotencyKey === candidate.idempotencyKey) {
-        throw new UniqueViolation("run_log_apply_idempotency_key");
+    if (table !== "run_log_events") return;
+    const candidate = row as unknown as RunLogEventRow;
+    if (candidate.idempotencyKey === null) return;
+    for (const existing of this.view("run_log_events")) {
+      const r = existing as unknown as RunLogEventRow;
+      if (r.idempotencyKey === candidate.idempotencyKey) {
+        throw new UniqueViolation("run_log_events_idem");
       }
     }
   }
@@ -614,11 +656,17 @@ class MemoryTx implements RunTx {
       case "applied_run_by_idempotency_key": {
         const p =
           rawParams as QueryCatalog["applied_run_by_idempotency_key"]["params"];
+        // Migration 0041: idempotency_key lives on run_log_events, set only
+        // on the terminal event of an apply that actually completed (see
+        // guardIdempotency's doc comment above). run_log.status is always
+        // "started" (insert only), so matching on run_log's own key column
+        // would never find a completed attempt.
+        const executionId = this.view("run_log_events")
+          .map((r) => r as unknown as RunLogEventRow)
+          .find((e) => e.idempotencyKey === p.idempotencyKey)?.runExecutionId;
         return this.view("run_log")
           .map((r) => r as unknown as RunLogRow)
-          .filter(
-            (r) => r.mode === "apply" && r.idempotencyKey === p.idempotencyKey,
-          )
+          .filter((r) => r.mode === "apply" && r.id === executionId)
           .sort((a, b) => (a.id < b.id ? -1 : 1))
           .map((r) => clone(r as unknown as AnyRow));
       }
@@ -642,11 +690,19 @@ class MemoryTx implements RunTx {
       case "run_log_events_by_execution": {
         const p =
           rawParams as QueryCatalog["run_log_events_by_execution"]["params"];
+        // Real Postgres never selects idempotency_key here (db-postgres.ts) --
+        // it is an internal dedup detail, not run history. Strip it so the
+        // two backends agree on what this query actually returns.
         return this.view("run_log_events")
           .filter(
             (r) =>
               r.firmId === p.firmId && r.runExecutionId === p.executionId,
           )
+          .map((r) => {
+            const { idempotencyKey: _idempotencyKey, ...rest } =
+              r as unknown as RunLogEventRow;
+            return rest as unknown as AnyRow;
+          })
           .sort(byId)
           .map(clone);
       }
@@ -734,6 +790,32 @@ class MemoryTx implements RunTx {
           .sort((a, b) => (a.id < b.id ? -1 : 1))
           .map((r) => clone(r as unknown as AnyRow));
       }
+      case "mapping_profile_by_id": {
+        const p = rawParams as QueryCatalog["mapping_profile_by_id"]["params"];
+        return this.view("mapping_profiles")
+          .map((r) => r as unknown as MappingProfileRow)
+          .filter(
+            (r) =>
+              r.firmId === p.firmId &&
+              r.clientId === p.clientId &&
+              r.id === p.mappingProfileId,
+          )
+          .map((r) => clone(r as unknown as AnyRow));
+      }
+      case "mapping_profile_versions_for_profile": {
+        const p =
+          rawParams as QueryCatalog["mapping_profile_versions_for_profile"]["params"];
+        return this.view("mapping_profile_versions")
+          .map((r) => r as unknown as MappingProfileVersionRow)
+          .filter(
+            (r) =>
+              r.firmId === p.firmId &&
+              r.clientId === p.clientId &&
+              r.profileId === p.mappingProfileId,
+          )
+          .sort((a, b) => a.version - b.version)
+          .map((r) => clone(r as unknown as AnyRow));
+      }
       case "mapping_profile_columns_for_client": {
         const p = rawParams as QueryCatalog["mapping_profile_columns_for_client"]["params"];
         return this.view("mapping_profile_columns")
@@ -751,6 +833,33 @@ class MemoryTx implements RunTx {
               r.firmId === p.firmId &&
               r.clientId === p.clientId &&
               r.id === p.batchId,
+          )
+          .map((r) => clone(r as unknown as AnyRow));
+      }
+      case "import_batches_awaiting_review": {
+        const p =
+          rawParams as QueryCatalog["import_batches_awaiting_review"]["params"];
+        return this.view("import_batches")
+          .map((r) => r as unknown as ImportBatchRow)
+          .filter(
+            (r) =>
+              r.firmId === p.firmId &&
+              r.clientId === p.clientId &&
+              (r.status === "parsed" || r.status === "in_review"),
+          )
+          .sort((a, b) => (a.createdAt < b.createdAt ? 1 : a.createdAt > b.createdAt ? -1 : (a.id < b.id ? -1 : 1)))
+          .map((r) => clone(r as unknown as AnyRow));
+      }
+      case "mapping_exception_for_account": {
+        const p =
+          rawParams as QueryCatalog["mapping_exception_for_account"]["params"];
+        return this.view("mapping_exceptions")
+          .map((r) => r as unknown as MappingExceptionRow)
+          .filter(
+            (r) =>
+              r.firmId === p.firmId &&
+              r.clientId === p.clientId &&
+              r.bankAccountId === p.bankAccountId,
           )
           .map((r) => clone(r as unknown as AnyRow));
       }
@@ -818,6 +927,31 @@ class MemoryTx implements RunTx {
           .sort(byId)
           .map(clone);
       }
+      case "category_by_id": {
+        const p = rawParams as QueryCatalog["category_by_id"]["params"];
+        return this.view("categories")
+          .filter(
+            (r) =>
+              r.firmId === p.firmId &&
+              r.clientId === p.clientId &&
+              r.id === p.categoryId,
+          )
+          .map(clone);
+      }
+      case "category_versions_for_category": {
+        const p =
+          rawParams as QueryCatalog["category_versions_for_category"]["params"];
+        return this.view("category_versions")
+          .map((r) => r as unknown as CategoryVersionRow)
+          .filter(
+            (r) =>
+              r.firmId === p.firmId &&
+              r.clientId === p.clientId &&
+              r.categoryId === p.categoryId,
+          )
+          .sort((a, b) => a.version - b.version)
+          .map((r) => clone(r as unknown as AnyRow));
+      }
       case "active_rules_for_client": {
         const p = rawParams as QueryCatalog["active_rules_for_client"]["params"];
         return this.view("rules")
@@ -829,6 +963,31 @@ class MemoryTx implements RunTx {
               r.isActive === true,
           )
           .sort(compareRules)
+          .map((r) => clone(r as unknown as AnyRow));
+      }
+      case "rule_by_id": {
+        const p = rawParams as QueryCatalog["rule_by_id"]["params"];
+        return this.view("rules")
+          .map((r) => r as unknown as RuleRow)
+          .filter(
+            (r) =>
+              r.firmId === p.firmId &&
+              r.clientId === p.clientId &&
+              r.id === p.ruleId,
+          )
+          .map((r) => clone(r as unknown as AnyRow));
+      }
+      case "rule_versions_for_rule": {
+        const p = rawParams as QueryCatalog["rule_versions_for_rule"]["params"];
+        return this.view("rule_versions")
+          .map((r) => r as unknown as RuleVersionRow)
+          .filter(
+            (r) =>
+              r.firmId === p.firmId &&
+              r.clientId === p.clientId &&
+              r.ruleId === p.ruleId,
+          )
+          .sort((a, b) => a.version - b.version)
           .map((r) => clone(r as unknown as AnyRow));
       }
       case "recurring_templates_for_client": {
@@ -1172,6 +1331,14 @@ class MemoryTx implements RunTx {
           )
           .sort(comparePayments)
           .map((r) => clone(r as unknown as AnyRow));
+      }
+      case "customer_payments_for_client": {
+        const p =
+          rawParams as QueryCatalog["customer_payments_for_client"]["params"];
+        return this.view("customer_payments")
+          .filter((r) => r.firmId === p.firmId && r.clientId === p.clientId)
+          .sort(byId)
+          .map(clone);
       }
       case "remittance_lines_for_payments": {
         const p =

@@ -197,7 +197,11 @@ test("apply vendor defaults, ordering, a rule outranks the vendor master", async
   // documented order exists to prevent.
   const ruleAfter = await previewCoding(outOfOrder, txnApplyRules, scopeFor(CLIENT_A1));
   const rewrites = ruleAfter.result.proposals.filter(isFieldWrite);
-  assertEqual(rewrites.length, 1, "the rule step has to undo the vendor decision");
+  assertEqual(
+    rewrites.length,
+    2,
+    "the rule step has to undo the vendor decision, and moves its own hit count",
+  );
   assertEqual(
     rewrites[0].before.categoryId,
     "CAT-meals",

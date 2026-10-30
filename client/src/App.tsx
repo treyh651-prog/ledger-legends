@@ -22,6 +22,7 @@ function NewClient(): JSX.Element {
 import Transactions from "@/pages/transactions";
 import Rules from "@/pages/rules";
 import Reconcile from "@/pages/reconcile";
+import StagedStatements from "@/pages/staged-statements";
 import Aging from "@/pages/aging";
 import Journal from "@/pages/journal";
 import Substantiation from "@/pages/substantiation";
@@ -96,6 +97,7 @@ function AppRouter() {
       <Route path="/transactions">{guarded("/transactions", Transactions)}</Route>
       <Route path="/rules">{guarded("/rules", Rules)}</Route>
       <Route path="/reconcile">{guarded("/reconcile", Reconcile)}</Route>
+      <Route path="/staged-statements">{guarded("/staged-statements", StagedStatements)}</Route>
       <Route path="/aging">{guarded("/aging", Aging)}</Route>
       <Route path="/journal">{guarded("/journal", Journal)}</Route>
       <Route path="/substantiation">{guarded("/substantiation", Substantiation)}</Route>

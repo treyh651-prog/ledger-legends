@@ -19,15 +19,27 @@
  *      sees until it is. The firm's activation run records a signature made
  *      outside the product for that case.
  *
- * Two proposals: the signature_evidence insert and a field write on
- * tenancy.engagements, status to signed and signedAt to now. Activation, signed
- * to active, is the firm's run and not this one, because doc 08 puts the
- * decision to start billing with the firm.
+ * Three proposals, in this order: the signature_evidence insert, the
+ * signature_events insert, and a field write on tenancy.engagements, status
+ * to signed and signedAt to now. Migration 0008's sig_signed_needs_consent
+ * check refuses a signature_evidence row with status signed unless
+ * consent_event_id, consent_given_at, and consent_text are all set; this
+ * run's one HTTP call is the only moment it can attest to consent, so it
+ * writes a signature_events row of type consent_given for that moment and
+ * points consent_event_id at it, rather than leaving the pointer null and the
+ * row unable to reach Postgres at all. The event is proposed after the
+ * evidence row, not before, because signature_events.evidence_id is itself a
+ * foreign key into it and apply writes proposals in order.
+ *
+ * Activation, signed to active, is the firm's run and not this one, because
+ * doc 08 puts the decision to start billing with the firm.
  *
  * Idempotency. The signature id derives from the engagement, the letter hash,
- * and the signer, so preview and apply agree. signedAt, consentGivenAt and the
- * signer user id are placeholders the writer fills at apply, the same reasoning
- * as every other run that records who and when.
+ * and the signer, so preview and apply agree; the event id derives from the
+ * signature id, so the two always point at each other the same way twice.
+ * signedAt, consentGivenAt and the signer user id are placeholders the writer
+ * fills at apply, the same reasoning as every other run that records who and
+ * when.
  *
  * Undo. A signature is not reverted by a run. undoPlan is empty, and voiding a
  * signature is a firm decision with its own status on the evidence row.
@@ -51,7 +63,12 @@ import {
   requireTx,
 } from "../apply-writer";
 import { derivedId, scopeHashFor } from "../ids";
-import type { DocumentRow, EngagementRow, SignatureEvidenceRow } from "../tables";
+import type {
+  DocumentRow,
+  EngagementRow,
+  SignatureEventRow,
+  SignatureEvidenceRow,
+} from "../tables";
 
 export const signLetterScopeSchema = z.object({
   clientId: z.string().min(1),
@@ -140,6 +157,11 @@ export function signatureIdOf(engagementId: string, sha256Hex: string, signerEma
   return derivedId(`${engagementId}/${sha256Hex}/${signerEmail.toLowerCase()}`, "signature", 0);
 }
 
+/** The one event this run can attest to, derived from the signature it belongs to. */
+export function consentEventIdOf(signatureId: string): string {
+  return derivedId(`${signatureId}/consent`, "signature-event", 0);
+}
+
 export const engSignLetter: Run<SignLetterScope, Proposal> = {
   type: "ENG-SIGN-LETTER",
   version: 1,
@@ -180,8 +202,35 @@ export const engSignLetter: Run<SignLetterScope, Proposal> = {
     }
     const { engagement, letter } = found;
     const sha = letter.sha256Hex ?? "";
+    const signatureId = signatureIdOf(engagement.id, sha, scope.signerEmail);
+    const consentEventId = consentEventIdOf(signatureId);
+
+    // Built before the evidence row only to compute consentEventId for it;
+    // proposed after it below, because signature_events.evidence_id is a
+    // foreign key into the evidence row and apply writes proposals in order.
+    const consentEvent: SignatureEventRow = {
+      id: consentEventId,
+      evidenceId: signatureId,
+      clientId: scope.clientId,
+      firmId: ctx.firmId,
+      sequenceNumber: 1,
+      eventType: "consent_given",
+      occurredAt: NOW_PLACEHOLDER,
+      ipInet: scope.signerIp,
+      userAgent: scope.userAgent,
+      pageNumber: null,
+      detail: {},
+    };
+    const eventInsert: ProposedRowInsert = {
+      kind: "row_insert",
+      table: "signature_events",
+      rowId: consentEvent.id,
+      row: consentEvent as unknown as Record<string, unknown>,
+      provenance: { cascadeLevel: null },
+    };
+
     const evidence: SignatureEvidenceRow = {
-      id: signatureIdOf(engagement.id, sha, scope.signerEmail),
+      id: signatureId,
       firmId: ctx.firmId,
       clientId: scope.clientId,
       documentId: letter.id,
@@ -195,10 +244,13 @@ export const engSignLetter: Run<SignLetterScope, Proposal> = {
       signedAt: NOW_PLACEHOLDER,
       signerIp: scope.signerIp,
       userAgent: scope.userAgent,
+      consentEventId,
       consentGivenAt: NOW_PLACEHOLDER,
       consentText: scope.consentText,
       signatureMethod: "click_to_sign",
       status: "signed",
+      voidedAt: null,
+      voidReason: null,
       createdAt: NOW_PLACEHOLDER,
     };
     const insert: ProposedRowInsert = {
@@ -216,7 +268,7 @@ export const engSignLetter: Run<SignLetterScope, Proposal> = {
       after: { status: "signed", signedAt: NOW_PLACEHOLDER },
       provenance: { cascadeLevel: null },
     };
-    return makeResult<Proposal>(1, [insert, write], [], [], BigInt(0));
+    return makeResult<Proposal>(1, [insert, eventInsert, write], [], [], BigInt(0));
   },
 
   async apply(proposals, ctx): Promise<void> {

@@ -17,6 +17,8 @@ export interface BankAccountRow {
   nickname: string;
   kind: "bank" | "card";
   isProcessorDestination: boolean;
+  /** Who the statement comes from. What IMPORT-PARSE-FEED looks up a mapping profile by. */
+  institutionName: string;
 }
 
 export interface ChartAccountRow {
@@ -25,6 +27,16 @@ export interface ChartAccountRow {
   clientId: Ulid;
   accountNumber: string;
   name: string;
+  /** Only meaningful for the 8000 and 9000 blocks; every other block derives this from the account number itself. */
+  accountType?: "other_income" | "other_expense" | "tax" | "memo";
+  /** Read by the insert trigger only alongside accountType, for the same two blocks; every other block derives its own. */
+  normalSide?: "debit" | "credit";
+  /** Derived from the account number via statementLineOf, never hand maintained. */
+  statementLine: string | null;
+  /** No rollup hierarchy is modeled yet; always null until one is designed. */
+  parentNumber: string | null;
+  /** True for the account a subledger ties to, e.g. the AR or AP control account named on the client's policy. */
+  isControl: boolean;
 }
 
 /**
@@ -169,7 +181,12 @@ export interface StatementLineRow {
   version: number;
 }
 
-/** import.mapping_profiles, migration 0009. Read only from a run's point of view. */
+/**
+ * import.mapping_profiles, migration 0009. A profile is never edited in
+ * place (its own migration comment says why: a file parsed under version 2
+ * must stay explainable), so CFG-EDIT-MAPPING-PROFILE inserts a new row
+ * rather than writing this one's fields.
+ */
 export interface MappingProfileRow {
   id: Ulid;
   firmId: Ulid;
@@ -194,6 +211,23 @@ export interface MappingProfileRow {
   checkNumberColumn: string | null;
   bankCodeColumn: string | null;
   isActive: boolean;
+  createdBy: Ulid;
+}
+
+/**
+ * import.mapping_profile_versions, migration 0009. No synthetic id, same
+ * reason as CategoryVersionRow: the primary key is (profileId, version).
+ */
+export interface MappingProfileVersionRow {
+  profileId: Ulid;
+  version: number;
+  clientId: Ulid;
+  firmId: Ulid;
+  snapshot: Record<string, unknown>;
+  validFrom: string;
+  validTo: string | null;
+  changedBy: Ulid;
+  changeNote: string | null;
 }
 
 /** import.batches, migration 0009. */
@@ -205,6 +239,11 @@ export interface ImportBatchRow {
   sourceFormat: "ofx" | "qfx" | "qbo" | "camt053" | "csv" | "xlsx";
   bankAccountId: Ulid;
   accountNumber: string;
+  /** The uploaded document this batch was parsed from, null for a feed pasted in directly. */
+  sourceDocumentId: Ulid | null;
+  /** The earliest and latest posted date among the batch's own staged rows. Null on an empty batch. */
+  earliestRowDate: string | null;
+  latestRowDate: string | null;
   mappingProfileId: Ulid | null;
   mappingProfileVersion: number | null;
   status:
@@ -228,6 +267,7 @@ export interface ImportBatchRow {
   reversedAt: string | null;
   reversalBlocked: boolean;
   createdAt: string;
+  createdBy: Ulid;
   version: number;
 }
 
@@ -256,9 +296,16 @@ export interface StagedRowRow {
     | "confirmed_repeat"
     | "committed";
   duplicateOfTransactionId: Ulid | null;
+  /** Set instead of duplicateOfTransactionId when the repeat is another row in this same file. */
+  duplicateOfStagedRowId: Ulid | null;
   reviewState: "none" | "pending" | "accepted" | "rejected";
+  /** Who decided and when. Null until IMPORT-REVIEW-STAGED-ROW records a decision. */
+  reviewedBy: Ulid | null;
+  reviewedAt: string | null;
   committedTransactionId: Ulid | null;
   committedEntryId: Ulid | null;
+  /** Required by staged_commit_complete whenever dedupState is 'committed'. */
+  committedAt: string | null;
   errorCode: string | null;
   errorMessage: string | null;
   version: number;
@@ -347,6 +394,10 @@ export interface JournalEntryRow {
   createdByRunId: string;
   runType: string;
   runVersion: number;
+  createdBy: Ulid;
+  /** Required by je_posted_complete whenever status is posted or reversed. */
+  postedAt: string | null;
+  postedBy: Ulid | null;
 }
 
 export interface JournalLineRow {
@@ -354,6 +405,8 @@ export interface JournalLineRow {
   firmId: Ulid;
   clientId: Ulid;
   entryId: Ulid;
+  /** 1-based position within the entry. Not null, no default. */
+  lineNumber: number;
   accountNumber: string;
   categoryId: string | null;
   amountCents: Cents;
@@ -409,6 +462,23 @@ export interface CategoryRow {
 }
 
 /**
+ * ledger.category_versions, migration 0002. No synthetic id: the primary key
+ * is (categoryId, version), and insertRow has a dedicated case for exactly
+ * that reason, see apply-writer.ts.
+ */
+export interface CategoryVersionRow {
+  categoryId: string;
+  version: number;
+  clientId: Ulid;
+  firmId: Ulid;
+  snapshot: Record<string, unknown>;
+  validFrom: string;
+  validTo: string | null;
+  changedBy: Ulid;
+  changeNote: string | null;
+}
+
+/**
  * The six condition types doc 02 TXN-APPLY-RULES step 1 allows, and nothing
  * else. There is no substring similarity and no wildcard beyond the token
  * boundary prefix, so the union is closed on purpose.
@@ -433,16 +503,37 @@ export interface RuleRow {
   conditionCount: number;
   conditions: RuleCondition[];
   targetCategoryId: string;
+  /** The class dimension this rule assigns alongside the category, if any. */
+  targetClassId: Ulid | null;
   scopeKind: "client" | "firm_library";
   effectiveFrom: string | null;
   effectiveTo: string | null;
   isActive: boolean;
+  /** How many transactions this rule has won the tie break for, and when the last one was. */
+  hitCount: number;
+  lastHitAt: string | null;
   /** Rule promotion inputs, doc 02 Part D. */
   acceptedCount: number;
   rejectedCount: number;
   autoPostEnabled: boolean;
   autoPostEnabledBy: Ulid | null;
   autoPostCeilingCents: Cents;
+}
+
+/**
+ * ledger.rule_versions, migration 0004. No synthetic id, same reason as
+ * CategoryVersionRow: the primary key is (ruleId, version).
+ */
+export interface RuleVersionRow {
+  ruleId: string;
+  version: number;
+  clientId: Ulid;
+  firmId: Ulid;
+  snapshot: Record<string, unknown>;
+  validFrom: string;
+  validTo: string | null;
+  changedBy: Ulid;
+  changeNote: string | null;
 }
 
 /**
@@ -677,6 +768,43 @@ export interface PortalMessageRow {
 }
 
 /**
+ * docvault.audit_events, migration 0008. The document access log: who touched
+ * which object, how, and from where. DOC-RECORD-UPLOAD writes row_created, and
+ * the upload routes write presigned_put_issued, presigned_get_issued, and
+ * download_completed directly, since none of those three is a business
+ * transaction a run proposes and applies. The five remaining actions the
+ * check constraint allows (metadata_updated, archived, restored_from_version,
+ * lock_applied, scan_completed) describe document features this product has
+ * not built yet, and are not written anywhere on purpose.
+ */
+export interface AuditEventRow {
+  id: Ulid;
+  clientId: Ulid;
+  firmId: Ulid;
+  documentId: Ulid | null;
+  action:
+    | "row_created"
+    | "presigned_put_issued"
+    | "head_verified"
+    | "presigned_get_issued"
+    | "download_completed"
+    | "metadata_updated"
+    | "archived"
+    | "restored_from_version"
+    | "lock_applied"
+    | "access_denied"
+    | "scan_completed";
+  actorId: Ulid | null;
+  actorKind: string;
+  presignedExpiresAt: string | null;
+  ipInet: string | null;
+  userAgent: string | null;
+  runId: string | null;
+  detail: Record<string, unknown>;
+  createdAt: string;
+}
+
+/**
  * docvault.documents, migration 0008, the columns the portal reads. The storage
  * coordinates (bucket, object key, kms alias) stay out of the row map, since no
  * run writes a document and no screen shows them.
@@ -713,6 +841,40 @@ export interface DocumentRow {
   magicVerified?: boolean;
   headVerifiedAt?: string | null;
   storageProvider?: "s3" | "supabase";
+  /** Which bank or card account a bank_statement or card_statement document is for. */
+  linkedBankAccountId?: Ulid | null;
+  /** Which vendor an invoice_ap document is a bill from. */
+  linkedVendorId?: Ulid | null;
+  /** Which fixed asset a receipt documents the purchase of. */
+  linkedAssetId?: Ulid | null;
+  /** Which loan a loan_agreement document is the agreement for. */
+  linkedLoanId?: Ulid | null;
+}
+
+/**
+ * import.mapping_exceptions, migration 0045. IMPORT-FLAG-MAPPING-NEEDED writes
+ * one row per bank account that a parse could not get past, because either no
+ * mapping profile exists for the institution or the header it found does not
+ * match the one on file. One row per account, reopened in place on a later
+ * failure and resolved in place once a parse for that account gets through,
+ * so a bookkeeper never sees two open rows about the same statement layout.
+ */
+export interface MappingExceptionRow {
+  id: Ulid;
+  firmId: Ulid;
+  clientId: Ulid;
+  bankAccountId: Ulid;
+  sourceDocumentId: Ulid | null;
+  institutionName: string;
+  sourceFormat: string;
+  errorCode: string;
+  errorMessage: string;
+  status: "open" | "resolved";
+  openedAt: string;
+  openedByRunId: string | null;
+  resolvedAt: string | null;
+  resolvedByRunId: string | null;
+  version: number;
 }
 
 /**
@@ -735,11 +897,49 @@ export interface SignatureEvidenceRow {
   signedAt: string;
   signerIp: string;
   userAgent: string;
+  /**
+   * The signature_events row recording when and how consent was captured.
+   * The live sig_signed_needs_consent check requires this whenever status is
+   * signed; ENG-SIGN-LETTER writes the event alongside this row rather than
+   * leaving the pointer null, which the constraint would have refused.
+   */
+  consentEventId: Ulid | null;
   consentGivenAt: string;
   consentText: string;
   signatureMethod: "click_to_sign" | "typed_name" | "drawn";
-  status: "signed" | "voided";
+  status: "pending" | "signed" | "declined" | "voided";
+  voidedAt: string | null;
+  voidReason: string | null;
   createdAt: string;
+}
+
+/**
+ * docvault.signature_events, migration 0008. The sequence of view, scroll,
+ * consent, and sign events one signing produces. ENG-SIGN-LETTER writes the
+ * single event it can attest to from one HTTP call, consent_given, and points
+ * signature_evidence.consent_event_id at it. A finer grained view, scroll,
+ * and page tracking screen would append more events to the same sequence;
+ * none exists yet, so sequence_number is always 1 today.
+ */
+export interface SignatureEventRow {
+  id: Ulid;
+  evidenceId: Ulid;
+  clientId: Ulid;
+  firmId: Ulid;
+  sequenceNumber: number;
+  eventType:
+    | "document_viewed"
+    | "page_viewed"
+    | "scrolled_to_end"
+    | "consent_given"
+    | "signature_applied"
+    | "signature_declined"
+    | "document_downloaded";
+  occurredAt: string;
+  ipInet: string | null;
+  userAgent: string | null;
+  pageNumber: number | null;
+  detail: Record<string, unknown>;
 }
 
 /**
@@ -809,6 +1009,9 @@ export interface FixedAssetRow {
   halfMonthConvention: boolean;
   status: "active" | "fully_depreciated" | "disposed" | "written_off";
   disposedOn: string | null;
+  /** The journal entry PER-DISPOSE-ASSET posted, never null when status is disposed. */
+  disposalEntryId: Ulid | null;
+  disposalProceedsCents: Cents | null;
   manualOverride: boolean;
   version: number;
 }
@@ -912,7 +1115,17 @@ export interface LoanRow {
   termMonths: number;
   annualRateBps: number;
   paymentCents: Cents | null;
+  /**
+   * The lump sum due with the final payment, zero when there is none.
+   * Informational: the amortization table above is authoritative for what
+   * each payment actually is, so no run recomputes a schedule from this.
+   */
+  balloonCents: Cents;
+  /** Informational for the same reason: nothing here regenerates a schedule when a variable rate changes. */
+  rateType: "fixed" | "variable";
   status: "active" | "paid_off" | "refinanced" | "written_off";
+  /** Set once the loan is paid off early. PER-SPLIT-LOANPAYMENT stops expecting payments due after it. */
+  payoffDate: string | null;
   manualOverride: boolean;
   version: number;
 }
@@ -1049,6 +1262,7 @@ export interface CustomerRow {
   statementDocumentId: Ulid | null;
   statementDocumentDate: string | null;
   manualOverride: boolean;
+  createdBy: Ulid;
 }
 
 /**
@@ -1082,6 +1296,7 @@ export interface InvoiceRow {
   arAccount: string;
   revenueAccount: string;
   manualOverride: boolean;
+  createdBy: Ulid;
 }
 
 export interface CreditMemoRow {
@@ -1096,6 +1311,11 @@ export interface CreditMemoRow {
   appliedCents: Cents;
   status: "open" | "applied" | "void";
   manualOverride: boolean;
+  /** Migration 0042. The receivable control account this memo offsets. */
+  arAccount: string;
+  /** Migration 0042. Revenue, or a sales returns account, caller's choice. */
+  revenueAccount: string;
+  createdBy: Ulid;
 }
 
 /**
@@ -1120,6 +1340,7 @@ export interface CustomerPaymentRow {
   status: "unapplied" | "partially_applied" | "applied" | "void";
   appliedTier: number | null;
   manualOverride: boolean;
+  createdBy: Ulid;
 }
 
 export interface RemittanceLineRow {
@@ -1289,6 +1510,7 @@ export interface BillRow {
   apAccount: string;
   expenseAccount: string;
   manualOverride: boolean;
+  createdBy: Ulid;
 }
 
 export interface VendorCreditRow {
@@ -1322,6 +1544,8 @@ export interface RunLogRow {
   actorKind: string;
   source: string;
   parentSequenceId: string | null;
+  /** Which step of the sequence this run is, 1 based. Null outside a sequence. */
+  sequenceStep: number | null;
   previewRunId: string | null;
   originalRunId: string | null;
   periodStart: string;
@@ -1349,6 +1573,8 @@ export interface RunLogItemRow {
   ruleVersion: number | null;
   templateId: string | null;
   templateVersion: number | null;
+  /** The depreciation_schedule, loan_schedule, or deferral_lines row that drove this write. */
+  scheduleLineId: Ulid | null;
   suspenseReasonCode: string | null;
   journalEntryId: Ulid | null;
   beforeJson: unknown;
@@ -1362,6 +1588,7 @@ export interface RunLogItemRow {
 export interface RunLogEventRow {
   id: Ulid;
   firmId: Ulid;
+  clientId: Ulid;
   runExecutionId: string;
   event: RunStatus | "attempt_retried" | "undone_by";
   attempt: number;
@@ -1376,6 +1603,16 @@ export interface RunLogEventRow {
   durationMs: number;
   relatedRunId: string | null;
   occurredAt: string;
+  /**
+   * Set only on the terminal event of an apply-mode execution that actually
+   * completed ('completed', 'completed_with_skips', 'no_op'). Null on every
+   * preview event, every non-terminal event (retried, abandoned, ...), and
+   * every apply event that did not complete. This is the real, DB-enforced
+   * idempotency guarantee (migration 0041) -- the partial unique index on
+   * run_log itself (migration 0003) can never fire, since run_log.status is
+   * always 'started' (insert only, see db-postgres.ts applied_run_by_idempotency_key).
+   */
+  idempotencyKey: string | null;
 }
 
 export interface RunSequenceRow {
@@ -1610,6 +1847,8 @@ export interface ReportSectionLine {
   amountCents: string;
   comparisonCents: string | null;
   note: string | null;
+  /** The taxonomy label (statement-taxonomy.ts) for an account level line; null for a total, a narrative line, or a section with no account. */
+  statementLine: string | null;
 }
 
 export interface ReportPackageRow {
@@ -2459,6 +2698,13 @@ export interface EngagementRow {
   terminatedAt: string | null;
   terminationReason: string | null;
   offboardingExportDays: number;
+  /**
+   * Whether the client is current on what they owe the firm for the
+   * engagement itself. Set by hand through ENG-SET-BILLING-STATUS, never by a
+   * run. Not a billing subsystem: no amounts, no invoice rows, no payment
+   * history. Migration 0032.
+   */
+  billingStatus: "current" | "past_due";
   createdAt: string;
   createdBy: Ulid;
 }
@@ -2477,13 +2723,17 @@ export interface RowMap {
   wizard_sessions: WizardSessionRow;
   import_batches: ImportBatchRow;
   staged_rows: StagedRowRow;
+  mapping_exceptions: MappingExceptionRow;
   period_locks: PeriodLockRow;
   transfer_pairs: TransferPairRow;
   journal_entries: JournalEntryRow;
   journal_lines: JournalLineRow;
   suspense_items: SuspenseItemRow;
   categories: CategoryRow;
+  category_versions: CategoryVersionRow;
   rules: RuleRow;
+  rule_versions: RuleVersionRow;
+  mapping_profile_versions: MappingProfileVersionRow;
   recurring_templates: RecurringTemplateRow;
   recurring_splits: RecurringSplitRow;
   vendors: VendorRow;
@@ -2494,7 +2744,9 @@ export interface RowMap {
   portal_requests: PortalRequestRow;
   portal_messages: PortalMessageRow;
   documents: DocumentRow;
+  audit_events: AuditEventRow;
   signature_evidence: SignatureEvidenceRow;
+  signature_events: SignatureEventRow;
   documentation_exceptions: DocumentationExceptionRow;
   fixed_assets: FixedAssetRow;
   depreciation_schedule: DepreciationScheduleRow;

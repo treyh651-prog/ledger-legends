@@ -1,10 +1,71 @@
 import { useState } from "react";
+import { Area, AreaChart, CartesianGrid, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { DataGrid, EmptyState, ErrorState, Kpi, Money, PageHeader, Pill, SectionCard } from "@/components/kit";
 import { useActiveClient } from "@/lib/active-client";
 import { useForecast, errorMessage } from "@/api";
-import { fmtShortDate, fmtTimestamp } from "@/lib/money";
+import { fmtCompactUsd, fmtShortDate, fmtTimestamp, usd } from "@/lib/money";
 import type { ForecastWeek } from "@shared/api";
+
+/**
+ * Closing cash across the horizon. One series, so no legend box; the title
+ * names it. Shortfall weeks get a filled dot in the risk color so the one
+ * thing the KPI row already calls out is visible on the line itself.
+ */
+function ClosingCashChart({ weeks }: { weeks: ForecastWeek[] }) {
+  const data = weeks.map((w) => ({
+    label: `Wk ${w.weekNumber}`,
+    date: fmtShortDate(w.weekStart),
+    closing: w.closingCents / 100,
+    shortfall: w.shortfall,
+  }));
+  return (
+    <ResponsiveContainer width="100%" height={220}>
+      <AreaChart data={data} margin={{ top: 8, right: 12, bottom: 0, left: 0 }}>
+        <defs>
+          <linearGradient id="forecastFill" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="hsl(var(--chart-1))" stopOpacity={0.25} />
+            <stop offset="100%" stopColor="hsl(var(--chart-1))" stopOpacity={0} />
+          </linearGradient>
+        </defs>
+        <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
+        <XAxis dataKey="label" tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} axisLine={{ stroke: "hsl(var(--border))" }} tickLine={false} />
+        <YAxis
+          tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }}
+          axisLine={false}
+          tickLine={false}
+          tickFormatter={(v: number) => fmtCompactUsd(v * 100)}
+          width={56}
+        />
+        <ReferenceLine y={0} stroke="hsl(var(--destructive))" strokeDasharray="3 3" />
+        <Tooltip
+          formatter={(value: number) => [usd(Math.round(value * 100)), "Closing cash"]}
+          labelFormatter={(label: string, items) => {
+            const d = items?.[0]?.payload as { date?: string } | undefined;
+            return d?.date ? `${label}, ${d.date}` : label;
+          }}
+          contentStyle={{ background: "hsl(var(--popover))", border: "1px solid hsl(var(--border))", borderRadius: 6, fontSize: 12 }}
+          labelStyle={{ color: "hsl(var(--foreground))" }}
+        />
+        <Area
+          type="monotone"
+          dataKey="closing"
+          stroke="hsl(var(--chart-1))"
+          strokeWidth={2}
+          fill="url(#forecastFill)"
+          dot={(props: { cx?: number; cy?: number; payload?: { shortfall?: boolean } }) =>
+            props.payload?.shortfall ? (
+              <circle key={`dot-${props.cx}-${props.cy}`} cx={props.cx} cy={props.cy} r={4} fill="hsl(var(--destructive))" stroke="none" />
+            ) : (
+              <circle key={`dot-${props.cx}-${props.cy}`} cx={props.cx} cy={props.cy} r={0} fill="transparent" />
+            )
+          }
+          activeDot={{ r: 5, fill: "hsl(var(--chart-1))" }}
+        />
+      </AreaChart>
+    </ResponsiveContainer>
+  );
+}
 
 const SCENARIO: Record<string, string> = { base: "Base", slow_collections: "Slow collections", revenue_shortfall: "Revenue shortfall" };
 
@@ -55,6 +116,11 @@ export default function Forecast() {
           testId="kpi-closing-cash"
         />
       </div>
+      {d && d.weeks.length > 0 ? (
+        <SectionCard title="Closing cash by week" description="The line the KPIs above summarize. A red dot marks a shortfall week.">
+          <ClosingCashChart weeks={d.weeks} />
+        </SectionCard>
+      ) : null}
       <SectionCard title="Weeks" description="Opening, inflows by source, outflows by source, closing.">
         <DataGrid<ForecastWeek>
           rows={d?.weeks ?? []}

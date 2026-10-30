@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { Aging, Budget, ClientSetup, CloseChecklist, FirmRequests, FirmTasks, FirmTeam, RunOutcomeDto, UpdateTaskBody, Forecast, Journal, Narratives, PortalStatements, Reconcile, ReportPackages, Rules, Substantiation, TaxForms, TrialBalance } from "@shared/api";
+import type { Aging, Budget, ClientSetup, CloseChecklist, FirmRequests, FirmTasks, FirmTeam, RunOutcomeDto, UpdateTaskBody, Forecast, Journal, Narratives, PortalStatements, Reconcile, ReportPackages, Rules, StagedBatches, Substantiation, TaxForms, TrialBalance } from "@shared/api";
 import { api, toQuery } from "./http";
 
 /** Reads for the firm screens. Keys live under the client so run mutations invalidate them. */
@@ -7,6 +7,7 @@ export const screenKeys = {
   close: (clientId: string, period: string) => ["api", "firm", "clients", clientId, "close", period] as const,
   reconcile: (clientId: string, period: string, batchId: string | null) =>
     ["api", "firm", "clients", clientId, "reconcile", period, batchId ?? "first"] as const,
+  stagedBatches: (clientId: string) => ["api", "firm", "clients", clientId, "staged-batches"] as const,
   requests: (clientId: string) => ["api", "firm", "clients", clientId, "requests"] as const,
   statements: (clientId: string, period: string) => ["api", "firm", "clients", clientId, "statements", period] as const,
   trialBalance: (clientId: string, period: string) => ["api", "firm", "clients", clientId, "trial-balance", period] as const,
@@ -37,6 +38,50 @@ export function useReconcile(clientId: string | null, period: string, batchId: s
     queryKey: screenKeys.reconcile(clientId ?? "none", p, batchId),
     queryFn: () => api<Reconcile>("GET", `/api/firm/clients/${clientId}/reconcile${toQuery({ period: p, batchId: batchId ?? undefined })}`),
     enabled: !!clientId,
+  });
+}
+
+export function useStagedBatches(clientId: string | null) {
+  return useQuery({
+    queryKey: screenKeys.stagedBatches(clientId ?? "none"),
+    queryFn: () => api<StagedBatches>("GET", `/api/firm/clients/${clientId}/staged-batches`),
+    enabled: !!clientId,
+  });
+}
+
+export interface ApproveBatchResult {
+  commit: RunOutcomeDto;
+  applied: RunOutcomeDto | null;
+  cascade: { stoppedAtStep: number | null; stoppedBy: string | null } | null;
+  done: boolean;
+}
+
+/** IMPORT-COMMIT-BATCH, then the coding cascade, as one firm decision. */
+export function useApproveStagedBatch() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ clientId, batchId }: { clientId: string; batchId: string }) =>
+      api<ApproveBatchResult>("POST", `/api/firm/clients/${clientId}/staged-batches/${batchId}/approve`),
+    onSuccess: (_r, { clientId }) => {
+      void qc.invalidateQueries({ queryKey: screenKeys.stagedBatches(clientId) });
+      void qc.invalidateQueries({ queryKey: ["api", "firm", "clients", clientId] });
+    },
+  });
+}
+
+export interface RejectBatchResult {
+  preview: RunOutcomeDto;
+  applied: RunOutcomeDto | null;
+  done: boolean;
+}
+
+/** IMPORT-REJECT-BATCH. Throws the staged statement out, nothing committed. */
+export function useRejectStagedBatch() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ clientId, batchId, reason }: { clientId: string; batchId: string; reason: string }) =>
+      api<RejectBatchResult>("POST", `/api/firm/clients/${clientId}/staged-batches/${batchId}/reject`, { reason }),
+    onSuccess: (_r, { clientId }) => void qc.invalidateQueries({ queryKey: screenKeys.stagedBatches(clientId) }),
   });
 }
 

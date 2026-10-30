@@ -280,6 +280,7 @@ export function makeUndoRun<S, P>(
       // it, because the log is insert only.
       await appendEvent(tx, {
         firmId: ctx.firmId,
+        clientId: ctx.clientId,
         runExecutionId: originalExecutionId,
         event: "undone_by",
         attempt: 1,
@@ -294,6 +295,7 @@ export function makeUndoRun<S, P>(
         durationMs: 0,
         relatedRunId: ctx.runExecutionId,
         occurredAt: ctx.now.toISOString(),
+        idempotencyKey: null,
       });
     },
 

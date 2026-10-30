@@ -8,6 +8,7 @@ import type {
   BankAccountRow,
   ChartAccountRow,
   ImportBatchRow,
+  MappingExceptionRow,
   MappingProfileRow,
   PeriodLockRow,
   StagedRowRow,
@@ -15,6 +16,7 @@ import type {
 } from "../tables";
 import type { ExecuteOptions } from "../execute";
 import { headerFingerprintOf } from "../runs/import-parse-feed";
+import { statementLineOf } from "../runs/statement-taxonomy";
 
 export const FIRM_A = "FIRM-A";
 export const FIRM_B = "FIRM-B";
@@ -31,6 +33,7 @@ export function bankAccount(
   clientId: string,
   accountNumber: string,
   nickname: string,
+  institutionName = "First Bank",
 ): BankAccountRow {
   return {
     id,
@@ -40,6 +43,7 @@ export function bankAccount(
     nickname,
     kind: "bank",
     isProcessorDestination: false,
+    institutionName,
   };
 }
 
@@ -49,8 +53,19 @@ export function chartAccount(
   clientId: string,
   accountNumber: string,
   name: string,
+  extra: Partial<ChartAccountRow> = {},
 ): ChartAccountRow {
-  return { id, firmId, clientId, accountNumber, name };
+  return {
+    id,
+    firmId,
+    clientId,
+    accountNumber,
+    name,
+    statementLine: statementLineOf(accountNumber),
+    parentNumber: null,
+    isControl: false,
+    ...extra,
+  };
 }
 
 export interface TxnOverrides {
@@ -281,6 +296,7 @@ export function mappingProfile(
     checkNumberColumn: null,
     bankCodeColumn: null,
     isActive: true,
+    createdBy: ACTOR,
     ...extra,
   };
 }
@@ -300,6 +316,9 @@ export function importBatch(
     sourceFormat: "ofx",
     bankAccountId,
     accountNumber: "1010",
+    sourceDocumentId: null,
+    earliestRowDate: null,
+    latestRowDate: null,
     mappingProfileId: null,
     mappingProfileVersion: null,
     status: "parsed",
@@ -316,6 +335,34 @@ export function importBatch(
     reversedAt: null,
     reversalBlocked: false,
     createdAt: NOW.toISOString(),
+    createdBy: ACTOR,
+    version: 1,
+    ...extra,
+  };
+}
+
+export function mappingException(
+  id: string,
+  firmId: string,
+  clientId: string,
+  bankAccountId: string,
+  extra: Partial<MappingExceptionRow> = {},
+): MappingExceptionRow {
+  return {
+    id,
+    firmId,
+    clientId,
+    bankAccountId,
+    sourceDocumentId: null,
+    institutionName: "First Bank",
+    sourceFormat: "csv",
+    errorCode: "MISSING_MAPPING_PROFILE",
+    errorMessage: "no active csv mapping profile for institution First Bank",
+    status: "open",
+    openedAt: NOW.toISOString(),
+    openedByRunId: "RUNX-SEED",
+    resolvedAt: null,
+    resolvedByRunId: null,
     version: 1,
     ...extra,
   };
@@ -353,9 +400,13 @@ export function stagedRow(
     bankCode: null,
     dedupState: "unique",
     duplicateOfTransactionId: null,
+    duplicateOfStagedRowId: null,
     reviewState: "none",
+    reviewedBy: null,
+    reviewedAt: null,
     committedTransactionId: null,
     committedEntryId: null,
+    committedAt: null,
     errorCode: null,
     errorMessage: null,
     version: 1,

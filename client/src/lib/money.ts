@@ -21,6 +21,17 @@ export function signedUsd(cents: number): string {
   return (cents > 0 ? "+$" : "-$") + money(Math.abs(cents));
 }
 
+/** "$1.2k", "$340", "-$2.1M". For a chart axis tick, never a data value. */
+export function fmtCompactUsd(cents: number): string {
+  const neg = cents < 0;
+  const dollars = Math.abs(cents) / 100;
+  let s: string;
+  if (dollars >= 1_000_000) s = (dollars / 1_000_000).toFixed(1).replace(/\.0$/, "") + "M";
+  else if (dollars >= 1_000) s = (dollars / 1_000).toFixed(1).replace(/\.0$/, "") + "k";
+  else s = Math.round(dollars).toString();
+  return (neg ? "-$" : "$") + s;
+}
+
 export function pct(numerator: number, denominator = 100, digits = 1): string {
   if (!denominator) return "n/a";
   return ((numerator / denominator) * 100).toFixed(digits) + "%";

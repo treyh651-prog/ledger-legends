@@ -84,6 +84,8 @@ const FIRM_NAV: NavGroup[] = [
       { href: "/transactions", label: "Transactions", icon: Table2, badge: (c) => c.needsReview || undefined },
       { href: "/rules", label: "Categorization rules", icon: Repeat },
       { href: "/reconcile", label: "Reconciliation", icon: BadgeCheck },
+      { href: "/staged-statements", label: "Staged statements", icon: Table2 },
+      { href: "/portal/upload", label: "Upload for client", icon: Columns3 },
       { href: "/aging", label: "AR and AP aging", icon: Banknote },
       { href: "/journal", label: "Journal entries", icon: BookOpen },
       { href: "/substantiation", label: "Substantiation", icon: Layers },

@@ -185,14 +185,14 @@ function outcomeOf(t: TransactionRow): string | null {
 }
 
 test("coding pipeline, the execution order is data and the registry agrees with it", () => {
-  assertEqual(CODING_CASCADE_ORDER.length, 9, "nine runs in module 2");
+  assertEqual(CODING_CASCADE_ORDER.length, 10, "doc 02's nine runs plus TXN-POST-CODED");
   for (const type of CODING_CASCADE_ORDER) {
     assert(lookupRun(type) !== null, `${type} is registered`);
   }
   const registered = CODING_CASCADE_ORDER.map((type) => cascadePosition(type));
   assertEqual(
     registered.join(","),
-    "0,1,2,3,4,5,6,7,8",
+    "0,1,2,3,4,5,6,7,8,9",
     "and every one of them knows where it sits",
   );
   assertEqual(cascadePosition("IMPORT-PARSE-FEED"), null, "an import run is not in the cascade");
@@ -218,6 +218,10 @@ test("coding pipeline, the execution order is data and the registry agrees with 
       before("TXN-APPLY-VENDORDEFAULTS", "TXN-MAP-BANKCODES") &&
       before("TXN-MAP-BANKCODES", "TXN-SWEEP-SUSPENSE"),
     "the coding levels run strongest evidence first and the sweep runs last",
+  );
+  assert(
+    before("TXN-SWEEP-SUSPENSE", "TXN-POST-CODED"),
+    "a row finishes being coded, suspense included, before anything decides there is nothing left to post",
   );
 });
 

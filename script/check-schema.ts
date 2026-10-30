@@ -16,8 +16,10 @@
  *   Resolution imports `PHYSICAL_TABLES` and `physical` from the Postgres port
  *   itself. A second copy of the map would drift, and a drifted copy of the
  *   map is the bug this gate exists to find.
- *   The database is read through the Supabase connector, which holds its own
- *   credentials. Nothing here reads, asks for, or stores a password.
+ *   The database is read through script/connector-sql.ts, which tries the
+ *   Supabase connector first (its own credentials, no password seen here) and
+ *   falls back to a direct connection on DATABASE_URL when the connector is
+ *   not available.
  *
  * Views count. `ledger.chart_accounts` is a view over `ledger.accounts` and is
  * a legitimate target for a run write, so the existence query unions
@@ -61,7 +63,7 @@ const wanted = new Map<string, string>();
 for (const key of keys) wanted.set(key, physical(key as TableName));
 
 const present = new Set<string>();
-for (const row of query(
+for (const row of await query(
   `select n.nspname || '.' || c.relname as name
      from pg_class c join pg_namespace n on n.oid = c.relnamespace
     where c.relkind in ('r', 'p', 'v')
@@ -97,7 +99,7 @@ for (const [key, table] of Object.entries(PHYSICAL_TABLES)) {
 
 const tierProblems: string[] = [];
 const liveTiers = new Map<string, { tier: string; reason: string; writes: boolean }>();
-for (const row of query(
+for (const row of await query(
   "select run_type, tier, reason, writes_ledger from sched.run_policies",
 )) {
   liveTiers.set(String(row.run_type), {
@@ -178,7 +180,7 @@ function requiredWidth(column: string): number {
 
 const schemaList = OWNED_SCHEMAS.map((s) => `'${s}'`).join(", ");
 
-const runIdRows = query(
+const runIdRows = await query(
   `select c.table_schema || '.' || c.table_name as tbl, c.column_name as col,
           c.data_type as kind, c.character_maximum_length as len
      from information_schema.columns c
@@ -237,7 +239,7 @@ if (!tierTablesPresent) {
     string,
     { name: string; rank: number; tagline: string; floor: number; ceiling: number | null }
   >();
-  for (const row of query(
+  for (const row of await query(
     "select id, name, rank, tagline, revenue_floor_cents, revenue_ceiling_cents from tenancy.service_tiers",
   )) {
     liveServiceTiers.set(String(row.id), {
@@ -271,7 +273,7 @@ if (!tierTablesPresent) {
   }
 
   const liveFeatures = new Map<string, { tier: string; label: string; summary: string }>();
-  for (const row of query(
+  for (const row of await query(
     "select tier_id, feature_key, label, summary from tenancy.tier_features",
   )) {
     liveFeatures.set(String(row.feature_key), {
@@ -300,7 +302,7 @@ if (!tierTablesPresent) {
 }
 
 const arrays: string[] = [];
-for (const row of query(
+for (const row of await query(
   `select c.table_schema || '.' || c.table_name as tbl, c.column_name as col,
           c.udt_name as udt
      from information_schema.columns c

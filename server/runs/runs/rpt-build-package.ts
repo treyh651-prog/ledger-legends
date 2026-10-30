@@ -68,6 +68,7 @@ import {
   isBalanceSheet,
   isIncomeStatement,
 } from "./close-shared";
+import { statementLineOf } from "./statement-taxonomy";
 import {
   SECTION_CATALOG,
   accountNameOf,
@@ -198,7 +199,7 @@ export const rptBuildPackage: Run<BuildPackageScope, Proposal> = {
     const errors: RunError[] = [];
 
     const basis = frozen.input.comparisonBasis;
-    const packageId = packageIdOf(data.periodStart, basis);
+    const packageId = packageIdOf(frozen.clientId, data.periodStart, basis);
     const sections = buildSections(data, basis);
     const sectionRows = await tx.query("report_sections_for_package", {
       firmId: frozen.firmId,
@@ -358,8 +359,8 @@ export const rptBuildPackage: Run<BuildPackageScope, Proposal> = {
   },
 };
 
-export function packageIdOf(periodStart: string, comparisonBasis: string): Ulid {
-  return derivedId(`${periodStart}:${comparisonBasis}`, "rpt-build-package", 0);
+export function packageIdOf(clientId: Ulid, periodStart: string, comparisonBasis: string): Ulid {
+  return derivedId(`${clientId}:${periodStart}:${comparisonBasis}`, "rpt-build-package", 0);
 }
 
 export function sectionIdOf(packageId: Ulid, sectionCode: string): Ulid {
@@ -496,6 +497,7 @@ function line(
   amount: Cents,
   comparison: Cents | null,
   note: string | null,
+  statementLine: string | null = null,
 ): ReportSectionLine {
   return {
     label,
@@ -503,6 +505,7 @@ function line(
     amountCents: centsStr(amount),
     comparisonCents: comparison === null ? null : centsStr(comparison),
     note,
+    statementLine,
   };
 }
 
@@ -559,6 +562,7 @@ function balanceSheetSection(data: ReportData): BuiltSection {
         amount,
         data.comparisonAvailable ? prior : null,
         null,
+        statementLineOf(number),
       ),
     );
     const block = blockOf(number);
@@ -598,6 +602,7 @@ function incomeStatementSection(data: ReportData): BuiltSection {
         amount,
         data.comparisonAvailable ? prior : null,
         null,
+        statementLineOf(number),
       ),
     );
     total += amount;
@@ -684,7 +689,7 @@ function equitySection(data: ReportData): BuiltSection {
     const delta = balanceOf(data.close.inPeriod, number);
     if (delta === ZERO) continue;
     movement += delta;
-    lines.push(line(`Movement in ${account.name}`, number, delta, null, null));
+    lines.push(line(`Movement in ${account.name}`, number, delta, null, null, statementLineOf(number)));
   }
   let netResult = ZERO;
   for (const account of data.close.chart) {

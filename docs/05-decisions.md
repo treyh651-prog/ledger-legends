@@ -98,7 +98,9 @@ There is no statement parser for PDF, and there will not be one. Reading a PDF s
 
 Everything else uploads to the vault as a document with a type and a link to a client, a period, an account, a transaction, or a vendor. Accepted: PDF, PNG, JPG, HEIC, TIFF, DOCX, XLSX, CSV, TXT, EML, and MSG. Email formats are included because a large share of what a small business sends is a forwarded email with the real document attached.
 
-A document is never read by the software to produce accounting data. A person links it. The document types already declared in document 04 are extended with `invoice_ap`, `invoice_ar`, `receipt`, `bank_statement`, `card_statement`, `processor_statement`, `insurance_policy`, `lease`, `formation_document`, `w9`, `payroll_register`, and `correspondence`.
+A document is never read by the software to produce accounting data. A person links it, with one bridge back to pipeline one: a `bank_statement` or `card_statement` upload that is a CSV and names which bank or card account it is for also runs through `IMPORT-PARSE-FEED`, automatically, the moment the upload finalizes. The document types already declared in document 04 are extended with `invoice_ap`, `invoice_ar`, `receipt`, `bank_statement`, `card_statement`, `processor_statement`, `insurance_policy`, `lease`, `formation_document`, `w9`, `payroll_register`, and `correspondence`.
+
+**The bridge, named precisely.** Nothing is inferred from the document's bytes beyond what pipeline one already parses deterministically from a CSV under a stored mapping profile; this is pipeline one reached from the upload route instead of from a firm screen, not a third pipeline. The account comes from the person uploading, never guessed from the file. OFX, QFX, QBO, and XLSX statements still land only as a document; the automatic path is CSV only, because XLSX needs a workbook unzipped first and the upload route does not carry that dependency. No mapping profile, or a header that does not match the one on file, opens one row per account (`IMPORT-FLAG-MAPPING-NEEDED`) rather than guessing a shifted column, the same refusal `IMPORT-PARSE-FEED` has always made, now written down somewhere a bookkeeper sees it. `docvault.documents.linked_bank_account_id` and `import.batches.source_document_id` keep the document and the batch pointing at each other both ways.
 
 **Size and safety.** One hundred megabyte ceiling per file. Content type is verified against file magic bytes rather than the extension. Uploads are scanned before they are linkable. Original bytes are never modified, and a rendered preview is a derived object stored beside the original.
 
@@ -108,6 +110,8 @@ A document is never read by the software to produce accounting data. A person li
 |---|---|---|
 | `IMPORT-PARSE-FEED` | Parse an uploaded structured file into staged rows using the institution's mapping profile. Reject on header mismatch. | No |
 | `IMPORT-COMMIT-BATCH` | Commit a reviewed staging batch into the transaction register as a named, reversible batch. | Yes |
+| `IMPORT-FLAG-MAPPING-NEEDED` | Open, reopen, or resolve the one row per bank account that says a parse could not get past the mapping check. Written by the upload route, never by a person. | No |
+| `IMPORT-REJECT-BATCH` | Throw out a staged batch a person decides was the wrong account or the wrong statement, with the reason on record. | No |
 
 ---
 

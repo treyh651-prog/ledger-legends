@@ -28,7 +28,7 @@ import type {
   RemittanceLineRow,
   VendorRow,
 } from "../tables";
-import { CLIENT_A1, FIRM_A, NOW, baseDb, chartAccount, opts } from "./fixtures";
+import { ACTOR, CLIENT_A1, FIRM_A, NOW, baseDb, chartAccount, opts } from "./fixtures";
 
 /** The period every module 5 suite works on unless it says otherwise. */
 export const PERIOD = "2026-01-01";
@@ -47,6 +47,7 @@ export const ARAP_ACCOUNTS: ReadonlyArray<readonly [string, string]> = [
   ["2400", "Sales tax payable"],
   ["4100", "Service revenue"],
   ["4200", "Late fee revenue"],
+  ["6100", "Office expense"],
   ["6800", "Bad debt expense"],
   ["8200", "Purchase discounts taken"],
 ];
@@ -133,6 +134,7 @@ export function customer(
     statementDocumentId: null,
     statementDocumentDate: null,
     manualOverride: false,
+    createdBy: ACTOR,
     ...extra,
   };
 }
@@ -167,6 +169,7 @@ export function invoice(
     arAccount: "1100",
     revenueAccount: "4100",
     manualOverride: false,
+    createdBy: ACTOR,
     ...extra,
   };
 }
@@ -188,6 +191,9 @@ export function creditMemo(
     appliedCents: BigInt(0),
     status: "open",
     manualOverride: false,
+    arAccount: "1100",
+    revenueAccount: "4100",
+    createdBy: ACTOR,
     ...extra,
   };
 }
@@ -214,6 +220,7 @@ export function payment(
     status: "unapplied",
     appliedTier: null,
     manualOverride: false,
+    createdBy: ACTOR,
     ...extra,
   };
 }
@@ -289,6 +296,7 @@ export function bill(
     apAccount: "2000",
     expenseAccount: "6100",
     manualOverride: false,
+    createdBy: ACTOR,
     ...extra,
   };
 }
@@ -318,6 +326,9 @@ export function arEntry(
     createdByRunId: "RUNX-SEED",
     runType: "SEED",
     runVersion: 1,
+    createdBy: ACTOR,
+    postedAt: NOW.toISOString(),
+    postedBy: ACTOR,
     ...extra,
   };
 }
@@ -335,6 +346,7 @@ export function arLine(
     firmId: FIRM_A,
     clientId: CLIENT_A1,
     entryId,
+    lineNumber: 1,
     accountNumber,
     categoryId: null,
     amountCents,

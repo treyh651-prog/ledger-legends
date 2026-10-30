@@ -263,9 +263,15 @@ checks are the only enforcement. That is not a configuration to ship. The test
 suite proves both behaviours against a real Postgres: with the switch a client
 scoped actor sees one client's rows, without it the same actor sees every row.
 
-The runs path (`server/runs/db-postgres.ts`) does not switch roles yet; runs
-started from the interface still execute as the connection role. That is the
-next thing to close.
+The runs path (`server/runs/db-postgres.ts`) switches roles too, the identical
+`set local role` on its own `PostgresRunDbOptions.dbRole`, read from the same
+`APP_DB_ROLE` by `resolveDbRole` in `server/db/run-db.ts`. One environment
+variable, both paths. Verified directly against production on 2026-10-28:
+`APP_DB_ROLE=app_web` is set, a transaction's `current_user` genuinely moves
+from `postgres` to `app_web` on `set local role`, and `pg_roles` shows
+`app_web.rolbypassrls = false` against `postgres.rolbypassrls = true`. This
+section used to say the runs path was the next thing to close; it was already
+closed by the time that line was checked against the running system.
 
 ## 8. Notes for whoever maintains this
 

@@ -192,6 +192,8 @@ export interface CreateClientResult {
   runs: RunOutcomeDto[];
   /** True when every intake step applied. */
   complete: boolean;
+  /** Set only by createClientFirstStep: whether INTAKE-CREATE-CLIENT itself applied. */
+  firstStepComplete?: boolean;
 }
 
 function startOfMonth(day: string): string {
@@ -199,21 +201,27 @@ function startOfMonth(day: string): string {
 }
 
 /**
- * The firm's first run path. Four intake runs in CLIENT_INTAKE_ORDER, each previewed
- * and then applied against its preview, stopping at the first that does not
- * apply. SETUP-IMPORT-BALANCES is not run here, because a new client has no
- * opening balances to import until a person supplies them.
+ * The firm's first run path. Four intake runs in CLIENT_INTAKE_ORDER, each
+ * previewed and then applied against its preview, stopping at the first that
+ * does not apply. SETUP-IMPORT-BALANCES is not run here, because a new
+ * client has no opening balances to import until a person supplies them.
+ *
+ * Split in two because the full cascade, chart included, is the one
+ * operation in this codebase measured taking thirty to forty seconds against
+ * real Postgres: a standard chart is on the order of two hundred rows across
+ * chart_accounts and categories, each its own run managed insert inside the
+ * run framework's own transaction and log writes. A synchronous Netlify
+ * function sits behind an upstream proxy with roughly a twenty nine second
+ * inactivity timeout, confirmed against the deployed function directly
+ * (Inactivity Timeout, no data sent) rather than assumed from Netlify's own
+ * stated function limit, which is longer and was not the one actually hit.
+ *
+ * buildIntakeScopes names every run's scope once, so the two halves below
+ * read it from the same place rather than each repeating it.
  */
-export async function createClient(
-  db: RunDb,
-  actor: Actor,
-  firmId: string,
-  body: CreateClientBody,
-  now = new Date(),
-  clientId = randomUUID(),
-): Promise<CreateClientResult> {
+export function buildIntakeScopes(clientId: string, body: CreateClientBody): Record<string, Record<string, unknown>> {
   const period = body.period ?? startOfMonth(body.startDate);
-  const scopes: Record<string, Record<string, unknown>> = {
+  return {
     "INTAKE-CREATE-CLIENT": {
       clientId,
       name: body.name,
@@ -238,35 +246,163 @@ export async function createClient(
     "INTAKE-SEED-TASKS": { clientId, period, scopeKeys: body.scopeKeys },
     "INTAKE-OPEN-REQUESTS": { clientId, period, scopeKeys: body.scopeKeys, openedOn: body.startDate },
   };
+}
+
+/** Preview then apply one run type in CLIENT_INTAKE_ORDER, appending its outcomes and reporting whether it applied clean. */
+async function runIntakeStep(
+  db: RunDb,
+  actor: Actor,
+  firmId: string,
+  clientId: string,
+  runCode: string,
+  scope: Record<string, unknown>,
+  now: Date,
+  runs: RunOutcomeDto[],
+): Promise<boolean> {
+  const preview = await triggerRun({ db, actor, firmId, clientId, via: "firm", runCode, mode: "preview", scope, now });
+  runs.push(preview);
+  if (preview.status !== "completed" && preview.status !== "completed_with_skips" && preview.status !== "no_op") {
+    return false;
+  }
+  if (preview.status === "no_op") return true;
+  const applied = await triggerRun({
+    db,
+    actor,
+    firmId,
+    clientId,
+    via: "firm",
+    runCode,
+    mode: "apply",
+    previewRunId: preview.executionId,
+    scope,
+    now,
+  });
+  runs.push(applied);
+  return applied.status === "completed" || applied.status === "completed_with_skips";
+}
+
+/**
+ * Step one, synchronous: the client and its draft engagement, two row
+ * inserts. Fast enough that there was never a reason to split it off the
+ * request that creates it.
+ */
+export async function createClientFirstStep(
+  db: RunDb,
+  actor: Actor,
+  firmId: string,
+  body: CreateClientBody,
+  now = new Date(),
+  clientId = randomUUID(),
+): Promise<CreateClientResult> {
+  const scopes = buildIntakeScopes(clientId, body);
+  const runs: RunOutcomeDto[] = [];
+  const ok = await runIntakeStep(db, actor, firmId, clientId, "INTAKE-CREATE-CLIENT", scopes["INTAKE-CREATE-CLIENT"], now, runs);
+  return { clientId, runs, complete: false, firstStepComplete: ok };
+}
+
+/**
+ * Steps two through four: the chart, the workload, the first document
+ * requests. Runs wherever it is called from, which is either in process
+ * right behind createClientFirstStep (local dev, `npm start`, anywhere not a
+ * Netlify function) or from finish-client-onboarding-background.ts, a
+ * background function with a fifteen minute budget instead of a synchronous
+ * one's twenty nine seconds. netlify/functions/api.ts decides which; this
+ * function does not know or care which call reached it.
+ */
+export async function continueClientOnboarding(
+  db: RunDb,
+  actor: Actor,
+  firmId: string,
+  clientId: string,
+  body: CreateClientBody,
+  now = new Date(),
+): Promise<CreateClientResult> {
+  const scopes = buildIntakeScopes(clientId, body);
   const runs: RunOutcomeDto[] = [];
   let complete = true;
   for (const type of CLIENT_INTAKE_ORDER) {
+    if (type === "INTAKE-CREATE-CLIENT") continue;
     const scope = scopes[type];
     if (!scope) continue;
-    const preview = await triggerRun({ db, actor, firmId, clientId, via: "firm", runCode: type, mode: "preview", scope, now });
-    runs.push(preview);
-    if (preview.status !== "completed" && preview.status !== "completed_with_skips" && preview.status !== "no_op") {
-      complete = false;
-      break;
-    }
-    if (preview.status === "no_op") continue;
-    const applied = await triggerRun({
-      db,
-      actor,
-      firmId,
-      clientId,
-      via: "firm",
-      runCode: type,
-      mode: "apply",
-      previewRunId: preview.executionId,
-      scope,
-      now,
-    });
-    runs.push(applied);
-    if (applied.status !== "completed" && applied.status !== "completed_with_skips") {
+    const ok = await runIntakeStep(db, actor, firmId, clientId, type, scope, now, runs);
+    if (!ok) {
       complete = false;
       break;
     }
   }
   return { clientId, runs, complete };
+}
+
+/**
+ * The full cascade in one call, both steps back to back. What a direct
+ * caller wants (local dev, the background function itself, a future script);
+ * the HTTP route never calls this, because it is exactly the shape that
+ * times out against real Postgres through the proxy in front of a
+ * synchronous Netlify function.
+ */
+export async function createClient(
+  db: RunDb,
+  actor: Actor,
+  firmId: string,
+  body: CreateClientBody,
+  now = new Date(),
+  clientId = randomUUID(),
+): Promise<CreateClientResult> {
+  const first = await createClientFirstStep(db, actor, firmId, body, now, clientId);
+  if (!first.firstStepComplete) return { ...first, complete: false };
+  const rest = await continueClientOnboarding(db, actor, firmId, clientId, body, now);
+  return { clientId, runs: [...first.runs, ...rest.runs], complete: rest.complete };
+}
+
+/**
+ * Fires the chart, workload, and first document requests. In a Netlify
+ * function (ONBOARDING_BACKGROUND_SECRET set) this is a fire and forget call
+ * to finish-client-onboarding-background.ts, a background function with a
+ * fifteen minute budget rather than a synchronous function's roughly twenty
+ * nine seconds; the client sees the client row immediately, and the
+ * portal and firm screens pick up the chart and workload once it lands.
+ * Without that secret set (local dev, `npm start`, and the test suite) it
+ * runs continueClientOnboarding in process instead and returns its real
+ * outcome, so nothing about local development or the traditional server
+ * path changes: the caller still sees the full run list and true
+ * completion in the same response. When it does dispatch to the
+ * background function, the outcome is unknown yet (the caller only sees
+ * that the call was handed off), so it answers with an empty run list and
+ * complete: false, and the client and portal screens pick that up later by
+ * polling.
+ */
+export async function dispatchOnboardingContinuation(
+  db: RunDb,
+  actor: Actor,
+  firmId: string,
+  clientId: string,
+  body: CreateClientBody,
+  now: Date,
+): Promise<{ runs: RunOutcomeDto[]; complete: boolean }> {
+  const secret = process.env.ONBOARDING_BACKGROUND_SECRET;
+  const appOrigin = process.env.APP_ORIGIN;
+  if (!secret || !appOrigin) {
+    return continueClientOnboarding(db, actor, firmId, clientId, body, now);
+  }
+  try {
+    const res = await fetch(`${appOrigin}/.netlify/functions/finish-client-onboarding-background`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-internal-secret": secret },
+      body: JSON.stringify({
+        clientId,
+        firmId,
+        actor: { userId: actor.userId, email: actor.email, displayName: actor.displayName },
+        body,
+        now: now.toISOString(),
+      }),
+    });
+    if (!res.ok && res.status !== 202) {
+      // The client row still exists; its chart just never gets built, which
+      // is worse silently than loudly logged.
+      console.error(`[api] onboarding continuation dispatch answered ${res.status} for client ${clientId}`);
+    }
+  } catch (err) {
+    console.error(`[api] onboarding continuation dispatch failed for client ${clientId}: ${err instanceof Error ? err.message : String(err)}`);
+  }
+  return { runs: [], complete: false };
 }

@@ -9,6 +9,7 @@
  */
 
 import { assert, assertEqual, test } from "./harness";
+import { CLIENT_A1 } from "./fixtures";
 import { PERIOD, seedEntry } from "./close-fixtures";
 import {
   FORECAST_START,
@@ -52,7 +53,7 @@ test("forecast ids are derived, so a rerun is a no operation", async () => {
   const header = forecastsOf(db)[0];
   assertEqual(
     header.id,
-    forecastIdOf(PERIOD, "base"),
+    forecastIdOf(CLIENT_A1, PERIOD, "base"),
     "the header id is derived from the period and the scenario",
   );
   assertEqual(
@@ -73,7 +74,7 @@ test("two periods do not collide because the period is in the scope hash", async
   });
   assert(january.scopeHash !== february.scopeHash, "the two hashes differ");
   assert(
-    forecastIdOf(PERIOD, "base") !== forecastIdOf("2026-02-01", "base"),
+    forecastIdOf(CLIENT_A1, PERIOD, "base") !== forecastIdOf(CLIENT_A1, "2026-02-01", "base"),
     "and the two forecasts are different rows",
   );
 });
@@ -296,7 +297,7 @@ test("a scenario states its parameters and changes the answer", async () => {
     "the two headers are different scenarios",
   );
   assert(
-    forecastIdOf(PERIOD, "base") !== forecastIdOf(PERIOD, "slow_collections"),
+    forecastIdOf(CLIENT_A1, PERIOD, "base") !== forecastIdOf(CLIENT_A1, PERIOD, "slow_collections"),
     "and they are separate rows, so one never overwrites the other",
   );
 });

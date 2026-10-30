@@ -115,7 +115,7 @@ export const clsRollForward: Run<RollForwardScope, Proposal> = {
     for (const account of data.chart) {
       if (!isBalanceSheet(account.accountNumber)) continue;
       const opening: Cents = closing.get(account.accountNumber) ?? ZERO;
-      const rowId = openingId(data.periodStart, account.accountNumber);
+      const rowId = openingId(frozen.clientId, data.periodStart, account.accountNumber);
       const prior = existing.get(rowId);
       if (prior === undefined) {
         // A zero opening on an account nobody used is not worth a row. The
@@ -237,6 +237,6 @@ export const clsRollForward: Run<RollForwardScope, Proposal> = {
   },
 };
 
-export function openingId(periodStart: string, accountNumber: string): Ulid {
-  return derivedId(`${periodStart}:${accountNumber}`, "cls-roll-forward", 0);
+export function openingId(clientId: Ulid, periodStart: string, accountNumber: string): Ulid {
+  return derivedId(`${clientId}:${periodStart}:${accountNumber}`, "cls-roll-forward", 0);
 }

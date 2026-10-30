@@ -81,7 +81,55 @@ export type RunTypeId =
   | "PAY-APPROVE-RUN"
   | "PAY-POST-REGISTER"
   | "CPA-BUILD-HANDOFF"
-  | "OFFBOARD-BUILD-EXPORT";
+  | "OFFBOARD-BUILD-EXPORT"
+  // Tenancy level, manual, not part of any module.
+  | "ENG-SET-BILLING-STATUS"
+  // Added after doc 02: module 5 and module 3 each assumed a row already
+  // existed on the books before their documented runs ever touched it, and
+  // nothing in the original 49 ever puts the first one there.
+  | "AR-CREATE-CUSTOMER"
+  | "AR-CREATE-INVOICE"
+  | "REC-IMPORT-STATEMENT"
+  | "SETUP-ADD-BANK-ACCOUNT"
+  // The payable side had the identical gap: nothing in the original 49 ever
+  // creates a vendor, a bill, or the subledger record of a received payment.
+  | "AP-CREATE-VENDOR"
+  | "AP-CREATE-BILL"
+  | "AR-RECORD-PAYMENT"
+  // Same gap, the receivable side's credit memo, closed last because it
+  // needed its own GL account columns first (migration 0042).
+  | "AR-CREATE-CREDITMEMO"
+  // The deepest instance of the gap: doc 02's own nine coding runs never
+  // named the step that posts a transaction resolved only by a rule, a
+  // vendor default, or a bank code. Level ten of a cascade doc 02 called
+  // nine, after TXN-SWEEP-SUSPENSE.
+  | "TXN-POST-CODED"
+  // IMPORT-PARSE-FEED refused a file with no mapping profile or a header that
+  // did not match one, but nothing ever told a bookkeeper. This is that door.
+  | "IMPORT-FLAG-MAPPING-NEEDED"
+  // import.batches has carried a rejected status and a reason column since
+  // migration 0009, and nothing in the original pipeline ever wrote either.
+  | "IMPORT-REJECT-BATCH"
+  // subledger.fixed_assets has carried disposed_on, disposal_entry_id, and
+  // disposal_proceeds_cents, plus a check constraint requiring the first two
+  // whenever status is disposed, since the asset table was built. Nothing
+  // ever wrote any of the three, so an asset could never leave the books.
+  | "PER-DISPOSE-ASSET"
+  // import.staged_rows has carried review_state, reviewed_by, and reviewed_at
+  // since migration 0009, and IMPORT-COMMIT-BATCH has always refused to
+  // commit a row held for review until review_state reaches accepted.
+  // Nothing ever moved it past pending, so a bank feed with no transaction
+  // ids held every genuine repeat charge forever.
+  | "IMPORT-REVIEW-STAGED-ROW"
+  // ledger.category_versions, ledger.rule_versions, and
+  // import.mapping_profile_versions have carried the version history shape
+  // since their own migrations, and nothing has ever edited a category, a
+  // rule, or a mapping profile at all, so nothing ever wrote to any of the
+  // three. The CFG- prefix is new because none of the existing ones name
+  // this family: a person correcting reference data after it was created.
+  | "CFG-EDIT-CATEGORY"
+  | "CFG-EDIT-RULE"
+  | "CFG-EDIT-MAPPING-PROFILE";
 
 /** Doc 03 Part 7 names the reversal of a run `<ORIGINAL>-UNDO`. */
 export type UndoRunTypeId = `${RunTypeId}-UNDO`;
@@ -199,6 +247,8 @@ export interface ProposedFieldWrite {
     ruleVersion?: number;
     templateId?: Ulid;
     templateVersion?: number;
+    /** The depreciation_schedule, loan_schedule, or deferral_lines row that drove this write. */
+    scheduleLineId?: Ulid;
   };
 }
 
@@ -221,6 +271,7 @@ export interface ProposedRowInsert {
     ruleVersion?: number;
     templateId?: Ulid;
     templateVersion?: number;
+    scheduleLineId?: Ulid;
   };
 }
 

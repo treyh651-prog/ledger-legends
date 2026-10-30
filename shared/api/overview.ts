@@ -4,7 +4,7 @@
 
 import { z } from "zod";
 import { clientSummarySchema } from "./clients";
-import { daySchema, idSchema, instantSchema } from "./common";
+import { centsSchema, daySchema, idSchema, instantSchema } from "./common";
 import { runStatusSchema } from "./runs";
 
 export const overviewRunSchema = z.object({
@@ -16,6 +16,13 @@ export const overviewRunSchema = z.object({
   status: runStatusSchema,
   startedAt: instantSchema,
 });
+
+/** One month of net cash movement across every client's cash accounts. */
+export const monthlyCashFlowSchema = z.object({
+  month: daySchema,
+  netCashCents: centsSchema,
+});
+export type MonthlyCashFlow = z.infer<typeof monthlyCashFlowSchema>;
 
 export const firmOverviewSchema = z.object({
   asOf: daySchema,
@@ -30,5 +37,7 @@ export const firmOverviewSchema = z.object({
     periodsAwaitingClose: z.number().int(),
   }),
   recentRuns: z.array(overviewRunSchema),
+  /** The trailing six months, oldest first, including the current one. */
+  cashFlowTrend: z.array(monthlyCashFlowSchema),
 });
 export type FirmOverview = z.infer<typeof firmOverviewSchema>;

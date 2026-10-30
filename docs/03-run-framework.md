@@ -269,7 +269,7 @@ Every execution carries an idempotency key computed before any work:
 sha256(run_type + ":" + run_version + ":" + firm_id + ":" + client_id + ":" + scope_hash + ":" + mode)
 ```
 
-The key is a unique column on `run_log` for `mode = 'apply'`. A second apply with the same key does not execute. It returns the original run execution id and its result, marked `deduplicated`. This is what makes a retrying scheduler, a double clicked button, and a replayed webhook all safe.
+The key is unique among applies that actually complete. It lives as a denormalized column on `run_log_events` rather than on `run_log` itself (migration 0041), set only on the terminal event of an apply that reaches `completed`, `completed_with_skips`, or `no_op`, with a partial unique index there. `run_log.status` cannot carry this: the row is insert only (Part 9), always `started`, and every real status transition is an appended `run_log_events` row instead -- a unique index on `run_log` filtered by status could never fire, which migration 0003 shipped and migration 0041 replaced. A second apply with the same key does not execute. It returns the original run execution id and its result, marked `deduplicated`. This is what makes a retrying scheduler, a double clicked button, and a replayed webhook all safe.
 
 `scope_hash` includes the resolved candidate ids and the versions of every rule, template, and schedule that participated. Change a rule and the key changes, so the same period can legitimately be rerun after a rule fix, and the log shows two executions with two versions rather than one overwritten one.
 

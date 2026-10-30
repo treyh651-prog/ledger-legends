@@ -1,82 +1,25 @@
-import "dotenv/config";
-import express from "express";
 import { createServer } from "node:http";
-import { registerRoutes } from "./routes";
-import { resolveRunDb } from "./db/run-db";
+import { createApp, log } from "./app";
 import { serveStatic } from "./static";
-import { applyHardening, finalErrorHandler } from "./http-hardening";
-import { buildAuthRuntime, readAppOrigin, type AuthRuntime } from "./auth/setup";
-import { readSupabaseEnv } from "./auth/jwt";
-import { buildDevActor, devActorEnabled, type DevActorRuntime } from "./api/dev-actor";
 
-const app = express();
-const httpServer = createServer(app);
-const production = process.env.NODE_ENV === "production";
-
-export function log(message: string, source = "express") {
-  const formattedTime = new Date().toLocaleTimeString("en-US", {
-    hour: "numeric",
-    minute: "2-digit",
-    second: "2-digit",
-    hour12: true,
-  });
-
-  console.log(`${formattedTime} [${source}] ${message}`);
-}
-
+/**
+ * The traditional, always running entry point: `npm run dev` on a developer
+ * machine, and `npm start` (`node dist/index.cjs`) anywhere that runs this as
+ * a long lived process rather than a function. Netlify's own function runtime
+ * never imports this file; it imports `server/app.ts` directly through
+ * `netlify/functions/api.ts`, so that importing the app never has the side
+ * effect of opening a port. Keeping this path working is what lets `npm start`
+ * remain a rollback: the same server, the same build, run anywhere that can
+ * run a Node process, with no Netlify involved at all.
+ */
 (async () => {
-  // Before anything serves a request. A production process with no DATABASE_URL
-  // throws here, on purpose, because starting and then failing on the first run
-  // hides the configuration mistake behind a broken feature.
-  const runDb = resolveRunDb();
-  log(runDb.description, "db");
+  const app = await createApp();
+  const httpServer = createServer(app);
 
-  // Auth follows the database. With Postgres there is a tenancy schema to
-  // resolve actors against and the Supabase variables are required; a missing
-  // one is a startup refusal, same as DATABASE_URL. In memory mode there is
-  // nothing to resolve against, so the server runs with sign in off and says so.
-  let auth: AuthRuntime | null = null;
-  let devActor: DevActorRuntime | null = null;
-  if (runDb.kind === "postgres") {
-    auth = buildAuthRuntime();
-    for (const n of auth.notes) log(n, "auth");
-  } else {
-    log("sign in is off: runs execute in memory and there is no tenancy schema to resolve actors against", "auth");
-  }
-  // Throws when DEV_ACTOR is set in production, or with the Postgres port.
-  if (devActorEnabled(process.env, runDb.kind)) {
-    devActor = buildDevActor(runDb.db);
-    log("development actor is on: every request is answered as the firm owner of the development firm. Never set DEV_ACTOR in production.", "auth");
-  }
-
-  applyHardening(app, {
-    appOrigin: auth?.appOrigin ?? readAppOrigin(),
-    supabaseUrl: auth?.browserConfig.supabaseUrl ?? readSupabaseEnv()?.supabaseUrl ?? null,
-    production,
-  });
-
-  // Request log. Method, path, status, time. No bodies: the bodies on this
-  // API are memberships and email addresses, and a log line is forever.
-  app.use((req, res, next) => {
-    const start = Date.now();
-    const path = req.path;
-    res.on("finish", () => {
-      if (path.startsWith("/api")) {
-        log(`${req.method} ${path} ${res.statusCode} in ${Date.now() - start}ms`);
-      }
-    });
-    next();
-  });
-
-  await registerRoutes(httpServer, app, { runDb, auth, devActor });
-
-  app.use(finalErrorHandler);
-
-  // importantly only setup vite in development and after
-  // setting up all the other routes so the catch-all route
-  // doesn't interfere with the other routes. The comparison is written out
-  // here rather than through the `production` constant so esbuild can fold it
-  // and leave the Vite dev server out of the production bundle.
+  // importantly only setup vite in development and after every route is
+  // registered, so the catch-all route doesn't interfere with the API. The
+  // comparison is written out here rather than through a boolean so esbuild
+  // can fold it and leave the Vite dev server out of the production bundle.
   if (process.env.NODE_ENV === "production") {
     serveStatic(app);
   } else {
@@ -89,16 +32,9 @@ export function log(message: string, source = "express") {
   // this serves both the API and the client.
   // It is the only port that is not firewalled.
   const port = parseInt(process.env.PORT || "5000", 10);
-  httpServer.listen(
-    {
-      port,
-      host: "0.0.0.0",
-      reusePort: true,
-    },
-    () => {
-      log(`serving on port ${port}`);
-    },
-  );
+  httpServer.listen(port, "0.0.0.0", () => {
+    log(`serving on port ${port}`);
+  });
 })().catch((err: unknown) => {
   // A startup refusal, most often DATABASE_URL missing in production. Print the
   // message and nothing else, then exit non zero so the platform reports a

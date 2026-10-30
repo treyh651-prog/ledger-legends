@@ -160,7 +160,9 @@ function Letter({ clientId, data }: { clientId: string; data: PortalSignData }) 
                     <ShieldCheck className="h-4 w-4 text-positive" />
                     <span className="font-medium">{s.signerName}</span>
                     {s.signerTitle ? <span className="text-muted-foreground">{s.signerTitle}</span> : null}
-                    <Pill tone={s.status === "signed" ? "good" : "neutral"}>{s.status === "signed" ? "Signed" : "Voided"}</Pill>
+                    <Pill tone={s.status === "signed" ? "good" : s.status === "pending" ? "watch" : "neutral"}>
+                      {s.status === "signed" ? "Signed" : s.status === "pending" ? "Pending" : s.status === "declined" ? "Declined" : "Voided"}
+                    </Pill>
                   </div>
                   <p className="mt-1 text-xs text-muted-foreground">
                     {fmtTimestamp(s.signedAt)}, {s.signerEmail}, click to sign

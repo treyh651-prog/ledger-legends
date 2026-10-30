@@ -156,5 +156,9 @@ test("normalize vendors, ordering, a rule cannot fire before the vendor key exis
   const normalized = (inOrder.all("transactions") as TransactionRow[])[0];
   assertEqual(normalized.normalizedVendor, "GITHUB", "the key is written first");
   const late = await previewCoding(inOrder, txnApplyRules, scopeFor(CLIENT_A1));
-  assertEqual(late.result.proposals.length, 1, "and only now does the rule fire");
+  assertEqual(
+    late.result.proposals.length,
+    2,
+    "and only now does the rule fire, coding the row and moving its hit count",
+  );
 });

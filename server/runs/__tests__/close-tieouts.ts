@@ -161,7 +161,10 @@ test("tie out, a liability schedule is compared on the credit side", async () =>
       termMonths: 60,
       annualRateBps: 600,
       paymentCents: BigInt(10000),
+      balloonCents: BigInt(0),
+      rateType: "fixed",
       status: "active",
+      payoffDate: null,
       manualOverride: false,
       version: 1,
     },
@@ -249,7 +252,7 @@ test("tie out, a changed statement restates the row rather than adding one", asy
 test("tie out, a row carrying manual override is left alone", async () => {
   const db = closeDb();
   db.seed("sub_tieouts", [
-    tieout(tieoutId(PERIOD, "1010"), "1010", {
+    tieout(tieoutId(CLIENT_A1, PERIOD, "1010"), "1010", {
       manualOverride: true,
       detail: "a person tied this by hand",
     }),

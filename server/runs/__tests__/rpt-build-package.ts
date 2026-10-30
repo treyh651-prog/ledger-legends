@@ -26,6 +26,7 @@ import {
   rptBuildPackage,
   sectionIdOf,
 } from "../runs/rpt-build-package";
+import { statementLineOf } from "../runs/statement-taxonomy";
 
 const scope = { ...reportScope(), comparisonBasis: "prior_period" as const };
 
@@ -71,7 +72,7 @@ test("package ids are derived, so a rerun is a no operation", async () => {
   );
   assertEqual(
     first.id,
-    packageIdOf(PERIOD, "prior_period"),
+    packageIdOf(CLIENT_A1, PERIOD, "prior_period"),
     "the id is derived from the period and the comparison basis",
   );
 });
@@ -88,7 +89,7 @@ test("two periods do not collide because the period is in the scope hash", async
     "January and February hash differently",
   );
   assert(
-    packageIdOf(PERIOD, "prior_period") !== packageIdOf("2026-02-01", "prior_period"),
+    packageIdOf(CLIENT_A1, PERIOD, "prior_period") !== packageIdOf(CLIENT_A1, "2026-02-01", "prior_period"),
     "and the two packages are different rows",
   );
 });
@@ -127,7 +128,7 @@ test("a posting after a build produces a fresh package rather than a stale one",
 test("an overridden package is not touched, and neither are its sections", async () => {
   const db = reportDb();
   await applyReport(db, rptBuildPackage, scope);
-  const packageId = packageIdOf(PERIOD, "prior_period");
+  const packageId = packageIdOf(CLIENT_A1, PERIOD, "prior_period");
   db.seed("report_packages", [
     { ...packagesOf(db)[0], manualOverride: true, sectionCount: 2 },
   ]);
@@ -152,7 +153,7 @@ test("an overridden package is not touched, and neither are its sections", async
 test("an overridden section is left alone while the rest rebuild", async () => {
   const db = reportDb();
   await applyReport(db, rptBuildPackage, scope);
-  const packageId = packageIdOf(PERIOD, "prior_period");
+  const packageId = packageIdOf(CLIENT_A1, PERIOD, "prior_period");
   const notesId = sectionIdOf(packageId, "NOTES");
   db.seed(
     "report_sections",
@@ -239,6 +240,24 @@ test("the balance sheet carries the cash balance and the income statement does n
   assert(
     (incomeStatement?.lines ?? []).some((l) => l.accountNumber === "4100"),
     "revenue is on the income statement",
+  );
+});
+
+test("balance sheet and income statement lines carry the statement taxonomy label, totals do not", async () => {
+  const db = reportDb();
+  await applyReport(db, rptBuildPackage, scope);
+  const balanceSheet = sectionsOf(db).find((s) => s.sectionCode === "BALANCE_SHEET");
+  const cash = (balanceSheet?.lines ?? []).find((l) => l.accountNumber === "1010");
+  assertEqual(
+    cash?.statementLine,
+    statementLineOf("1010"),
+    "an account level line carries its derived taxonomy label",
+  );
+  const totalAssets = (balanceSheet?.lines ?? []).find((l) => l.label === "Total assets");
+  assertEqual(
+    totalAssets?.statementLine,
+    null,
+    "a total line is not an account and carries no taxonomy label",
   );
 });
 

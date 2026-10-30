@@ -124,7 +124,7 @@ test("gates, a locked period is still evaluated because reading is not writing",
 test("gates, an overridden result is left alone", async () => {
   const db = closeDb();
   db.seed("close_gate_results", [
-    gateResult(gateResultId(PERIOD, "G01"), "G01", {
+    gateResult(gateResultId(CLIENT_A1, PERIOD, "G01"), "G01", {
       outcome: "fail",
       manualOverride: true,
       overrideReason: "the client is fixing this next week",
@@ -133,7 +133,7 @@ test("gates, an overridden result is left alone", async () => {
   const { applied } = await applyClose(db, clsEvaluateGates, closeScope());
   const kept = db
     .all("close_gate_results")
-    .find((r) => r.id === gateResultId(PERIOD, "G01"));
+    .find((r) => r.id === gateResultId(CLIENT_A1, PERIOD, "G01"));
   assertEqual(kept?.outcome, "fail", "the overridden outcome stands");
   assert(
     applied.result.skips.some((s) => s.reason === "manual_override"),
@@ -368,6 +368,8 @@ function seedAsset(
       halfMonthConvention: false,
       status: "active",
       disposedOn: null,
+      disposalEntryId: null,
+      disposalProceedsCents: null,
       manualOverride: false,
       version: 1,
     },
@@ -414,7 +416,10 @@ function seedLoan(db: MemoryRunDb, ledger: bigint, principal: bigint): void {
       termMonths: 60,
       annualRateBps: 600,
       paymentCents: BigInt(10000),
+      balloonCents: BigInt(0),
+      rateType: "fixed",
       status: "active",
+      payoffDate: null,
       manualOverride: false,
       version: 1,
     },
@@ -737,6 +742,7 @@ function runLogPair(previewActor: string, applyActor: string): RunLogRow[] {
     actorKind: "human",
     source: "button",
     parentSequenceId: null,
+    sequenceStep: null,
     originalRunId: null,
     periodStart: PERIOD,
     periodEnd: PERIOD_END,
