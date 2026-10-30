@@ -459,6 +459,7 @@ export interface CategoryRow {
   capitalizeOverCents: Cents | null;
   restrictionRelevant: boolean;
   isActive: boolean;
+  updatedAt: string;
 }
 
 /**

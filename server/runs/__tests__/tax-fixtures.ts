@@ -163,6 +163,7 @@ export function taxCategory(
     capitalizeOverCents: null,
     restrictionRelevant: false,
     isActive: true,
+    updatedAt: NOW.toISOString(),
     ...extra,
   };
 }

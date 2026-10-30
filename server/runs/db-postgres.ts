@@ -499,7 +499,8 @@ const CATEGORY_COLUMNS = `
   requires_class as "requiresClass",
   capitalize_over::text as "capitalizeOverCents",
   restriction_relevant as "restrictionRelevant",
-  is_active as "isActive"`;
+  is_active as "isActive",
+  updated_at::text as "updatedAt"`;
 
 const CATEGORY_VERSION_COLUMNS = `
   category_id as "categoryId", version,

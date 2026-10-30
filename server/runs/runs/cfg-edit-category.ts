@@ -196,8 +196,8 @@ export const cfgEditCategory: Run<EditCategoryScope, Proposal> = {
       kind: "field_write",
       table: "categories",
       rowId: category.id,
-      before: { ...before, version: category.version },
-      after: { ...after, version: newVersion },
+      before: { ...before, version: category.version, updatedAt: category.updatedAt },
+      after: { ...after, version: newVersion, updatedAt: NOW_PLACEHOLDER },
       provenance: { cascadeLevel: null },
     };
     proposals.push(write);

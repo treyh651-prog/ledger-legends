@@ -95,6 +95,7 @@ export function category(
     capitalizeOverCents: null,
     restrictionRelevant: false,
     isActive: true,
+    updatedAt: NOW.toISOString(),
     ...extra,
   };
 }

@@ -36,6 +36,7 @@ function seedCategory(db: MemoryRunDb, extra: Partial<CategoryRow> = {}): void {
     capitalizeOverCents: null,
     restrictionRelevant: false,
     isActive: true,
+    updatedAt: "2026-01-01T00:00:00.000Z",
     ...extra,
   };
   db.seed("categories", [row]);
@@ -69,6 +70,7 @@ test("cfg-edit-category: a renamed category is updated and its version bumps", a
   const row = categoryOf(db);
   assertEqual(row.name, "Office supplies and software", "the name changed");
   assertEqual(row.version, 2, "the version bumped by one");
+  assertEqual(row.updatedAt, NOW.toISOString(), "updatedAt bumped to the run's timestamp");
 });
 
 test("cfg-edit-category: the first edit backfills a version 1 snapshot of the row before it", async () => {
@@ -140,5 +142,6 @@ test("cfg-edit-category: undo restores the prior name and version, history stays
   const row = categoryOf(db);
   assertEqual(row.name, "Office supplies", "the name reverted");
   assertEqual(row.version, 1, "the version reverted too");
+  assertEqual(row.updatedAt, "2026-01-01T00:00:00.000Z", "updatedAt reverted too");
   assertEqual(versionsOf(db).length, 2, "the history rows from the edit are not undone");
 });
