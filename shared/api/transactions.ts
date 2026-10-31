@@ -19,6 +19,13 @@ export const transactionSchema = z.object({
   cascadeLevel: z.number().int().nullable(),
   manualOverride: z.boolean(),
   status: z.string(),
+  voided: z.boolean(),
+  /** Whether the bank has cleared this row. Surfaced so a void dialog can warn before voiding a cleared transaction. */
+  cleared: z.boolean(),
+  /** Set when TXN-VOID-AND-REISSUE replaced this row; points at the replacement. */
+  voidOfTransactionId: idSchema.nullable(),
+  /** Set when this row is a TXN-VOID-AND-REISSUE replacement; points at the transaction it corrects. */
+  reissueOfTransactionId: idSchema.nullable(),
 });
 export type Transaction = z.infer<typeof transactionSchema>;
 

@@ -130,6 +130,8 @@ import { cfgEditClientPolicy } from "./runs/cfg-edit-client-policy";
 import { cfgCreateCategory } from "./runs/cfg-create-category";
 import { cfgCreateRule } from "./runs/cfg-create-rule";
 import { cfgCreateMappingProfile } from "./runs/cfg-create-mapping-profile";
+import { txnVoid } from "./runs/txn-void";
+import { txnVoidAndReissue } from "./runs/txn-void-and-reissue";
 
 /** Scope types differ per run, so the registry stores erased entries. */
 export interface RegistryEntry {
@@ -258,6 +260,11 @@ export const registry: readonly RegistryEntry[] = [
   entry(cfgCreateCategory),
   entry(cfgCreateRule),
   entry(cfgCreateMappingProfile),
+  // The register's own void/reissue. Manual, triggered from the
+  // transactions screen rather than any pipeline, same reasoning as the
+  // reference data edits above.
+  entry(txnVoid),
+  entry(txnVoidAndReissue),
 ];
 
 /**

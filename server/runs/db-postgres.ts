@@ -486,7 +486,9 @@ const TXN_COLUMNS = `
   stale_flagged_on::text as "staleFlaggedOn",
   stale_owner as "staleOwner",
   stale_escalates_on::text as "staleEscalatesOn",
-  escheat_review as "escheatReview", voided, status,
+  escheat_review as "escheatReview", voided,
+  void_of_transaction_id as "voidOfTransactionId",
+  reissue_of_transaction_id as "reissueOfTransactionId", status,
   manual_override as "manualOverride", manual_override_by as "manualOverrideBy",
   manual_override_at::text as "manualOverrideAt", version`;
 

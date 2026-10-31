@@ -468,6 +468,16 @@ export const RUN_POLICIES: Readonly<Record<string, RunPolicy>> = {
     reason:
       "which bank column means what is a judgment a person makes once per institution, and a wrong guess here silently books amounts to the wrong sign or date, the same reason CFG-EDIT-MAPPING-PROFILE gives for editing one",
   },
+  "TXN-VOID": {
+    tier: "manual",
+    reason:
+      "killing a transaction reverses whatever it already posted, a correction a person decides on and names a reason for, never something a clock infers",
+  },
+  "TXN-VOID-AND-REISSUE": {
+    tier: "manual",
+    reason:
+      "same judgment as TXN-VOID, plus the corrected amount or date being reissued is itself a person's call",
+  },
 };
 
 export const RUN_TIER_VALUES: readonly RunTier[] = [

@@ -308,6 +308,10 @@ function transactionDto(row: TransactionRow, categoryName: string | null = null)
     cascadeLevel: row.cascadeLevel,
     manualOverride: row.manualOverride,
     status: row.status,
+    voided: row.voided,
+    cleared: row.cleared,
+    voidOfTransactionId: row.voidOfTransactionId,
+    reissueOfTransactionId: row.reissueOfTransactionId,
   };
 }
 

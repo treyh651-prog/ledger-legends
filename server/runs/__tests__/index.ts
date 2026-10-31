@@ -144,6 +144,8 @@ import "./cfg-edit-client-policy";
 import "./cfg-create-category";
 import "./cfg-create-rule";
 import "./cfg-create-mapping-profile";
+import "./txn-void";
+import "./txn-void-and-reissue";
 import "./intake-open-requests";
 import "./setup-add-bank-account";
 import "./setup-import-balances";

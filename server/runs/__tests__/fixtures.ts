@@ -118,6 +118,9 @@ export interface TxnOverrides {
   staleEscalatesOn?: string | null;
   escheatReview?: boolean;
   voided?: boolean;
+  journalEntryId?: string | null;
+  voidOfTransactionId?: string | null;
+  reissueOfTransactionId?: string | null;
 }
 
 export function txn(
@@ -176,7 +179,7 @@ export function txn(
     duplicateFlag: extra.duplicateFlag ?? false,
     duplicateOfTransactionId: extra.duplicateOfTransactionId ?? null,
     legitimateRepeat: extra.legitimateRepeat ?? false,
-    journalEntryId: null,
+    journalEntryId: extra.journalEntryId ?? null,
     instrumentType: extra.instrumentType ?? "other",
     cleared: extra.cleared ?? false,
     clearedDate:
@@ -197,6 +200,8 @@ export function txn(
     staleEscalatesOn: extra.staleEscalatesOn ?? null,
     escheatReview: extra.escheatReview ?? false,
     voided: extra.voided ?? false,
+    voidOfTransactionId: extra.voidOfTransactionId ?? null,
+    reissueOfTransactionId: extra.reissueOfTransactionId ?? null,
     status: extra.status ?? "active",
     manualOverride: extra.manualOverride ?? false,
     manualOverrideBy: extra.manualOverride ? ACTOR : null,

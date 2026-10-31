@@ -116,6 +116,10 @@ export interface TransactionRow {
   staleEscalatesOn: string | null;
   escheatReview: boolean;
   voided: boolean;
+  /** Set on the original when TXN-VOID-AND-REISSUE replaces it, pointing at the replacement. */
+  voidOfTransactionId: Ulid | null;
+  /** Set on a replacement row by TXN-VOID-AND-REISSUE, pointing at the transaction it corrects. */
+  reissueOfTransactionId: Ulid | null;
   status: "active" | "reversed";
   manualOverride: boolean;
   manualOverrideBy: Ulid | null;

@@ -133,7 +133,15 @@ export type RunTypeId =
   | "CFG-EDIT-CLIENT-POLICY"
   | "CFG-CREATE-CATEGORY"
   | "CFG-CREATE-RULE"
-  | "CFG-CREATE-MAPPING-PROFILE";
+  | "CFG-CREATE-MAPPING-PROFILE"
+  // ledger.transactions has carried voided, void_of_transaction_id, and
+  // reissue_of_transaction_id since migration 0011, and nothing ever wrote
+  // any of the three: transactions.tsx is 100% read only by design. TXN-VOID
+  // kills a transaction outright; TXN-VOID-AND-REISSUE kills it and inserts
+  // a corrected replacement linked back to it. Two runs, not one, because
+  // the two link columns exist for two different reasons.
+  | "TXN-VOID"
+  | "TXN-VOID-AND-REISSUE";
 
 /** Doc 03 Part 7 names the reversal of a run `<ORIGINAL>-UNDO`. */
 export type UndoRunTypeId = `${RunTypeId}-UNDO`;

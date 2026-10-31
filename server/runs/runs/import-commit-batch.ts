@@ -330,6 +330,8 @@ export const importCommitBatch: Run<CommitBatchScope, Proposal> = {
         staleEscalatesOn: null,
         escheatReview: false,
         voided: false,
+        voidOfTransactionId: null,
+        reissueOfTransactionId: null,
         status: "active",
         manualOverride: false,
         manualOverrideBy: null,
