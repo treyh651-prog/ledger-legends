@@ -167,7 +167,7 @@ test("pipeline, running the whole chain twice ends in the same place", async () 
   await closePeriod(db);
   assertEqual(tieoutsOf(db).length, tieouts, "no duplicate tie out rows");
   assertEqual(requestsOf(db).length, requests, "no duplicate requests");
-  assertEqual(db.all("close_gate_results").length, 19, "one row per gate");
+  assertEqual(db.all("close_gate_results").length, 20, "one row per gate");
   assertEqual(db.all("period_locks").length, 1, "and one lock");
 });
 

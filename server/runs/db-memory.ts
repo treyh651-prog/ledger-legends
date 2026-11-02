@@ -48,6 +48,7 @@ import {
   type PeriodLockRow,
   type RowMap,
   type AgingSnapshotRow,
+  type BillApplicationRow,
   type BillRow,
   type CustomerPaymentRow,
   type CustomerRow,
@@ -58,6 +59,8 @@ import {
   type LoanScheduleRow,
   type RemittanceLineRow,
   type StatementItemRow,
+  type VendorPaymentRow,
+  type VendorRemittanceLineRow,
   type ChartAccountRow,
   type ClosePeriodRow,
   type CloseGateResultRow,
@@ -168,6 +171,9 @@ const TABLES: TableName[] = [
   "writeoff_proposals",
   "bills",
   "vendor_credits",
+  "vendor_payments",
+  "vendor_remittance_lines",
+  "bill_applications",
   "close_periods",
   "sub_tieouts",
   "substantiation_records",
@@ -1375,6 +1381,51 @@ class MemoryTx implements RunTx {
           .sort(byId)
           .map(clone);
       }
+      case "vendor_payments_in_window": {
+        const p =
+          rawParams as QueryCatalog["vendor_payments_in_window"]["params"];
+        return this.view("vendor_payments")
+          .map((r) => r as unknown as VendorPaymentRow)
+          .filter(
+            (r) =>
+              r.firmId === p.firmId &&
+              r.clientId === p.clientId &&
+              r.paymentDate >= p.from &&
+              r.paymentDate <= p.to,
+          )
+          .sort(compareVendorPayments)
+          .map((r) => clone(r as unknown as AnyRow));
+      }
+      case "vendor_payments_for_client": {
+        const p =
+          rawParams as QueryCatalog["vendor_payments_for_client"]["params"];
+        return this.view("vendor_payments")
+          .filter((r) => r.firmId === p.firmId && r.clientId === p.clientId)
+          .sort(byId)
+          .map(clone);
+      }
+      case "vendor_remittance_lines_for_payments": {
+        const p =
+          rawParams as QueryCatalog["vendor_remittance_lines_for_payments"]["params"];
+        return this.view("vendor_remittance_lines")
+          .map((r) => r as unknown as VendorRemittanceLineRow)
+          .filter(
+            (r) =>
+              r.firmId === p.firmId &&
+              r.clientId === p.clientId &&
+              p.paymentIds.includes(r.paymentId),
+          )
+          .sort(compareVendorRemittanceLines)
+          .map((r) => clone(r as unknown as AnyRow));
+      }
+      case "bill_applications_for_client": {
+        const p =
+          rawParams as QueryCatalog["bill_applications_for_client"]["params"];
+        return this.view("bill_applications")
+          .filter((r) => r.firmId === p.firmId && r.clientId === p.clientId)
+          .sort(byId)
+          .map(clone);
+      }
       case "aging_snapshots_for_date": {
         const p = rawParams as QueryCatalog["aging_snapshots_for_date"]["params"];
         return this.view("aging_snapshots")
@@ -2358,6 +2409,22 @@ function comparePayments(a: CustomerPaymentRow, b: CustomerPaymentRow): number {
 function compareRemittanceLines(
   a: RemittanceLineRow,
   b: RemittanceLineRow,
+): number {
+  if (a.paymentId !== b.paymentId) return a.paymentId < b.paymentId ? -1 : 1;
+  if (a.lineNumber !== b.lineNumber) return a.lineNumber < b.lineNumber ? -1 : 1;
+  return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+}
+
+/** Payable mirror of comparePayments. */
+function compareVendorPayments(a: VendorPaymentRow, b: VendorPaymentRow): number {
+  if (a.paymentDate !== b.paymentDate) return a.paymentDate < b.paymentDate ? -1 : 1;
+  return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+}
+
+/** Payable mirror of compareRemittanceLines. */
+function compareVendorRemittanceLines(
+  a: VendorRemittanceLineRow,
+  b: VendorRemittanceLineRow,
 ): number {
   if (a.paymentId !== b.paymentId) return a.paymentId < b.paymentId ? -1 : 1;
   if (a.lineNumber !== b.lineNumber) return a.lineNumber < b.lineNumber ? -1 : 1;

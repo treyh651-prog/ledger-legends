@@ -231,6 +231,38 @@ export function balanceOf(map: Map<string, Cents>, account: string): Cents {
 }
 
 /**
+ * Doc 05 Part 4 (D3). Every account balance moved inside a window, on the
+ * cash basis: accrual_only lines excluded entirely, a cash line dated by its
+ * own cash_event_date rather than entry_date, and a none line (depreciation)
+ * included at its own entry_date unchanged, because the distinction does not
+ * apply to it and doc 05 keeps it on both bases.
+ *
+ * A cash line whose cashSourceLine names another line in this same set is
+ * re-attributed to that source line's own account -- AR-APPLY-PAYMENTS and
+ * AP-APPLY-PAYMENTS tag their control lines this way, because the control
+ * account itself is not a P&L line; the revenue or expense it is settling is.
+ */
+export function cashBalancesBetween(
+  lines: readonly JournalLineRow[],
+  from: string,
+  to: string,
+): Map<string, Cents> {
+  const accountOf = new Map(lines.map((l) => [l.id, l.accountNumber]));
+  const out = new Map<string, Cents>();
+  for (const l of lines) {
+    if (l.cashEffect === "accrual_only") continue;
+    const date = l.cashEffect === "cash" ? (l.cashEventDate ?? l.entryDate) : l.entryDate;
+    if (date < from || date > to) continue;
+    const account =
+      l.cashSourceLine !== null
+        ? (accountOf.get(l.cashSourceLine) ?? l.accountNumber)
+        : l.accountNumber;
+    out.set(account, (out.get(account) ?? ZERO) + l.amountCents);
+  }
+  return out;
+}
+
+/**
  * A hash of the posted ledger inside the period. CLOSE-LOCK-PERIOD stores it and
  * recomputes it, which is how a lock proves the gate set it froze was evaluated
  * against the ledger it locked. A journal row carries no created at column in
@@ -293,6 +325,13 @@ export interface CloseData {
   inPeriod: Map<string, Cents>;
   priorThrough: Map<string, Cents>;
   fingerprint: string;
+  /**
+   * Doc 05 Part 4 (D3). The engagement's own stated default report view --
+   * "accrual" when there is no engagement at all, the same fallback every
+   * other reader of this field uses. Added for G20, the first gate
+   * conditioned on a client setting rather than pure data presence.
+   */
+  reportingBasis: "accrual" | "cash" | "both";
 }
 
 export async function loadCloseData(
@@ -370,6 +409,7 @@ export async function loadCloseData(
     ...key,
     periodStart: window.periodStart,
   });
+  const engagements = await tx.query("engagements_for_client", key);
 
   const priorDay = priorDayOf(window.periodStart);
   return {
@@ -414,6 +454,7 @@ export async function loadCloseData(
       window.periodStart,
       window.periodEnd,
     ),
+    reportingBasis: engagements[0]?.reportingBasis ?? "accrual",
   };
 }
 

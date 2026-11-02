@@ -19,7 +19,7 @@ import {
   CLOSE_GATES,
 } from "../runs/cls-evaluate-gates";
 import type { MemoryRunDb } from "../db-memory";
-import type { RunLogRow } from "../tables";
+import type { EngagementRow, RunLogRow } from "../tables";
 import { CLIENT_A1, FIRM_A, NOW, lock, txn } from "./fixtures";
 import {
   addAccount,
@@ -61,7 +61,7 @@ function assertGate(
 test("gates, all nineteen answer definitely on a plain period", async () => {
   const db = closeDb();
   const outcomes = await gatesOn(db);
-  assertEqual(CLOSE_GATES.length, 19, "nineteen gates are defined");
+  assertEqual(CLOSE_GATES.length, 20, "twenty gates are defined");
   for (const gate of CLOSE_GATES) {
     const outcome = outcomes.get(gate.code);
     assert(
@@ -69,7 +69,7 @@ test("gates, all nineteen answer definitely on a plain period", async () => {
       `${gate.code} answered ${String(outcome)} rather than a definite outcome`,
     );
   }
-  assertEqual(outcomes.size, 19, "one result row per gate");
+  assertEqual(outcomes.size, 20, "one result row per gate");
 });
 
 test("gates, a not applicable answer carries the reason it is out of scope", async () => {
@@ -118,7 +118,7 @@ test("gates, a locked period is still evaluated because reading is not writing",
     lock("LOCK-JAN", FIRM_A, CLIENT_A1, PERIOD, PERIOD_END),
   ]);
   const outcomes = await gatesOn(db);
-  assertEqual(outcomes.size, 19, "every gate answered on a locked period");
+  assertEqual(outcomes.size, 20, "every gate answered on a locked period");
 });
 
 test("gates, an overridden result is left alone", async () => {
@@ -148,7 +148,7 @@ test("gates, a second run against an unchanged book changes nothing", async () =
   assertEqual(second.result.proposals.length, 0, "nothing left to propose");
   assertEqual(
     second.result.skips.filter((s) => s.reason === "already_applied").length,
-    19,
+    20,
     "every gate was unchanged",
   );
 });
@@ -800,4 +800,80 @@ test("G19 fails when revenue was booked against suspense", async () => {
     ["4100", BigInt(-7500)],
   ]);
   assertGate(await gatesOn(db), "G19", "fail");
+});
+
+// ---------------------------------------------------------------------------
+// G20 every cash-dated line falls outside any lock, for a client on cash or both.
+// ---------------------------------------------------------------------------
+
+function cashEngagement(extra: Partial<EngagementRow> = {}): EngagementRow {
+  return {
+    id: "ENG-A1",
+    firmId: FIRM_A,
+    clientId: CLIENT_A1,
+    name: "Test engagement",
+    status: "active",
+    serviceLevel: "essentials",
+    reportingBasis: "cash",
+    scope: { keys: [] },
+    startDate: "2025-01-01",
+    endDate: null,
+    letterDocumentId: null,
+    signedAt: "2025-01-01T00:00:00.000Z",
+    terminatedAt: null,
+    terminationReason: null,
+    offboardingExportDays: 15,
+    billingStatus: "current",
+    createdAt: "2025-01-01T00:00:00.000Z",
+    createdBy: "USR-OPERATOR",
+    ...extra,
+  };
+}
+
+test("G20 is not applicable for a client whose engagement is accrual only", async () => {
+  const db = closeDb();
+  db.seed("period_locks", [lock("LK-DEC", FIRM_A, CLIENT_A1, "2025-12-01", "2025-12-31")]);
+  assertGate(await gatesOn(db), "G20", "not_applicable");
+});
+
+test("G20 is not applicable for a cash client with no locked period at all", async () => {
+  const db = closeDb();
+  db.seed("engagements", [cashEngagement()]);
+  assertGate(await gatesOn(db), "G20", "not_applicable");
+});
+
+test("G20 fails when a cash-dated line falls inside a lock, for a client on cash", async () => {
+  const db = closeDb();
+  db.seed("engagements", [cashEngagement()]);
+  db.seed("period_locks", [lock("LK-DEC", FIRM_A, CLIENT_A1, "2025-12-01", "2025-12-31")]);
+  seedEntry(
+    db,
+    "JE-CASH-LOCKED",
+    "2026-01-10",
+    [
+      ["1010", BigInt(5000)],
+      ["4100", BigInt(-5000)],
+    ],
+    {},
+    { cashEffect: "cash", cashEventDate: "2025-12-20" },
+  );
+  assertGate(await gatesOn(db), "G20", "fail");
+});
+
+test("G20 passes for a cash client when every cash-dated line falls outside the lock", async () => {
+  const db = closeDb();
+  db.seed("engagements", [cashEngagement()]);
+  db.seed("period_locks", [lock("LK-DEC", FIRM_A, CLIENT_A1, "2025-12-01", "2025-12-31")]);
+  seedEntry(
+    db,
+    "JE-CASH-OPEN",
+    "2026-01-10",
+    [
+      ["1010", BigInt(5000)],
+      ["4100", BigInt(-5000)],
+    ],
+    {},
+    { cashEffect: "cash", cashEventDate: "2026-01-10" },
+  );
+  assertGate(await gatesOn(db), "G20", "pass");
 });

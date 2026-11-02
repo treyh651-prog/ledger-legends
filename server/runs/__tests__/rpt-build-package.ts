@@ -10,7 +10,7 @@
 
 import { assert, assertEqual, test } from "./harness";
 import { CLIENT_A1 } from "./fixtures";
-import { PERIOD, PERIOD_END, addAccount, seedEntry } from "./close-fixtures";
+import { PERIOD, PERIOD_END, addAccount, closeEntry, closeLine, seedEntry } from "./close-fixtures";
 import {
   applyReport,
   lockPeriod,
@@ -28,7 +28,7 @@ import {
 } from "../runs/rpt-build-package";
 import { statementLineOf } from "../runs/statement-taxonomy";
 
-const scope = { ...reportScope(), comparisonBasis: "prior_period" as const };
+const scope = { ...reportScope(), comparisonBasis: "prior_period" as const, reportBasis: "accrual" as const };
 
 test("package preview and apply propose the same rows", async () => {
   const db = reportDb();
@@ -331,5 +331,113 @@ test("the change log lists applied runs and never the reporting run itself", asy
   assert(
     !(changeLog?.lines ?? []).some((l) => l.label.startsWith("RPT-")),
     "a package does not describe the run that built it",
+  );
+});
+
+test("a cash package says cash in words and gets its own package id, distinct from the accrual one", async () => {
+  const db = reportDb();
+  await applyReport(db, rptBuildPackage, scope);
+  await applyReport(db, rptBuildPackage, { ...scope, reportBasis: "cash" as const });
+  const packages = packagesOf(db);
+  assertEqual(packages.length, 2, "two distinct packages, one per basis");
+  const cashPackage = packages.find((p) => p.basis === "cash");
+  assert(cashPackage !== undefined, "the cash package exists");
+  assertEqual(
+    packageIdOf(CLIENT_A1, PERIOD, "prior_period", "cash"),
+    cashPackage?.id,
+    "the package id folds in the report basis so the two never collide",
+  );
+  const cashCover = sectionsOf(db)
+    .filter((s) => s.packageId === cashPackage?.id)
+    .find((s) => s.sectionCode === "COVER");
+  assert(
+    (cashCover?.lines ?? []).some((l) => l.note?.includes("Cash basis")),
+    "the cover states cash in words",
+  );
+});
+
+test("a cash income statement excludes an invoice's accrual_only lines and re-attributes a payment's control line to the revenue it settles", async () => {
+  const db = reportDb();
+  addAccount(db, "1200", "Accounts receivable clearing");
+  // reportDb()'s own base fixture seeds a direct cash sale on 4100 (JE-SALE)
+  // that predates cash_effect and so defaults to "none" -- legitimately
+  // included on a cash statement too (seed() is an upsert, not a replace, so
+  // it cannot be removed here), but unrelated noise for a test that is
+  // specifically about the invoice/payment pair below. Re-tagged accrual_only
+  // by overwriting its own two line ids, out of scope for this assertion.
+  db.seed("journal_lines", [
+    closeLine("JE-SALE-L1", "JE-SALE", "1010", BigInt(100000), "2026-01-15", { cashEffect: "accrual_only" }),
+    closeLine("JE-SALE-L2", "JE-SALE", "4100", BigInt(-100000), "2026-01-15", { cashEffect: "accrual_only" }),
+  ]);
+  // The invoice entry AR-CREATE-INVOICE would post: both lines accrual_only,
+  // no cash leg at all -- recognized on neither side until cash arrives.
+  db.seed("journal_entries", [...db.all("journal_entries"), closeEntry("JE-INV", "2026-01-05")]);
+  db.seed("journal_lines", [
+    ...db.all("journal_lines"),
+    closeLine("JE-INV-L1", "JE-INV", "1100", BigInt(50000), "2026-01-05", { cashEffect: "accrual_only" }),
+    closeLine("JE-INV-L2", "JE-INV", "4100", BigInt(-50000), "2026-01-05", { cashEffect: "accrual_only" }),
+  ]);
+  // The payment application entry AR-APPLY-PAYMENTS would post: the clearing
+  // leg is its own cash event, and the control leg is tagged cash too,
+  // pointing cashSourceLine back at the invoice's own revenue line.
+  db.seed("journal_entries", [...db.all("journal_entries"), closeEntry("JE-PMT", "2026-01-25")]);
+  db.seed("journal_lines", [
+    ...db.all("journal_lines"),
+    closeLine("JE-PMT-L1", "JE-PMT", "1200", BigInt(50000), "2026-01-25", {
+      cashEffect: "cash",
+      cashEventDate: "2026-01-25",
+    }),
+    closeLine("JE-PMT-L2", "JE-PMT", "1100", BigInt(-50000), "2026-01-25", {
+      cashEffect: "cash",
+      cashEventDate: "2026-01-25",
+      cashSourceLine: "JE-INV-L2",
+    }),
+  ]);
+
+  await applyReport(db, rptBuildPackage, { ...scope, reportBasis: "cash" as const });
+  const incomeStatement = sectionsOf(db).find((s) => s.sectionCode === "INCOME_STATEMENT");
+  const revenueLine = (incomeStatement?.lines ?? []).find((l) => l.accountNumber === "4100");
+  assert(revenueLine !== undefined, "revenue shows on the cash income statement");
+  assertEqual(
+    revenueLine?.amountCents,
+    "-50000",
+    "dated and sized by the payment, not the invoice -- the control line's own amount, attributed to the revenue account",
+  );
+  const receivableLine = (incomeStatement?.lines ?? []).find((l) => l.accountNumber === "1100");
+  assertEqual(receivableLine, undefined, "the receivable control account itself never appears on the income statement");
+});
+
+test("a cash balance sheet drops the receivable and payable control accounts", async () => {
+  const db = reportDb();
+  db.seed("journal_entries", [...db.all("journal_entries"), closeEntry("JE-AR", "2026-01-05")]);
+  db.seed("journal_lines", [
+    ...db.all("journal_lines"),
+    closeLine("JE-AR-L1", "JE-AR", "1100", BigInt(50000), "2026-01-05", { cashEffect: "accrual_only" }),
+    closeLine("JE-AR-L2", "JE-AR", "4100", BigInt(-50000), "2026-01-05", { cashEffect: "accrual_only" }),
+  ]);
+  await applyReport(db, rptBuildPackage, scope);
+  await applyReport(db, rptBuildPackage, { ...scope, reportBasis: "cash" as const });
+
+  const accrualPackageId = packageIdOf(CLIENT_A1, PERIOD, "prior_period", "accrual");
+  const cashPackageId = packageIdOf(CLIENT_A1, PERIOD, "prior_period", "cash");
+  const allSections = sectionsOf(db);
+  const accrualBalanceSheet = allSections
+    .filter((s) => s.packageId === accrualPackageId)
+    .find((s) => s.sectionCode === "BALANCE_SHEET");
+  assert(
+    (accrualBalanceSheet?.lines ?? []).some((l) => l.accountNumber === "1100"),
+    "the accrual balance sheet carries the receivable",
+  );
+
+  const cashBalanceSheet = allSections
+    .filter((s) => s.packageId === cashPackageId)
+    .find((s) => s.sectionCode === "BALANCE_SHEET");
+  assert(
+    !(cashBalanceSheet?.lines ?? []).some((l) => l.accountNumber === "1100"),
+    "and the cash balance sheet drops it entirely",
+  );
+  assert(
+    (cashBalanceSheet?.lines ?? []).some((l) => l.accountNumber === "1010"),
+    "while an ordinary cash account stays",
   );
 });

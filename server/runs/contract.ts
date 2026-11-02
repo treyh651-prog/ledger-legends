@@ -141,7 +141,15 @@ export type RunTypeId =
   // a corrected replacement linked back to it. Two runs, not one, because
   // the two link columns exist for two different reasons.
   | "TXN-VOID"
-  | "TXN-VOID-AND-REISSUE";
+  | "TXN-VOID-AND-REISSUE"
+  // subledger.bills has carried paid_cents since migration 0014, and nothing
+  // ever paid one in the general case -- AP-APPLY-DISCOUNTS only fires for
+  // bills with discount terms, and always closes the whole balance at once.
+  // AP-RECORD-PAYMENT/AP-APPLY-PAYMENTS are the payable mirror of
+  // AR-RECORD-PAYMENT/AR-APPLY-PAYMENTS, the same gap on the other side of
+  // the ledger.
+  | "AP-RECORD-PAYMENT"
+  | "AP-APPLY-PAYMENTS";
 
 /** Doc 03 Part 7 names the reversal of a run `<ORIGINAL>-UNDO`. */
 export type UndoRunTypeId = `${RunTypeId}-UNDO`;
@@ -216,6 +224,18 @@ export interface ProposedLine {
     programId?: Ulid;
     restriction?: "with_donor_restrictions" | "without_donor_restrictions";
   };
+  /**
+   * Doc 05 Part 4 (D3). Left unset on every ordinary line: apply-writer.ts
+   * infers all three generically from account-block classification. Only
+   * AR-APPLY-PAYMENTS and AP-APPLY-PAYMENTS set these explicitly, on their
+   * control-account lines, because no generic rule can resurface revenue or
+   * expense recognized at invoice/bill time onto the cash statement -- the
+   * payment-application entry never touches the revenue/expense account.
+   */
+  cashEffect?: "none" | "cash" | "accrual_only";
+  cashEventDate?: string | null;
+  /** The journal_lines.id of the original revenue/expense line this cash movement settles, when cashEffect is explicitly "cash" for that reason. */
+  cashSourceLine?: Ulid | null;
 }
 
 export interface ProposedJournalEntry {

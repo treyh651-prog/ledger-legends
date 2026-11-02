@@ -618,7 +618,11 @@ export function createApiRouter(deps: ApiDeps): Router {
     route(async (req) => {
       const { clientId } = parse(clientParamsSchema, req.params);
       const period = screenPeriod(req);
-      const { packageId } = parse(z.object({ packageId: z.string().uuid().optional() }), req.query);
+      // A derivedId, not a uuid -- RPT-BUILD-PACKAGE's packageIdOf mints a
+      // ULID-shaped id like every other run-minted row, never a uuid. This
+      // selector only got exercised for the first time once a client could
+      // have more than one package per period (cash alongside accrual).
+      const { packageId } = parse(z.object({ packageId: z.string().min(1).max(64).optional() }), req.query);
       const firmId = req.firm!.firmId;
       const body = await deps.db.tx(readSession(req.actor!, firmId, clientId), (tx) => reportPackages(tx, firmId, clientId, period, packageId ?? null));
       return { body };

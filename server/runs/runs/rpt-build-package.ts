@@ -65,8 +65,10 @@ import {
   ZERO,
   balanceOf,
   blockOf,
+  cashBalancesBetween,
   isBalanceSheet,
   isIncomeStatement,
+  priorDayOf,
 } from "./close-shared";
 import { statementLineOf } from "./statement-taxonomy";
 import {
@@ -93,6 +95,14 @@ export const buildPackageScopeSchema = z.object({
   comparisonBasis: z
     .enum(["prior_period", "prior_year", "budget", "none"])
     .default("prior_period"),
+  /**
+   * Doc 05 Part 4 (D3). Explicit, like comparisonBasis, rather than derived
+   * from the engagement's reportingBasis: the firm decides which package to
+   * build, the same way it decides which comparison column to build, and
+   * "both" on the engagement is a default view, not an instruction to build
+   * two packages from one request.
+   */
+  reportBasis: z.enum(["accrual", "cash"]).default("accrual"),
 });
 
 export type BuildPackageScope = z.infer<typeof buildPackageScopeSchema>;
@@ -174,7 +184,7 @@ export const rptBuildPackage: Run<BuildPackageScope, Proposal> = {
           reportingDiscriminator(
             window.periodStart,
             data.fingerprint,
-            `RPT-BUILD-PACKAGE:${scope.comparisonBasis}`,
+            `RPT-BUILD-PACKAGE:${scope.comparisonBasis}:${scope.reportBasis}`,
           ),
         ],
         versions,
@@ -199,8 +209,9 @@ export const rptBuildPackage: Run<BuildPackageScope, Proposal> = {
     const errors: RunError[] = [];
 
     const basis = frozen.input.comparisonBasis;
-    const packageId = packageIdOf(frozen.clientId, data.periodStart, basis);
-    const sections = buildSections(data, basis);
+    const reportBasis = frozen.input.reportBasis;
+    const packageId = packageIdOf(frozen.clientId, data.periodStart, basis, reportBasis);
+    const sections = buildSections(data, basis, reportBasis);
     const sectionRows = await tx.query("report_sections_for_package", {
       firmId: frozen.firmId,
       clientId: frozen.clientId,
@@ -211,7 +222,7 @@ export const rptBuildPackage: Run<BuildPackageScope, Proposal> = {
     );
     const priorPackage = data.packages.find((p) => p.id === packageId);
 
-    const content = packageContent(data, basis, sections);
+    const content = packageContent(data, basis, reportBasis, sections);
 
     // Invariant 8, doc 03 Part 6. A package a person took over is not touched,
     // and neither are its sections, because a header and its sections are one
@@ -359,8 +370,13 @@ export const rptBuildPackage: Run<BuildPackageScope, Proposal> = {
   },
 };
 
-export function packageIdOf(clientId: Ulid, periodStart: string, comparisonBasis: string): Ulid {
-  return derivedId(`${clientId}:${periodStart}:${comparisonBasis}`, "rpt-build-package", 0);
+export function packageIdOf(
+  clientId: Ulid,
+  periodStart: string,
+  comparisonBasis: string,
+  reportBasis: "accrual" | "cash" = "accrual",
+): Ulid {
+  return derivedId(`${clientId}:${periodStart}:${comparisonBasis}:${reportBasis}`, "rpt-build-package", 0);
 }
 
 export function sectionIdOf(packageId: Ulid, sectionCode: string): Ulid {
@@ -374,15 +390,16 @@ function auditIdOf(packageId: Ulid): Ulid {
 function packageContent(
   data: ReportData,
   comparisonBasis: BuildPackageScope["comparisonBasis"],
+  reportBasis: BuildPackageScope["reportBasis"],
   sections: readonly SectionContent[],
 ): PackageContent {
   const omissions = sections.filter((s) => s.status === "omitted").length;
   const closedWithExceptions =
     data.lock !== null && data.lock.closedWithExceptions;
   return {
-    // D3. The ledger is accrual and the cash view is derived, so a package says
-    // accrual in words on its cover and its notes.
-    basis: "accrual",
+    // D3. The ledger always posts accrual; this states which view the firm
+    // asked this package to show, in words, on its cover and its notes.
+    basis: reportBasis,
     comparisonBasis,
     comparisonAvailable: data.comparisonAvailable,
     comparisonNote: data.comparisonAvailable
@@ -400,7 +417,7 @@ function packageContent(
       sections.map((s) => ({ code: s.sectionCode, checksum: s.contentChecksum })),
     ),
     ledgerFingerprint: data.fingerprint,
-    vaultObjectKey: `clients/${data.clientId}/reports/${data.periodStart}/${comparisonBasis}/package.json`,
+    vaultObjectKey: `clients/${data.clientId}/reports/${data.periodStart}/${reportBasis}/${comparisonBasis}/package.json`,
     vaultObjectLockMode: "GOVERNANCE",
     // D7. The clock starts at the period end, not at the day of the upload.
     vaultRetentionStartsOn: data.periodEnd,
@@ -418,11 +435,12 @@ function packageContent(
 function buildSections(
   data: ReportData,
   comparisonBasis: BuildPackageScope["comparisonBasis"],
+  reportBasis: BuildPackageScope["reportBasis"],
 ): SectionContent[] {
   const banner = bannerFor(data);
   const out: SectionContent[] = [];
   for (const spec of SECTION_CATALOG) {
-    const built = buildOneSection(data, comparisonBasis, spec);
+    const built = buildOneSection(data, comparisonBasis, reportBasis, spec);
     out.push({
       sequence: spec.sequence,
       sectionCode: spec.code,
@@ -463,16 +481,21 @@ interface BuiltSection {
 function buildOneSection(
   data: ReportData,
   comparisonBasis: BuildPackageScope["comparisonBasis"],
+  reportBasis: BuildPackageScope["reportBasis"],
   spec: SectionSpec,
 ): BuiltSection {
   switch (spec.code) {
     case "COVER":
-      return { lines: coverLines(data, comparisonBasis), reason: null };
+      return { lines: coverLines(data, comparisonBasis, reportBasis), reason: null };
     case "BALANCE_SHEET":
-      return balanceSheetSection(data);
+      return reportBasis === "cash" ? cashBalanceSheetSection(data) : balanceSheetSection(data);
     case "INCOME_STATEMENT":
-      return incomeStatementSection(data);
+      return reportBasis === "cash" ? cashIncomeStatementSection(data) : incomeStatementSection(data);
     case "CASH_FLOW":
+      // Doc 05 Part 4 (D3). The cash flow statement stays the accrual ledger's
+      // own indirect-method reconciliation on both report bases -- it is
+      // already derived, not a second set of books, and reconciling a cash
+      // income statement to itself has nothing to say.
       return cashFlowSection(data);
     case "STATEMENT_OF_EQUITY":
       return equitySection(data);
@@ -481,7 +504,7 @@ function buildOneSection(
     case "AP_AGING":
       return agingSection(data, "payable");
     case "NOTES":
-      return { lines: notesLines(data), reason: null };
+      return { lines: notesLines(data, reportBasis), reason: null };
     case "CHANGE_LOG":
       return changeLogSection(data);
     default:
@@ -512,6 +535,7 @@ function line(
 function coverLines(
   data: ReportData,
   comparisonBasis: BuildPackageScope["comparisonBasis"],
+  reportBasis: BuildPackageScope["reportBasis"],
 ): ReportSectionLine[] {
   return [
     line("Period start", null, ZERO, null, data.periodStart),
@@ -522,7 +546,9 @@ function coverLines(
       null,
       ZERO,
       null,
-      "Accrual basis. The cash view is derived from the same ledger.",
+      reportBasis === "cash"
+        ? "Cash basis. The ledger itself always posts accrual; this package is a cash view derived from it."
+        : "Accrual basis. A cash view can be derived from the same ledger.",
     ),
     line("Comparison basis", null, ZERO, null, comparisonBasis),
     line(
@@ -594,6 +620,107 @@ function incomeStatementSection(data: ReportData): BuiltSection {
     if (isMemoAccount(number) || !isIncomeStatement(number)) continue;
     const amount = balanceOf(data.close.inPeriod, number);
     const prior = balanceOf(data.priorInPeriod, number);
+    if (amount === ZERO && prior === ZERO) continue;
+    lines.push(
+      line(
+        account.name,
+        number,
+        amount,
+        data.comparisonAvailable ? prior : null,
+        null,
+        statementLineOf(number),
+      ),
+    );
+    total += amount;
+  }
+  if (lines.length === 0) {
+    return { lines: [], reason: "no_income_statement_activity" };
+  }
+  lines.push(line("Net result for the period", null, -total, null, null));
+  return { lines, reason: null };
+}
+
+/**
+ * Doc 05 Part 4 (D3). The cash basis balance sheet: the same balances through
+ * the close date as balanceSheetSection, with receivable, payable, prepaid,
+ * and accrued liability accounts dropped entirely. Depreciation and
+ * accumulated depreciation are not in that exclusion list and stay, per
+ * doc 05's own call-out that tax basis cash reporting still depreciates.
+ *
+ * A pure account-block filter over the same accrual balances, not a
+ * cash_event_date computation: the ledger is accrual native, and the cash
+ * balance sheet is a different selection of the same point-in-time figures,
+ * never a second ledger.
+ */
+function cashBalanceSheetSection(data: ReportData): BuiltSection {
+  const lines: ReportSectionLine[] = [];
+  let assets = ZERO;
+  let liabilities = ZERO;
+  let equity = ZERO;
+  for (const account of data.close.chart) {
+    const number = account.accountNumber;
+    if (isMemoAccount(number) || !isBalanceSheet(number)) continue;
+    const block = blockOf(number);
+    if (
+      block === "receivable" ||
+      block === "payable" ||
+      block === "prepaid" ||
+      block === "accrued"
+    ) {
+      continue;
+    }
+    const amount = balanceOf(data.close.through, number);
+    const prior = balanceOf(data.close.priorThrough, number);
+    if (amount === ZERO && prior === ZERO) continue;
+    lines.push(
+      line(
+        account.name,
+        number,
+        amount,
+        data.comparisonAvailable ? prior : null,
+        null,
+        statementLineOf(number),
+      ),
+    );
+    if (block === "equity") equity += amount;
+    else if (number < "2000") assets += amount;
+    else liabilities += amount;
+  }
+  if (lines.length === 0) {
+    return { lines: [], reason: "no_balance_sheet_activity" };
+  }
+  lines.push(line("Total assets", null, assets, null, null));
+  lines.push(line("Total liabilities", null, liabilities, null, null));
+  lines.push(line("Total equity before current period result", null, equity, null, null));
+  return { lines, reason: null };
+}
+
+/**
+ * Doc 05 Part 4 (D3). The cash basis income statement: accrual_only lines
+ * excluded, revenue and expense recognized on cash_event_date rather than
+ * entry date (cashBalancesBetween, close-shared.ts, already does both and
+ * already re-attributes a payment-application control line's amount to the
+ * invoice's or bill's own revenue/expense account via cashSourceLine).
+ *
+ * The comparison column recomputes the same cash aggregation over the prior
+ * period's own window, the cash-basis mirror of what rpt-shared.ts's
+ * priorInPeriod already does for the accrual column.
+ */
+function cashIncomeStatementSection(data: ReportData): BuiltSection {
+  const inPeriodCash = cashBalancesBetween(data.close.lines, data.periodStart, data.periodEnd);
+  const priorWindow = periodWindow(priorDayOf(data.periodStart));
+  const priorInPeriodCash = cashBalancesBetween(
+    data.close.lines,
+    priorWindow.periodStart,
+    priorWindow.periodEnd,
+  );
+  const lines: ReportSectionLine[] = [];
+  let total = ZERO;
+  for (const account of data.close.chart) {
+    const number = account.accountNumber;
+    if (isMemoAccount(number) || !isIncomeStatement(number)) continue;
+    const amount = balanceOf(inPeriodCash, number);
+    const prior = balanceOf(priorInPeriodCash, number);
     if (amount === ZERO && prior === ZERO) continue;
     lines.push(
       line(
@@ -765,14 +892,19 @@ function agingSection(
  * the notes do not pretend otherwise: the last note says in plain words what the
  * package is and is not.
  */
-function notesLines(data: ReportData): ReportSectionLine[] {
+function notesLines(
+  data: ReportData,
+  reportBasis: BuildPackageScope["reportBasis"],
+): ReportSectionLine[] {
   const lines: ReportSectionLine[] = [
     line(
       "Basis of accounting",
       null,
       ZERO,
       null,
-      "These statements are prepared on the accrual basis. Cash figures shown in this package are derived from the same ledger.",
+      reportBasis === "cash"
+        ? "These statements are prepared on the cash basis: the balance sheet omits receivables, payables, prepaid, and accrued liability balances, and the income statement recognizes revenue and expense when cash moved rather than when billed. The underlying ledger is accrual, and there is never a second set of books."
+        : "These statements are prepared on the accrual basis. Cash figures shown in this package are derived from the same ledger.",
     ),
     line(
       "Comparison",

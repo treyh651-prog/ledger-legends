@@ -69,7 +69,7 @@ test("lock, the lock carries the gate results and the trial balance", async () =
   const db = await withGates(closeDb());
   await applyClose(db, clsLockPeriod, closeScope());
   const row = db.all("period_locks").find((l) => l.id === lockId(CLIENT_A1, PERIOD));
-  assertEqual(row?.gateResultsSnapshot.length, 19, "all nineteen gates snapshot");
+  assertEqual(row?.gateResultsSnapshot.length, 20, "all twenty gates snapshot");
   assert(
     row?.gateResultsSnapshot.every(
       (g) => g.outcome === "pass" || g.outcome === "not_applicable",

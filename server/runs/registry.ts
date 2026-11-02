@@ -60,6 +60,8 @@ import { arCreateCustomer } from "./runs/ar-create-customer";
 import { arCreateInvoice } from "./runs/ar-create-invoice";
 import { arCreateCreditMemo } from "./runs/ar-create-creditmemo";
 import { arRecordPayment } from "./runs/ar-record-payment";
+import { apRecordPayment } from "./runs/ap-record-payment";
+import { apApplyPayments } from "./runs/ap-apply-payments";
 import { recImportStatement } from "./runs/rec-import-statement";
 import { cpaBuildHandoff } from "./runs/cpa-build-handoff";
 import { offboardBuildExport } from "./runs/offboard-build-export";
@@ -217,6 +219,8 @@ export const registry: readonly RegistryEntry[] = [
   entry(apCreateBill),
   entry(arRecordPayment),
   entry(arApplyPayments),
+  entry(apRecordPayment),
+  entry(apApplyPayments),
   entry(apApplyEarlyDiscount),
   entry(arChargeLateFees),
   entry(arWriteoffUncollectible),
@@ -418,6 +422,7 @@ export const CLOSE_ORDER: readonly string[] = [
  */
 export const AR_AP_ORDER: readonly string[] = [
   "AR-APPLY-PAYMENTS",
+  "AP-APPLY-PAYMENTS",
   "AP-APPLY-DISCOUNTS",
   "AR-CHARGE-LATEFEES",
   "AR-WRITEOFF-UNCOLLECTIBLE",

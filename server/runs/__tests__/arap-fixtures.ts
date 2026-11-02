@@ -26,6 +26,8 @@ import type {
   JournalEntryRow,
   JournalLineRow,
   RemittanceLineRow,
+  VendorPaymentRow,
+  VendorRemittanceLineRow,
   VendorRow,
 } from "../tables";
 import { ACTOR, CLIENT_A1, FIRM_A, NOW, baseDb, chartAccount, opts } from "./fixtures";
@@ -41,6 +43,7 @@ export const ARAP_ACCOUNTS: ReadonlyArray<readonly [string, string]> = [
   ["1100", "Accounts receivable"],
   ["1150", "Allowance for doubtful accounts"],
   ["1200", "Accounts receivable clearing"],
+  ["1910", "Accounts payable clearing"],
   ["1990", "Suspense"],
   ["2000", "Accounts payable"],
   ["2050", "Vendor credits"],
@@ -243,6 +246,52 @@ export function remittance(
   };
 }
 
+/** The payable mirror of payment(). */
+export function vendorPayment(
+  id: string,
+  vendorId: string,
+  extra: Partial<VendorPaymentRow> = {},
+): VendorPaymentRow {
+  return {
+    id,
+    firmId: FIRM_A,
+    clientId: CLIENT_A1,
+    version: 1,
+    vendorId,
+    paymentDate: "2026-01-20",
+    amountCents: BigInt(100000),
+    appliedCents: BigInt(0),
+    onHold: false,
+    matchHint: null,
+    transactionId: null,
+    clearingAccount: "1910",
+    status: "unapplied",
+    appliedTier: null,
+    manualOverride: false,
+    createdBy: ACTOR,
+    ...extra,
+  };
+}
+
+/** The payable mirror of remittance(). */
+export function vendorRemittance(
+  id: string,
+  paymentId: string,
+  lineNumber: number,
+  billNumber: string,
+  amountCents: bigint,
+): VendorRemittanceLineRow {
+  return {
+    id,
+    firmId: FIRM_A,
+    clientId: CLIENT_A1,
+    paymentId,
+    lineNumber,
+    billNumber,
+    amountCents,
+  };
+}
+
 /** A vendor. The discount rule defaults to taking the discount to income. */
 export function vendor(id: string, extra: Partial<VendorRow> = {}): VendorRow {
   return {
@@ -356,6 +405,9 @@ export function arLine(
     locationId: null,
     programId: null,
     restriction: null,
+    cashEffect: "none",
+    cashEventDate: null,
+    cashSourceLine: null,
     ...extra,
   };
 }

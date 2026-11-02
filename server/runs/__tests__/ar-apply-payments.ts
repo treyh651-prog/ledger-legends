@@ -11,6 +11,7 @@ import { arApplyPayments } from "../runs/ar-apply-payments";
 import type {
   CustomerPaymentRow,
   InvoiceRow,
+  JournalLineRow,
   PaymentApplicationRow,
 } from "../tables";
 import type { MemoryRunDb } from "../db-memory";
@@ -20,6 +21,8 @@ import {
   applyArap,
   arapDb,
   arapScope,
+  arEntry,
+  arLine,
   balanceOf,
   customer,
   invoice,
@@ -109,6 +112,34 @@ test("payments, the entry moves the clearing account to the control account", as
   );
   assertEqual(balanceOf(db, "1200"), BigInt(50000), "clearing takes the debit");
   assertEqual(balanceOf(db, "1100"), BigInt(-50000), "control takes the credit");
+});
+
+test("payments, the control lines are tagged cash at the payment date", async () => {
+  const db = arapDb();
+  db.seed("customers", [customer("CUS-1")]);
+  db.seed("invoices", [invoice("INV-1", "CUS-1", { originalAmountCents: BigInt(50000) })]);
+  // The posted invoice entry AR-CREATE-INVOICE would have made: its id is the
+  // invoice's own id, debit AR control, credit revenue.
+  db.seed("journal_entries", [arEntry("INV-1", "2026-01-05")]);
+  db.seed("journal_lines", [
+    arLine("JL-INV-1-AR", "INV-1", "1100", BigInt(50000), "2026-01-05"),
+    arLine("JL-INV-1-REV", "INV-1", "4100", BigInt(-50000), "2026-01-05"),
+  ]);
+  db.seed("customer_payments", [
+    payment("PAY-1", "CUS-1", { amountCents: BigInt(50000), paymentDate: "2026-01-25" }),
+  ]);
+  await applyArap(db, arApplyPayments, arapScope());
+  const lines = db.all("journal_lines") as JournalLineRow[];
+  const controlLine = lines.find(
+    (l) => l.accountNumber === "1100" && l.entryId !== "INV-1",
+  );
+  assert(controlLine !== undefined, "the control line posted");
+  assertEqual(controlLine?.cashEffect, "cash", "tagged cash, not the generic accrual_only a receivable block would otherwise get");
+  assertEqual(controlLine?.cashEventDate, "2026-01-25", "dated the payment date, not the invoice date");
+  const revenueLine = lines.find(
+    (l) => l.entryId === "INV-1" && l.accountNumber === "4100",
+  );
+  assertEqual(controlLine?.cashSourceLine, revenueLine?.id, "pointing at the invoice's own revenue line");
 });
 
 test("payments, tier 2 follows a match hint naming one invoice", async () => {

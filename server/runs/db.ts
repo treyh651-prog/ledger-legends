@@ -18,6 +18,7 @@ import type {
   ArapPolicyRow,
   BankAccountRow,
   BankCodeMappingRow,
+  BillApplicationRow,
   BillRow,
   CategoryRow,
   CategoryVersionRow,
@@ -30,6 +31,8 @@ import type {
   StatementDocumentRow,
   StatementItemRow,
   VendorCreditRow,
+  VendorPaymentRow,
+  VendorRemittanceLineRow,
   WriteoffProposalRow,
   DeferralLineRow,
   DeferralScheduleRow,
@@ -550,6 +553,30 @@ export interface QueryCatalog {
   payment_applications_for_client: {
     params: { firmId: Ulid; clientId: Ulid };
     row: PaymentApplicationRow;
+  };
+  /**
+   * Payable mirror of customer_payments_in_window: payments made in a
+   * window, in AP-APPLY-PAYMENTS' own iteration order, payment date
+   * ascending then payment id ascending.
+   */
+  vendor_payments_in_window: {
+    params: { firmId: Ulid; clientId: Ulid; from: string; to: string };
+    row: VendorPaymentRow;
+  };
+  /** Payable mirror of customer_payments_for_client, same existence-check reasoning. */
+  vendor_payments_for_client: {
+    params: { firmId: Ulid; clientId: Ulid };
+    row: VendorPaymentRow;
+  };
+  /** Payable mirror of remittance_lines_for_payments. */
+  vendor_remittance_lines_for_payments: {
+    params: { firmId: Ulid; clientId: Ulid; paymentIds: Ulid[] };
+    row: VendorRemittanceLineRow;
+  };
+  /** Payable mirror of payment_applications_for_client. */
+  bill_applications_for_client: {
+    params: { firmId: Ulid; clientId: Ulid };
+    row: BillApplicationRow;
   };
   /**
    * The snapshot rows an earlier execution wrote for one as of date. The aging

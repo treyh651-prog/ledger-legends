@@ -34,7 +34,7 @@ import { rptRebuildForecast } from "../runs/rpt-rebuild-forecast";
 import { rptComposeNarrative } from "../runs/rpt-compose-narrative";
 import { REPORTING_ORDER, lookupRun } from "../registry";
 
-const basis = { ...reportScope(), comparisonBasis: "prior_period" as const };
+const basis = { ...reportScope(), comparisonBasis: "prior_period" as const, reportBasis: "accrual" as const };
 const scenario = { ...reportScope(), scenario: "base" as const };
 const audience = {
   ...reportScope(),

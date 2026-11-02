@@ -633,7 +633,44 @@ export function derivedCashNet(data: CloseData): {
   return { expected, actual: -cashSide };
 }
 
-/** The nineteen, in order. The order is the write order and the report order. */
+/**
+ * G20. Doc 05 Part 4 (D3): "for any client on cash or both, every line marked
+ * cash has a cash_event_date inside a period that is not locked ahead of
+ * it." Named in the decision doc but never built until now -- this is an
+ * explicit expansion past the documented G01-G19 set, not a gap in it, and
+ * the first gate in this codebase conditioned on a client setting rather
+ * than pure data presence, so it is the one gate that reads
+ * data.reportingBasis before it reads anything else.
+ */
+const g20: GateDefinition = {
+  code: "G20",
+  title: "Every cash-dated line falls in a period that is not locked ahead of it",
+  evaluate: (data) => {
+    if (data.reportingBasis === "accrual") {
+      return notApplicable("this client's engagement is accrual only");
+    }
+    if (data.locks.length === 0) {
+      return notApplicable("this client has no locked period");
+    }
+    const blocking: GateBlockingRow[] = [];
+    for (const line of data.lines) {
+      if (line.cashEffect !== "cash" || line.cashEventDate === null) continue;
+      const lock = lockCovering(data.locks, line.cashEventDate);
+      if (lock === undefined || lock === null) continue;
+      blocking.push(
+        blocker(
+          line.id,
+          `journal line ${line.id}`,
+          `cash event dated ${line.cashEventDate} falls inside the lock covering ${lock.periodStart} to ${lock.periodEnd}`,
+          null,
+        ),
+      );
+    }
+    return verdict(blocking);
+  },
+};
+
+/** The nineteen, in order, plus G20. The order is the write order and the report order. */
 export const CLOSE_GATES: readonly GateDefinition[] = [
   g01,
   g02,
@@ -654,6 +691,7 @@ export const CLOSE_GATES: readonly GateDefinition[] = [
   g17,
   g18,
   g19,
+  g20,
 ];
 
 /**

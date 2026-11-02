@@ -193,6 +193,9 @@ export function closeLine(
     locationId: null,
     programId: null,
     restriction: null,
+    cashEffect: "none",
+    cashEventDate: null,
+    cashSourceLine: null,
     ...extra,
   };
 }

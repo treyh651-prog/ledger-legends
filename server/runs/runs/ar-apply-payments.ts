@@ -32,6 +32,15 @@
  * An overpayment stays unapplied. The run does not invent a credit memo, does
  * not refund anything, and does not push cash onto an invoice that does not owe
  * it. The remainder sits in the clearing account where a person can see it.
+ *
+ * Doc 05 Part 4 (D3). The AR control line this run credits per invoice is the
+ * one place a generic cash-basis inference can never work: the invoice's own
+ * revenue line posted earlier, at invoice time, with no cash leg at all, so
+ * apply-writer.ts's choke point would tag it accrual_only and a cash income
+ * statement would never see it. This run tags its own control lines
+ * explicitly instead -- cash, dated the payment date, pointing cashSourceLine
+ * at the invoice's own revenue line -- so a cash-basis report recognizes the
+ * revenue when the cash actually arrived, not when the invoice was raised.
  */
 
 import { z } from "zod";
@@ -191,6 +200,25 @@ export const arApplyPayments: Run<ApplyPaymentsScope, Proposal> = {
       firmId: frozen.firmId,
       clientId: frozen.clientId,
     });
+    // Each invoice's own revenue line, found rather than stored: AR-CREATE-
+    // INVOICE sets its entry's id equal to the invoice's own id, and every
+    // invoice has exactly one revenue line, so entryId=invoiceId plus the
+    // invoice's own revenueAccount names it uniquely.
+    const invoiceLines =
+      invoices.length === 0
+        ? []
+        : await tx.query("journal_lines_for_entries", {
+            firmId: frozen.firmId,
+            clientId: frozen.clientId,
+            entryIds: invoices.map((i) => i.id),
+          });
+    const revenueLineByInvoice = new Map<Ulid, Ulid>();
+    for (const inv of invoices) {
+      const revenueLine = invoiceLines.find(
+        (l) => l.entryId === inv.id && l.accountNumber === inv.revenueAccount,
+      );
+      if (revenueLine) revenueLineByInvoice.set(inv.id, revenueLine.id);
+    }
 
     const overriddenCustomers = new Set(
       customers.filter((c) => c.manualOverride).map((c) => c.id),
@@ -316,7 +344,7 @@ export const arApplyPayments: Run<ApplyPaymentsScope, Proposal> = {
         continue;
       }
 
-      const entry = entryFor(policy, payment, resolved.allocations);
+      const entry = entryFor(policy, payment, resolved.allocations, revenueLineByInvoice);
       proposals.push(entry);
       for (const l of entry.lines) net += l.amountCents;
 
@@ -590,6 +618,7 @@ function entryFor(
   policy: ArapPolicy,
   payment: CustomerPaymentRow,
   allocations: readonly Allocation[],
+  revenueLineByInvoice: ReadonlyMap<Ulid, Ulid>,
 ): ProposedJournalEntry {
   const total = allocations.reduce((sum, a) => sum + a.amountCents, ZERO);
   const lines: ProposedLine[] = [
@@ -608,6 +637,9 @@ function entryFor(
       amountCents: -a.amountCents,
       memo: `Applied to invoice ${a.invoiceNumber}`,
       dimensions: {},
+      cashEffect: "cash",
+      cashEventDate: payment.paymentDate,
+      cashSourceLine: revenueLineByInvoice.get(a.invoiceId) ?? null,
     });
   }
   return {

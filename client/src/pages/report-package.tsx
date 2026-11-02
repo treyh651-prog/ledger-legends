@@ -1,11 +1,119 @@
 import { useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { DataGrid, EmptyState, ErrorState, Kpi, LoadingRows, Money, PageHeader, Pill, SectionCard } from "@/components/kit";
 import { useApp } from "@/store";
 import { useActiveClient } from "@/lib/active-client";
-import { useReportPackages, errorMessage } from "@/api";
+import { useReportPackages, useTriggerRun, errorMessage } from "@/api";
 import { fmtPeriod, fmtTimestamp } from "@/lib/money";
 import type { ReportSection } from "@shared/api";
+
+type ComparisonBasis = "prior_period" | "prior_year" | "budget" | "none";
+type ReportBasis = "accrual" | "cash";
+
+function BuildPackageDialog({
+  clientId,
+  period,
+  onBuilt,
+}: {
+  clientId: string;
+  period: string;
+  /** Clears the explicit selection so the page falls back to whichever package the API now reports as current. */
+  onBuilt: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [comparisonBasis, setComparisonBasis] = useState<ComparisonBasis>("prior_period");
+  const [reportBasis, setReportBasis] = useState<ReportBasis>("accrual");
+  const [error, setError] = useState<string | null>(null);
+  const trigger = useTriggerRun(clientId);
+  const qc = useQueryClient();
+
+  const build = async () => {
+    setError(null);
+    const scope = { clientId, period, comparisonBasis, reportBasis };
+    try {
+      const preview = await trigger.mutateAsync({ runCode: "RPT-BUILD-PACKAGE", body: { mode: "preview", scope } });
+      if (preview.status !== "completed" && preview.status !== "completed_with_skips") {
+        setError(preview.errors[0]?.message ?? `The run ended ${preview.status}.`);
+        return;
+      }
+      const applied = await trigger.mutateAsync({
+        runCode: "RPT-BUILD-PACKAGE",
+        body: { mode: "apply", scope, previewRunId: preview.executionId },
+      });
+      if (applied.status !== "completed" && applied.status !== "completed_with_skips") {
+        setError(applied.errors[0]?.message ?? `The run ended ${applied.status}.`);
+        return;
+      }
+      void qc.invalidateQueries({ queryKey: ["api", "firm", "clients", clientId, "report-packages"] });
+      setOpen(false);
+      onBuilt();
+    } catch (e) {
+      setError(errorMessage(e));
+    }
+  };
+
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        setOpen(next);
+        if (next) setError(null);
+      }}
+    >
+      <DialogTrigger asChild>
+        <Button size="sm" variant="outline" data-testid="button-build-package">
+          Build package
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>Build report package</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-3">
+          <p className="text-sm text-muted-foreground">For {fmtPeriod(period)}. RPT-BUILD-PACKAGE renders all nine sections on the basis chosen below.</p>
+          <div className="space-y-1">
+            <label className="text-xs font-medium text-muted-foreground">Report basis</label>
+            <select
+              className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
+              value={reportBasis}
+              onChange={(e) => setReportBasis(e.target.value as ReportBasis)}
+              data-testid="select-report-basis"
+            >
+              <option value="accrual">Accrual</option>
+              <option value="cash">Cash</option>
+            </select>
+          </div>
+          <div className="space-y-1">
+            <label className="text-xs font-medium text-muted-foreground">Comparison basis</label>
+            <select
+              className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
+              value={comparisonBasis}
+              onChange={(e) => setComparisonBasis(e.target.value as ComparisonBasis)}
+              data-testid="select-comparison-basis"
+            >
+              <option value="prior_period">Prior period</option>
+              <option value="prior_year">Prior year</option>
+              <option value="budget">Budget</option>
+              <option value="none">None</option>
+            </select>
+          </div>
+          {error ? <p className="break-words text-xs text-destructive">{error}</p> : null}
+        </div>
+        <DialogFooter>
+          <Button size="sm" variant="outline" onClick={() => setOpen(false)}>
+            Cancel
+          </Button>
+          <Button size="sm" onClick={() => void build()} disabled={trigger.isPending} data-testid="button-confirm-build">
+            Build
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
 
 /**
  * The report package for one period, read from
@@ -28,20 +136,25 @@ export default function ReportPackage() {
         title="Report package"
         subtitle={`${client?.name ?? ""}, ${fmtPeriod(period)}. ${pkg ? `${pkg.basis} basis, ${pkg.comparisonBasis.replace(/_/g, " ")} comparison, built ${fmtTimestamp(pkg.builtAt)}.` : d ? "No package built for this period." : ""}`}
         actions={
-          d && d.packages.length > 1 ? (
-            <Select value={d.selectedPackageId ?? ""} onValueChange={setPackageId}>
-              <SelectTrigger className="w-72" data-testid="select-package">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {d.packages.map((p) => (
-                  <SelectItem key={p.id} value={p.id}>
-                    {p.state}, built {fmtTimestamp(p.builtAt)}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          ) : null
+          <div className="flex items-center gap-2">
+            {d && d.packages.length > 1 ? (
+              <Select value={d.selectedPackageId ?? ""} onValueChange={setPackageId}>
+                <SelectTrigger className="w-72" data-testid="select-package">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {d.packages.map((p) => (
+                    <SelectItem key={p.id} value={p.id}>
+                      {p.basis}, {p.state}, built {fmtTimestamp(p.builtAt)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            ) : null}
+            {clientId ? (
+              <BuildPackageDialog clientId={clientId} period={period} onBuilt={() => setPackageId(null)} />
+            ) : null}
+          </div>
         }
       />
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">

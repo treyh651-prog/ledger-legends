@@ -561,6 +561,19 @@ export function oldestFirst(
   });
 }
 
+/** The payable mirror of oldestFirst, for AP-APPLY-PAYMENTS tier 4. */
+export function oldestFirstBills(
+  bills: readonly BillRow[],
+  policy: ArapPolicy,
+): BillRow[] {
+  return [...bills].sort((a, b) => {
+    const da = basisDateOf(policy, a.billDate, a.dueDate);
+    const db = basisDateOf(policy, b.billDate, b.dueDate);
+    if (da !== db) return da < db ? -1 : 1;
+    return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+  });
+}
+
 /** Sum of a list of cents. */
 export function sumArapCents(values: readonly Cents[]): Cents {
   let total = ZERO;

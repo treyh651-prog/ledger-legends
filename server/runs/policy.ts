@@ -286,6 +286,16 @@ export const RUN_POLICIES: Readonly<Record<string, RunPolicy>> = {
     reason:
       "posts cash against invoices, which changes what a customer owes and is a general ledger write",
   },
+  "AP-RECORD-PAYMENT": {
+    tier: "manual",
+    reason:
+      "names which vendor a withdrawal already on the register belongs to, once, and a clock cannot discover whose bill it pays, the same reasoning AR-RECORD-PAYMENT gives for a customer deposit",
+  },
+  "AP-APPLY-PAYMENTS": {
+    tier: "propose",
+    reason:
+      "posts cash against bills, which changes what is owed to a vendor and is a general ledger write, the same reasoning AR-APPLY-PAYMENTS gives for a customer payment",
+  },
   "AP-APPLY-DISCOUNTS": {
     tier: "propose",
     reason:

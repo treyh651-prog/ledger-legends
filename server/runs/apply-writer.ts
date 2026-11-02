@@ -24,9 +24,11 @@ import {
 } from "./contract";
 import type { RunTx } from "./db";
 import { ulid } from "./ids";
+import { blockOf } from "./runs/close-shared";
 import type {
   AgingSnapshotRow,
   BankAccountRow,
+  BillApplicationRow,
   BillRow,
   CategoryRow,
   CategoryVersionRow,
@@ -49,6 +51,7 @@ import type {
   StatementDocumentRow,
   StatementItemRow,
   VendorCreditRow,
+  VendorPaymentRow,
   WriteoffProposalRow,
   ClosePeriodRow,
   CloseGateResultRow,
@@ -185,6 +188,55 @@ export interface ApplyWriterMeta {
 }
 
 /**
+ * Depreciation and amortization expense have no block of their own --
+ * blockOf() puts them in "opex" with every other operating expense -- so
+ * they're the one case cashEffectOf needs a literal account number for.
+ * Both are shared-core accounts on every chart template (intake-shared.ts).
+ */
+const DEPRECIATION_EXPENSE_ACCOUNTS = new Set(["6800", "6810"]);
+
+/**
+ * Doc 05 Part 4 (D3) inference, the single choke point every posting run
+ * goes through without having to know anything about cash timing itself.
+ *
+ * - accrual_only: receivable, payable, prepaid, and accrued-liability lines
+ *   exist purely for timing (invoices, bills, accruals) -- excluded from a
+ *   cash-basis income statement entirely.
+ * - none: depreciation and accumulated depreciation stay on both bases, per
+ *   doc 05's own call-out ("tax basis cash reporting still depreciates").
+ * - cash: a cash/clearing-block line is itself the cash movement, dated the
+ *   day it posted. Every other line (revenue, COGS, opex, equity, other
+ *   balance sheet) is "cash" too, dated the same day, exactly when this
+ *   same entry also has a cash/clearing leg -- money moved on this same
+ *   transaction. Otherwise it's a pure accrual entry with no cash leg at
+ *   all (an invoice's revenue line, a bill's expense line), accrual_only.
+ *
+ * AR-APPLY-PAYMENTS and AP-APPLY-PAYMENTS override this on their own
+ * control-account lines (see ProposedLine's own doc comment) because no
+ * generic rule can resurface revenue or expense recognized earlier, at
+ * invoice/bill time, onto the cash statement at the later payment date.
+ */
+function cashEffectOf(
+  accountNumber: string,
+  entryDate: string,
+  entryHasCashLeg: boolean,
+): { cashEffect: "none" | "cash" | "accrual_only"; cashEventDate: string | null } {
+  const block = blockOf(accountNumber);
+  if (DEPRECIATION_EXPENSE_ACCOUNTS.has(accountNumber) || block === "accum_depreciation") {
+    return { cashEffect: "none", cashEventDate: null };
+  }
+  if (block === "receivable" || block === "payable" || block === "prepaid" || block === "accrued") {
+    return { cashEffect: "accrual_only", cashEventDate: null };
+  }
+  if (block === "cash" || block === "clearing") {
+    return { cashEffect: "cash", cashEventDate: entryDate };
+  }
+  return entryHasCashLeg
+    ? { cashEffect: "cash", cashEventDate: entryDate }
+    : { cashEffect: "accrual_only", cashEventDate: null };
+}
+
+/**
  * Write a proposal set. Called from a run's apply, inside the run transaction.
  */
 export async function applyProposals(
@@ -230,22 +282,32 @@ export async function applyProposals(
         postedBy: ctx.actor.userId,
       };
       await tx.insert("journal_entries", [entry]);
-      const lines: JournalLineRow[] = p.lines.map((line, index) => ({
-        id: ulid(ctx.now),
-        firmId: ctx.firmId,
-        clientId: ctx.clientId,
-        entryId,
-        lineNumber: index + 1,
-        accountNumber: line.accountNumber,
-        categoryId: line.categoryId,
-        amountCents: line.amountCents,
-        memo: line.memo,
-        entryDate: p.entryDate,
-        classId: line.dimensions.classId ?? null,
-        locationId: line.dimensions.locationId ?? null,
-        programId: line.dimensions.programId ?? null,
-        restriction: line.dimensions.restriction ?? null,
-      }));
+      const entryHasCashLeg = p.lines.some((l) => {
+        const block = blockOf(l.accountNumber);
+        return block === "cash" || block === "clearing";
+      });
+      const lines: JournalLineRow[] = p.lines.map((line, index) => {
+        const inferred = cashEffectOf(line.accountNumber, p.entryDate, entryHasCashLeg);
+        return {
+          id: ulid(ctx.now),
+          firmId: ctx.firmId,
+          clientId: ctx.clientId,
+          entryId,
+          lineNumber: index + 1,
+          accountNumber: line.accountNumber,
+          categoryId: line.categoryId,
+          amountCents: line.amountCents,
+          memo: line.memo,
+          entryDate: p.entryDate,
+          classId: line.dimensions.classId ?? null,
+          locationId: line.dimensions.locationId ?? null,
+          programId: line.dimensions.programId ?? null,
+          restriction: line.dimensions.restriction ?? null,
+          cashEffect: line.cashEffect ?? inferred.cashEffect,
+          cashEventDate: line.cashEffect !== undefined ? (line.cashEventDate ?? null) : inferred.cashEventDate,
+          cashSourceLine: line.cashSourceLine ?? null,
+        };
+      });
       await tx.insert("journal_lines", lines);
       sink.entryIdByProposalIndex[index] = entryId;
       sink.entriesCreated += 1;
@@ -381,6 +443,9 @@ async function writeField(
       return;
     case "customer_payments":
       await tx.update("customer_payments", rowId, after);
+      return;
+    case "vendor_payments":
+      await tx.update("vendor_payments", rowId, after);
       return;
     case "credit_memos":
       await tx.update("credit_memos", rowId, after);
@@ -646,6 +711,19 @@ async function insertRow(
     case "customer_payments":
       await tx.insert("customer_payments", [
         withId as unknown as CustomerPaymentRow,
+      ]);
+      return;
+    // AP-RECORD-PAYMENT/AP-APPLY-PAYMENTS. The payable mirror of
+    // customer_payments/payment_applications, the same gap on the other side
+    // of module 5: nothing ever paid an ordinary bill at all.
+    case "vendor_payments":
+      await tx.insert("vendor_payments", [
+        withId as unknown as VendorPaymentRow,
+      ]);
+      return;
+    case "bill_applications":
+      await tx.insert("bill_applications", [
+        withId as unknown as BillApplicationRow,
       ]);
       return;
     // AR-CREATE-CREDITMEMO. The same gap, closed last: migration 0042 gave

@@ -107,6 +107,9 @@ export const PHYSICAL_TABLES: Partial<Record<TableName, string>> = {
   writeoff_proposals: "subledger.writeoff_proposals",
   bills: "subledger.bills",
   vendor_credits: "subledger.vendor_credits",
+  vendor_payments: "subledger.vendor_payments",
+  vendor_remittance_lines: "subledger.vendor_remittance_lines",
+  bill_applications: "subledger.bill_applications",
   close_periods: "close.periods",
   sub_tieouts: "close.sub_tieouts",
   substantiation_records: "close.substantiation_records",
@@ -240,6 +243,9 @@ const CENTS_FIELDS: Record<string, readonly string[]> = {
     "creditsCents",
   ],
   vendor_credits: ["amountCents", "appliedCents"],
+  vendor_payments: ["amountCents", "appliedCents"],
+  vendor_remittance_lines: ["amountCents"],
+  bill_applications: ["appliedCents"],
   sub_tieouts: [
     "ledgerBalanceCents",
     "supportedBalanceCents",
@@ -662,7 +668,9 @@ const JL_COLUMNS = `
   account_number as "accountNumber",
   category_id as "categoryId", amount_cents::text as "amountCents",
   memo, entry_date::text as "entryDate", class_id as "classId",
-  location_id as "locationId", program_id as "programId", restriction`;
+  location_id as "locationId", program_id as "programId", restriction,
+  cash_effect as "cashEffect", cash_event_date::text as "cashEventDate",
+  cash_source_line as "cashSourceLine"`;
 
 const FIXED_ASSET_COLUMNS = `
   id, firm_id as "firmId", client_id as "clientId", tag, description,
@@ -838,6 +846,34 @@ const REMITTANCE_LINE_COLUMNS = `
 const PAYMENT_APPLICATION_COLUMNS = `
   id, firm_id as "firmId", client_id as "clientId", version,
   payment_id as "paymentId", invoice_id as "invoiceId",
+  applied_cents::text as "appliedCents",
+  application_date::text as "applicationDate", tier, state,
+  posted_entry_id as "postedEntryId",
+  created_by_run_id as "createdByRunId",
+  manual_override as "manualOverride"
+`;
+
+const VENDOR_PAYMENT_COLUMNS = `
+  id, firm_id as "firmId", client_id as "clientId", version,
+  vendor_id as "vendorId", payment_date::text as "paymentDate",
+  amount_cents::text as "amountCents",
+  applied_cents::text as "appliedCents",
+  on_hold as "onHold", match_hint as "matchHint",
+  transaction_id as "transactionId",
+  clearing_account as "clearingAccount", status,
+  applied_tier as "appliedTier", manual_override as "manualOverride",
+  created_by as "createdBy"
+`;
+
+const VENDOR_REMITTANCE_LINE_COLUMNS = `
+  id, firm_id as "firmId", client_id as "clientId",
+  payment_id as "paymentId", line_number as "lineNumber",
+  bill_number as "billNumber", amount_cents::text as "amountCents"
+`;
+
+const BILL_APPLICATION_COLUMNS = `
+  id, firm_id as "firmId", client_id as "clientId", version,
+  payment_id as "paymentId", bill_id as "billId",
   applied_cents::text as "appliedCents",
   application_date::text as "applicationDate", tier, state,
   posted_entry_id as "postedEntryId",
@@ -1585,11 +1621,7 @@ export const QUERIES: Record<QueryName, SqlSpec> = {
   },
   journal_lines_for_client: {
     table: "journal_lines",
-    sql: `select id, firm_id as "firmId", client_id as "clientId",
-            entry_id as "entryId", account_number as "accountNumber",
-            category_id as "categoryId", amount_cents::text as "amountCents",
-            memo, entry_date::text as "entryDate", class_id as "classId",
-            location_id as "locationId", program_id as "programId", restriction
+    sql: `select ${JL_COLUMNS}
           from ${SCHEMA}.journal_lines
           where firm_id = $1 and client_id = $2
           order by id asc`,
@@ -2186,6 +2218,41 @@ export const QUERIES: Record<QueryName, SqlSpec> = {
     table: "payment_applications",
     sql: `select ${PAYMENT_APPLICATION_COLUMNS}
           from subledger.payment_applications
+          where firm_id = $1 and client_id = $2
+          order by id asc`,
+    params: (p) => [p.firmId, p.clientId],
+  },
+  vendor_payments_in_window: {
+    table: "vendor_payments",
+    sql: `select ${VENDOR_PAYMENT_COLUMNS}
+          from subledger.vendor_payments
+          where firm_id = $1 and client_id = $2
+            and payment_date >= $3 and payment_date <= $4
+          order by payment_date asc, id asc`,
+    params: (p) => [p.firmId, p.clientId, p.from, p.to],
+  },
+  vendor_payments_for_client: {
+    table: "vendor_payments",
+    sql: `select ${VENDOR_PAYMENT_COLUMNS}
+          from subledger.vendor_payments
+          where firm_id = $1 and client_id = $2
+          order by id asc`,
+    params: (p) => [p.firmId, p.clientId],
+  },
+  vendor_remittance_lines_for_payments: {
+    table: "vendor_remittance_lines",
+    sql: `select ${VENDOR_REMITTANCE_LINE_COLUMNS}
+          from subledger.vendor_remittance_lines
+          where firm_id = $1 and client_id = $2
+            and payment_id = any(
+                  select jsonb_array_elements_text($3::jsonb))
+          order by payment_id asc, line_number asc, id asc`,
+    params: (p) => [p.firmId, p.clientId, p.paymentIds],
+  },
+  bill_applications_for_client: {
+    table: "bill_applications",
+    sql: `select ${BILL_APPLICATION_COLUMNS}
+          from subledger.bill_applications
           where firm_id = $1 and client_id = $2
           order by id asc`,
     params: (p) => [p.firmId, p.clientId],

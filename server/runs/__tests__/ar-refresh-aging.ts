@@ -317,6 +317,9 @@ test("aging, the payable side ages bills against the payable control", async () 
       locationId: null,
       programId: null,
       restriction: null,
+      cashEffect: "none",
+      cashEventDate: null,
+      cashSourceLine: null,
     },
     {
       id: "JL-AP-2",
@@ -333,6 +336,9 @@ test("aging, the payable side ages bills against the payable control", async () 
       locationId: null,
       programId: null,
       restriction: null,
+      cashEffect: "none",
+      cashEventDate: null,
+      cashSourceLine: null,
     },
   ]);
   await applyArap(db, arapRefreshAging, {

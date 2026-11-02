@@ -159,6 +159,7 @@ test("pipeline, the order the module runs in is the order the registry states", 
     show(AR_AP_ORDER),
     show([
       "AR-APPLY-PAYMENTS",
+      "AP-APPLY-PAYMENTS",
       "AP-APPLY-DISCOUNTS",
       "AR-CHARGE-LATEFEES",
       "AR-WRITEOFF-UNCOLLECTIBLE",

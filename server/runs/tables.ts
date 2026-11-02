@@ -432,6 +432,10 @@ export interface JournalLineRow {
   locationId: Ulid | null;
   programId: Ulid | null;
   restriction: string | null;
+  /** Doc 05 Part 4 (D3). "none" is the column default; stamped by apply-writer.ts on every insert. */
+  cashEffect: "none" | "cash" | "accrual_only";
+  cashEventDate: string | null;
+  cashSourceLine: Ulid | null;
 }
 
 export interface SuspenseItemRow {
@@ -1401,6 +1405,59 @@ export interface PaymentApplicationRow {
   appliedCents: Cents;
   applicationDate: string;
   /** Which of the four doc 02 tiers resolved it. */
+  tier: number;
+  state: "proposed" | "applied" | "reversed";
+  postedEntryId: Ulid | null;
+  createdByRunId: string | null;
+  manualOverride: boolean;
+}
+
+/**
+ * subledger.vendor_payments, migration 0057. The payable mirror of
+ * CustomerPaymentRow: a payment arrives on the register coded to the
+ * payable clearing account, and application is what moves it from the
+ * clearing account to the control account.
+ */
+export interface VendorPaymentRow {
+  id: Ulid;
+  firmId: Ulid;
+  clientId: Ulid;
+  version: number;
+  vendorId: Ulid;
+  paymentDate: string;
+  amountCents: Cents;
+  appliedCents: Cents;
+  onHold: boolean;
+  /** One bill number. A multi bill remittance is structured rows. */
+  matchHint: string | null;
+  transactionId: Ulid | null;
+  clearingAccount: string;
+  status: "unapplied" | "partially_applied" | "applied" | "void";
+  appliedTier: number | null;
+  manualOverride: boolean;
+  createdBy: Ulid;
+}
+
+export interface VendorRemittanceLineRow {
+  id: Ulid;
+  firmId: Ulid;
+  clientId: Ulid;
+  paymentId: Ulid;
+  lineNumber: number;
+  billNumber: string;
+  amountCents: Cents;
+}
+
+/** subledger.bill_applications, migration 0057. The payable mirror of PaymentApplicationRow. */
+export interface BillApplicationRow {
+  id: Ulid;
+  firmId: Ulid;
+  clientId: Ulid;
+  version: number;
+  paymentId: Ulid;
+  billId: Ulid;
+  appliedCents: Cents;
+  applicationDate: string;
   tier: number;
   state: "proposed" | "applied" | "reversed";
   postedEntryId: Ulid | null;
@@ -2807,6 +2864,9 @@ export interface RowMap {
   writeoff_proposals: WriteoffProposalRow;
   bills: BillRow;
   vendor_credits: VendorCreditRow;
+  vendor_payments: VendorPaymentRow;
+  vendor_remittance_lines: VendorRemittanceLineRow;
+  bill_applications: BillApplicationRow;
   close_periods: ClosePeriodRow;
   sub_tieouts: SubTieoutRow;
   substantiation_records: SubstantiationRecordRow;
