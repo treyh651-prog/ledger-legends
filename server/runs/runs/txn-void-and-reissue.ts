@@ -21,6 +21,24 @@
  * field, every reconciliation field, and every suspense/pairing/duplicate
  * field is cleared instead of carried forward: the replacement is not an
  * import, has not cleared the bank, and has not been matched to anything.
+ *
+ * Refuses an already-manually-overridden original with skip reason
+ * "manual_override", same as TXN-RECODE -- migration 0003/0011's
+ * guard_manual_override trigger is a bare `before update` trigger with no
+ * column list, so it refuses *any* run-mediated update to such a row, not
+ * only ones touching the coding fields. voidWrite only ever touches
+ * voided/status/void_of_transaction_id, none of which are coding fields,
+ * but the trigger does not look at which columns changed -- confirmed
+ * against a live rolled-back Postgres transaction, not just the in-memory
+ * test double, which is field-scoped (OVERRIDE_WATCHED_FIELDS) and would
+ * have let this through. There is no run-framework path to touch an
+ * already-overridden row at all, for any reason -- by design ("a row
+ * carrying the manual override flag is invisible to every run except as a
+ * skip," doc 00 Part 7 / doc 03 Part 1). A genuine correction-of-a-
+ * correction has no in-app path; only a direct, out-of-band database
+ * write made outside any run context (no app.run_id set) can touch such a
+ * row, which is consistent with the same invariant: a run never has
+ * authority a person does not, but the person retains it.
  */
 
 import { z } from "zod";
@@ -189,6 +207,15 @@ export const txnVoidAndReissue: Run<VoidAndReissueScope, Proposal> = {
         1,
         [],
         [{ rowId: transaction.id, reason: "already_applied", detail: "already voided or reissued" }],
+        [],
+        BigInt(0),
+      );
+    }
+    if (transaction.manualOverride) {
+      return makeResult<Proposal>(
+        1,
+        [],
+        [{ rowId: transaction.id, reason: "manual_override", detail: "already manually overridden" }],
         [],
         BigInt(0),
       );

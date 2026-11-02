@@ -9,7 +9,7 @@
 import { assert, assertEqual, test } from "./harness";
 import { execute } from "../execute";
 import { isFieldWrite, isJournalEntry } from "../contract";
-import { CLIENT_A1, FIRM_A, opts, scopeFor, txn } from "./fixtures";
+import { ACTOR, CLIENT_A1, FIRM_A, NOW, opts, scopeFor, txn } from "./fixtures";
 import { codingDb, standardCategories } from "./coding-fixtures";
 import { txnPostCoded, postedEntryIdFor } from "../runs/txn-post-coded";
 import { txnVoidAndReissue, reissuedTransactionIdFor } from "../runs/txn-void-and-reissue";
@@ -124,6 +124,33 @@ test("txn-void-and-reissue: nothing actually corrected is refused", async () => 
   assert(
     preview.result.errors.some((e) => e.code === "TXN_REISSUE_NO_CHANGE"),
     "named error code",
+  );
+});
+
+test("txn-void-and-reissue: an already manually overridden transaction is skipped, not attempted", async () => {
+  // Same exposure as plain TXN-VOID: guard_manual_override refuses *any*
+  // run-mediated update to an overridden row, confirmed against a live
+  // rolled-back Postgres transaction, and voidWrite would otherwise hit it
+  // even though it never touches a coding field.
+  const db = codingDb();
+  db.seed("categories", standardCategories());
+  db.seed("transactions", [
+    ruleCodedTxn("TX-1", {
+      ruleId: null,
+      ruleVersion: null,
+      cascadeLevel: 0,
+      manualOverride: true,
+      manualOverrideBy: ACTOR,
+      manualOverrideAt: NOW.toISOString(),
+    }),
+  ]);
+
+  const scope = reissueScope("TX-1", { amountCents: -7500 });
+  const preview = await execute(db, txnVoidAndReissue, scope, opts("preview"));
+  assertEqual(preview.status, "no_op", "no_op");
+  assert(
+    preview.result.skips.some((s) => s.reason === "manual_override"),
+    "skipped for manual_override, not attempted",
   );
 });
 

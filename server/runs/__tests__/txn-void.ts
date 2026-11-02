@@ -92,6 +92,35 @@ test("txn-void: an already voided transaction is a no op the second time", async
   );
 });
 
+test("txn-void: an already manually overridden transaction is skipped, not attempted", async () => {
+  // guard_manual_override (migration 0003/0011) is a bare `before update`
+  // trigger with no column list -- it refuses *any* run-mediated update to
+  // an overridden row, not only ones touching coding fields, confirmed
+  // against a live rolled-back Postgres transaction. voidWrite only ever
+  // touches voided/status/void_of_transaction_id, none of which are coding
+  // fields, so this would otherwise be a surprise OVERRIDE_PROTECTED_ROW
+  // at apply time rather than a clean preview-time skip.
+  const db = codingDb();
+  db.seed("categories", standardCategories());
+  db.seed("transactions", [
+    ruleCodedTxn("TX-1", {
+      ruleId: null,
+      ruleVersion: null,
+      cascadeLevel: 0,
+      manualOverride: true,
+      manualOverrideBy: ACTOR,
+      manualOverrideAt: NOW.toISOString(),
+    }),
+  ]);
+
+  const preview = await execute(db, txnVoid, voidScope("TX-1"), opts("preview"));
+  assertEqual(preview.status, "no_op", "no_op");
+  assert(
+    preview.result.skips.some((s) => s.reason === "manual_override"),
+    "skipped for manual_override, not attempted",
+  );
+});
+
 test("txn-void: an unknown transaction is refused", async () => {
   const db = codingDb();
   db.seed("categories", standardCategories());

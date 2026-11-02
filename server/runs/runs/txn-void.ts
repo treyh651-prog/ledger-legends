@@ -211,6 +211,24 @@ export const txnVoid: Run<VoidScope, Proposal> = {
         BigInt(0),
       );
     }
+    if (transaction.manualOverride) {
+      // guard_manual_override (migration 0003/0011) is a bare `before
+      // update` trigger, no column list -- it refuses *any* run-mediated
+      // update to an already-overridden row, not only ones touching coding
+      // fields. voidWrite only ever touches voided/status/
+      // void_of_transaction_id, but the trigger doesn't look at which
+      // columns changed, confirmed against a live rolled-back Postgres
+      // transaction. Skip cleanly rather than let apply fail with a raw
+      // OVERRIDE_PROTECTED_ROW -- same reason, same reason code, TXN-RECODE
+      // already uses for the identical row state.
+      return makeResult<Proposal>(
+        1,
+        [],
+        [{ rowId: transaction.id, reason: "manual_override", detail: "already manually overridden" }],
+        [],
+        BigInt(0),
+      );
+    }
 
     const built = await buildVoidProposals(tx, frozen.firmId, frozen.clientId, transaction);
     if (built.error !== null) {
