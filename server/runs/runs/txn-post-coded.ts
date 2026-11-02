@@ -81,7 +81,7 @@ export function postedEntryIdFor(transactionId: string): string {
   return derivedId(transactionId, "txn-post-coded", 0);
 }
 
-function postEntry(
+export function postEntry(
   t: TransactionRow,
   account: BankAccountRow,
   category: CategoryRow,
@@ -112,7 +112,7 @@ function postEntry(
   };
 }
 
-function postWrite(t: TransactionRow, entryId: string): ProposedFieldWrite {
+export function postWrite(t: TransactionRow, entryId: string): ProposedFieldWrite {
   return {
     kind: "field_write",
     table: "transactions",

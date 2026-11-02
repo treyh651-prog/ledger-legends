@@ -124,6 +124,9 @@ export interface TransactionRow {
   manualOverride: boolean;
   manualOverrideBy: Ulid | null;
   manualOverrideAt: string | null;
+  /** Set by TXN-ACCEPT-CODING or TXN-RECODE. Null while a rule-coded row is still pending review. */
+  ruleReviewedAt: string | null;
+  ruleReviewOutcome: "accepted" | "rejected" | null;
   version: number;
   /**
    * Audit columns, migration 0011. Stamped from the single choke point in

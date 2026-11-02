@@ -294,7 +294,7 @@ export async function runHistory(
 
 /* ---------------- Transactions ---------------- */
 
-function transactionDto(row: TransactionRow, categoryName: string | null = null): Transaction {
+function transactionDto(row: TransactionRow, categoryName: string | null = null, ruleName: string | null = null): Transaction {
   return {
     categoryName,
     id: row.id,
@@ -312,6 +312,10 @@ function transactionDto(row: TransactionRow, categoryName: string | null = null)
     cleared: row.cleared,
     voidOfTransactionId: row.voidOfTransactionId,
     reissueOfTransactionId: row.reissueOfTransactionId,
+    ruleId: row.ruleId,
+    ruleName,
+    ruleReviewedAt: row.ruleReviewedAt,
+    ruleReviewOutcome: row.ruleReviewOutcome,
   };
 }
 
@@ -329,16 +333,25 @@ export async function transactionPage(
     bankAccountId: q.bankAccountId ?? null,
     search: q.search && q.search.length > 0 ? q.search : null,
     uncategorized: q.uncategorized === true,
+    pendingRuleReview: q.pendingRuleReview === true,
   };
-  const [rows, all, categories] = await Promise.all([
+  const [rows, all, categories, rules] = await Promise.all([
     tx.query("transactions_page", { ...params, limit: q.limit, offset: q.offset }),
     tx.query("transactions_page", { ...params, limit: 1000000, offset: 0 }),
     tx.query("categories_for_client", { firmId, clientId }),
+    tx.query("active_rules_for_client", { firmId, clientId }),
   ]);
-  // The category name rides along so a screen never shows a raw CAT- id.
+  // The category and rule names ride along so a screen never shows a raw id.
   const names = new Map(categories.map((c) => [c.id, c.name] as const));
+  const ruleNames = new Map(rules.map((r) => [r.id, r.name] as const));
   return {
-    items: rows.map((r) => transactionDto(r, r.categoryId ? names.get(r.categoryId) ?? null : null)),
+    items: rows.map((r) =>
+      transactionDto(
+        r,
+        r.categoryId ? names.get(r.categoryId) ?? null : null,
+        r.ruleId ? ruleNames.get(r.ruleId) ?? null : null,
+      ),
+    ),
     total: all.length,
     limit: q.limit,
     offset: q.offset,

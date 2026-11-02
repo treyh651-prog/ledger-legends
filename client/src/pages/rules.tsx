@@ -69,7 +69,15 @@ export default function Rules() {
               key: "auto",
               label: "Auto post",
               mobile: "value",
-              render: (r) => (r.autoPostEnabled ? <Pill tone="good">Up to {usd(r.autoPostCeilingCents)}</Pill> : <Pill tone="neutral">Off</Pill>),
+              render: (r) =>
+                r.autoPostEnabled ? (
+                  <div className="flex items-center justify-end gap-2">
+                    <Pill tone="good">Up to {usd(r.autoPostCeilingCents)}</Pill>
+                    {clientId ? <DisableAutopostButton clientId={clientId} ruleId={r.id} /> : null}
+                  </div>
+                ) : (
+                  <Pill tone="neutral">Off</Pill>
+                ),
             },
             {
               key: "edit",
@@ -80,6 +88,47 @@ export default function Rules() {
           ]}
         />
       </SectionCard>
+    </div>
+  );
+}
+
+/** CFG-DISABLE-RULE-AUTOPOST. No threshold to check, unlike promotion -- a person can always revoke the privilege. */
+function DisableAutopostButton({ clientId, ruleId }: { clientId: string; ruleId: string }) {
+  const trigger = useTriggerRun(clientId);
+  const [error, setError] = useState<string | null>(null);
+  const qc = useQueryClient();
+
+  const submit = async () => {
+    setError(null);
+    const scope = { clientId, ruleId };
+    try {
+      const preview = await trigger.mutateAsync({ runCode: "CFG-DISABLE-RULE-AUTOPOST", body: { mode: "preview", scope } });
+      if (preview.status !== "completed" && preview.status !== "no_op") {
+        setError(preview.errors[0]?.message ?? `The run ended ${preview.status}.`);
+        return;
+      }
+      if (preview.status !== "no_op") {
+        const applied = await trigger.mutateAsync({
+          runCode: "CFG-DISABLE-RULE-AUTOPOST",
+          body: { mode: "apply", scope, previewRunId: preview.executionId },
+        });
+        if (applied.status !== "completed") {
+          setError(applied.errors[0]?.message ?? `The run ended ${applied.status}.`);
+          return;
+        }
+      }
+      void qc.invalidateQueries({ queryKey: screenKeys.rules(clientId) });
+    } catch (e) {
+      setError(errorMessage(e));
+    }
+  };
+
+  return (
+    <div className="flex flex-col items-end gap-1">
+      <Button size="sm" variant="outline" onClick={() => void submit()} disabled={trigger.isPending} data-testid={`button-disable-autopost-${ruleId}`}>
+        Disable
+      </Button>
+      {error ? <p className="max-w-[12rem] break-words text-right text-xs text-destructive">{error}</p> : null}
     </div>
   );
 }

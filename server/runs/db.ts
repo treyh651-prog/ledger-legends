@@ -955,6 +955,7 @@ export interface QueryCatalog {
       bankAccountId: Ulid | null;
       search: string | null;
       uncategorized: boolean;
+      pendingRuleReview: boolean;
       limit: number;
       offset: number;
     };

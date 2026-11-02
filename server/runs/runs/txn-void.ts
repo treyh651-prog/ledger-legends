@@ -68,13 +68,14 @@ export function reversalOfPostedEntry(
   original: JournalEntryRow,
   originalLines: readonly JournalLineRow[],
   entryDate: string,
-  transactionId: string,
+  targetId: string,
+  memoPrefix = "voided",
 ): ProposedJournalEntry {
   const lines: ProposedLine[] = originalLines.map((l) => ({
     accountNumber: l.accountNumber,
     categoryId: l.categoryId,
     amountCents: -l.amountCents,
-    memo: `voided: ${l.memo}`,
+    memo: `${memoPrefix}: ${l.memo}`,
     dimensions: {
       ...(l.classId === null ? {} : { classId: l.classId }),
       ...(l.locationId === null ? {} : { locationId: l.locationId }),
@@ -83,7 +84,7 @@ export function reversalOfPostedEntry(
   }));
   return {
     kind: "journal_entry",
-    targetId: voidReversalEntryIdFor(transactionId),
+    targetId,
     entryDate,
     lines,
     reversalOf: original.id,
@@ -141,7 +142,9 @@ export async function buildVoidProposals(
       clientId,
       entryIds: [original.id],
     });
-    proposals.push(reversalOfPostedEntry(original, lines, transaction.postedDate, transaction.id));
+    proposals.push(
+      reversalOfPostedEntry(original, lines, transaction.postedDate, voidReversalEntryIdFor(transaction.id)),
+    );
   }
   return { proposals, error: null };
 }

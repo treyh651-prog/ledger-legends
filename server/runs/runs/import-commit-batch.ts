@@ -336,6 +336,8 @@ export const importCommitBatch: Run<CommitBatchScope, Proposal> = {
         manualOverride: false,
         manualOverrideBy: null,
         manualOverrideAt: null,
+        ruleReviewedAt: null,
+        ruleReviewOutcome: null,
         version: 1,
       };
 

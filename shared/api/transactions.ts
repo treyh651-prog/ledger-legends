@@ -26,6 +26,13 @@ export const transactionSchema = z.object({
   voidOfTransactionId: idSchema.nullable(),
   /** Set when this row is a TXN-VOID-AND-REISSUE replacement; points at the transaction it corrects. */
   reissueOfTransactionId: idSchema.nullable(),
+  /** The rule that coded this row, if any. Null for every other cascade level. */
+  ruleId: z.string().nullable(),
+  /** The rule's name, joined for the screens. Null when ruleId is null. */
+  ruleName: z.string().nullable(),
+  /** Set by TXN-ACCEPT-CODING or TXN-RECODE. Null while a rule-coded row is still pending review. */
+  ruleReviewedAt: z.string().nullable(),
+  ruleReviewOutcome: z.enum(["accepted", "rejected"]).nullable(),
 });
 export type Transaction = z.infer<typeof transactionSchema>;
 
@@ -36,6 +43,8 @@ export const transactionQuerySchema = pageQuerySchema.extend({
   /** Case insensitive substring over description and normalized vendor. */
   search: z.string().trim().max(200).optional(),
   uncategorized: z.coerce.boolean().optional(),
+  /** Rule-coded, not voided, not yet reviewed, and not already auto-posted under an earned promotion. */
+  pendingRuleReview: z.coerce.boolean().optional(),
 });
 export type TransactionQuery = z.infer<typeof transactionQuerySchema>;
 

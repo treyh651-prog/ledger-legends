@@ -134,6 +134,9 @@ import { cfgCreateRule } from "./runs/cfg-create-rule";
 import { cfgCreateMappingProfile } from "./runs/cfg-create-mapping-profile";
 import { txnVoid } from "./runs/txn-void";
 import { txnVoidAndReissue } from "./runs/txn-void-and-reissue";
+import { txnAcceptCoding } from "./runs/txn-accept-coding";
+import { txnRecode } from "./runs/txn-recode";
+import { cfgDisableRuleAutopost } from "./runs/cfg-disable-rule-autopost";
 
 /** Scope types differ per run, so the registry stores erased entries. */
 export interface RegistryEntry {
@@ -269,6 +272,12 @@ export const registry: readonly RegistryEntry[] = [
   // reference data edits above.
   entry(txnVoid),
   entry(txnVoidAndReissue),
+  // Rule accept/reject + promotion counters. Manual, triggered from the
+  // transactions screen's review queue and the rules screen, same reasoning
+  // as the register's own void/reissue above.
+  entry(txnAcceptCoding),
+  entry(txnRecode),
+  entry(cfgDisableRuleAutopost),
 ];
 
 /**

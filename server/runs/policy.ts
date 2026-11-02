@@ -488,6 +488,21 @@ export const RUN_POLICIES: Readonly<Record<string, RunPolicy>> = {
     reason:
       "same judgment as TXN-VOID, plus the corrected amount or date being reissued is itself a person's call",
   },
+  "TXN-ACCEPT-CODING": {
+    tier: "manual",
+    reason:
+      "confirming a rule got a transaction right is a person's judgment, and it is what feeds the accepted count doc 02 Part D promotes a rule on",
+  },
+  "TXN-RECODE": {
+    tier: "manual",
+    reason:
+      "fixing a miscoded transaction reverses whatever it already posted and reposts it correctly, the same kind of correction TXN-VOID makes, and it is what feeds the rejected count that keeps a rule honest",
+  },
+  "CFG-DISABLE-RULE-AUTOPOST": {
+    tier: "manual",
+    reason:
+      "a person can always revoke a rule's auto post privilege without needing to manufacture a reject first",
+  },
 };
 
 export const RUN_TIER_VALUES: readonly RunTier[] = [

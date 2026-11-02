@@ -496,7 +496,9 @@ const TXN_COLUMNS = `
   void_of_transaction_id as "voidOfTransactionId",
   reissue_of_transaction_id as "reissueOfTransactionId", status,
   manual_override as "manualOverride", manual_override_by as "manualOverrideBy",
-  manual_override_at::text as "manualOverrideAt", version`;
+  manual_override_at::text as "manualOverrideAt",
+  rule_reviewed_at::text as "ruleReviewedAt",
+  rule_review_outcome as "ruleReviewOutcome", version`;
 
 const CATEGORY_COLUMNS = `
   id, firm_id as "firmId", client_id as "clientId", version,
@@ -2743,8 +2745,11 @@ export const QUERIES: Record<QueryName, SqlSpec> = {
                  or position(lower($6::text) in lower(description)) > 0
                  or position(lower($6::text) in lower(coalesce(vendor_normalized, ''))) > 0)
             and (not $7::boolean or category_id is null)
+            and (not $8::boolean or (
+              rule_id is not null and rule_reviewed_at is null
+              and not voided and not auto_posted_under_rule_promotion))
           order by posted_date desc, id desc
-          limit $8::integer offset $9::integer`,
+          limit $9::integer offset $10::integer`,
     params: (p) => [
       p.firmId,
       p.clientId,
@@ -2753,6 +2758,7 @@ export const QUERIES: Record<QueryName, SqlSpec> = {
       p.bankAccountId,
       p.search,
       p.uncategorized,
+      p.pendingRuleReview,
       p.limit,
       p.offset,
     ],

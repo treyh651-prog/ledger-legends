@@ -121,6 +121,9 @@ export interface TxnOverrides {
   journalEntryId?: string | null;
   voidOfTransactionId?: string | null;
   reissueOfTransactionId?: string | null;
+  autoPostedUnderRulePromotion?: boolean;
+  ruleReviewedAt?: string | null;
+  ruleReviewOutcome?: "accepted" | "rejected" | null;
 }
 
 export function txn(
@@ -163,7 +166,7 @@ export function txn(
     ruleId: extra.ruleId ?? null,
     ruleVersion: extra.ruleVersion ?? null,
     matchedConditions: null,
-    autoPostedUnderRulePromotion: false,
+    autoPostedUnderRulePromotion: extra.autoPostedUnderRulePromotion ?? false,
     templateId: extra.templateId ?? null,
     templateVersion: extra.templateVersion ?? null,
     classId: extra.classId ?? null,
@@ -206,6 +209,8 @@ export function txn(
     manualOverride: extra.manualOverride ?? false,
     manualOverrideBy: extra.manualOverride ? ACTOR : null,
     manualOverrideAt: extra.manualOverride ? NOW.toISOString() : null,
+    ruleReviewedAt: extra.ruleReviewedAt ?? null,
+    ruleReviewOutcome: extra.ruleReviewOutcome ?? null,
     version: extra.version ?? 1,
   };
 }

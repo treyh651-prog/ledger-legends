@@ -2210,7 +2210,12 @@ class MemoryTx implements RunTx {
               (needle === null ||
                 r.description.toLowerCase().includes(needle) ||
                 (r.normalizedVendor ?? "").toLowerCase().includes(needle)) &&
-              (!p.uncategorized || r.categoryId === null),
+              (!p.uncategorized || r.categoryId === null) &&
+              (!p.pendingRuleReview ||
+                (r.ruleId !== null &&
+                  r.ruleReviewedAt === null &&
+                  !r.voided &&
+                  !r.autoPostedUnderRulePromotion)),
           )
           .sort((a, b) =>
             a.postedDate !== b.postedDate

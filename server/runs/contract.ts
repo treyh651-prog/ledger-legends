@@ -149,7 +149,22 @@ export type RunTypeId =
   // AR-RECORD-PAYMENT/AR-APPLY-PAYMENTS, the same gap on the other side of
   // the ledger.
   | "AP-RECORD-PAYMENT"
-  | "AP-APPLY-PAYMENTS";
+  | "AP-APPLY-PAYMENTS"
+  // ledger.rules has carried accepted_count, rejected_count,
+  // auto_post_enabled, and auto_post_enabled_by since migration 0021, and
+  // TXN-APPLY-RULES's own autoPostAllowed has read all four (plus the
+  // ceiling) since before this round -- nothing ever wrote any of them, so
+  // the promotion gate has been dead code. TXN-ACCEPT-CODING feeds the
+  // accepted side and promotes a rule automatically when it crosses
+  // RULE_PROMOTION_MIN_ACCEPTED with zero rejects. TXN-RECODE feeds the
+  // rejected side by fixing a miscoded transaction -- reversing and
+  // reposting it under the right category, the same journal mechanics
+  // TXN-VOID already uses -- and demotes a promoted rule automatically if
+  // the reject breaks its clean record. CFG-DISABLE-RULE-AUTOPOST is the
+  // manual escape hatch neither of those two needs a threshold to use.
+  | "TXN-ACCEPT-CODING"
+  | "TXN-RECODE"
+  | "CFG-DISABLE-RULE-AUTOPOST";
 
 /** Doc 03 Part 7 names the reversal of a run `<ORIGINAL>-UNDO`. */
 export type UndoRunTypeId = `${RunTypeId}-UNDO`;

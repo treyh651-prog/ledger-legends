@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Search } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -11,7 +11,7 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogT
 import { DataGrid, EmptyState, ErrorState, Kpi, Money, PageHeader, Pill, SectionCard } from "@/components/kit";
 import { useApp } from "@/store";
 import { useActiveClient } from "@/lib/active-client";
-import { useReconcile, useTransactions, useTriggerRun, errorMessage } from "@/api";
+import { useReconcile, useTransactions, useTriggerRun, useCategories, errorMessage } from "@/api";
 import { fmtPeriod, fmtShortDate } from "@/lib/money";
 import type { Transaction } from "@shared/api";
 
@@ -218,6 +218,163 @@ function ReissueDialog({ clientId, transaction }: { clientId: string; transactio
   );
 }
 
+/** TXN-ACCEPT-CODING, preview then apply in one click. Bulk-capable: one call covers a whole selection. */
+function AcceptCodingButton({
+  clientId,
+  transactionIds,
+  label,
+  onDone,
+}: {
+  clientId: string;
+  transactionIds: string[];
+  label: string;
+  onDone: () => void;
+}) {
+  const trigger = useTriggerRun(clientId);
+  const [error, setError] = useState<string | null>(null);
+  const qc = useQueryClient();
+
+  const submit = async () => {
+    setError(null);
+    const scope = { clientId, transactionIds };
+    try {
+      const preview = await trigger.mutateAsync({ runCode: "TXN-ACCEPT-CODING", body: { mode: "preview", scope } });
+      if (preview.status !== "no_op" && preview.status !== "completed" && preview.status !== "completed_with_skips") {
+        setError(preview.errors[0]?.message ?? `The run ended ${preview.status}.`);
+        return;
+      }
+      if (preview.status !== "no_op") {
+        const applied = await trigger.mutateAsync({
+          runCode: "TXN-ACCEPT-CODING",
+          body: { mode: "apply", scope, previewRunId: preview.executionId },
+        });
+        if (applied.status !== "completed" && applied.status !== "completed_with_skips") {
+          setError(applied.errors[0]?.message ?? `The run ended ${applied.status}.`);
+          return;
+        }
+      }
+      invalidateTransactions(qc, clientId);
+      onDone();
+    } catch (e) {
+      setError(errorMessage(e));
+    }
+  };
+
+  return (
+    <div className="flex flex-col items-end gap-1">
+      <Button size="sm" onClick={() => void submit()} disabled={trigger.isPending || transactionIds.length === 0} data-testid="button-accept-coding">
+        {label}
+      </Button>
+      {error ? <p className="max-w-[16rem] break-words text-right text-xs text-destructive">{error}</p> : null}
+    </div>
+  );
+}
+
+/** TXN-RECODE, the reject side of the review queue: picks the right category and fixes it in the same action. */
+function RejectCodingDialog({
+  clientId,
+  transactionIds,
+  label,
+  onDone,
+}: {
+  clientId: string;
+  transactionIds: string[];
+  label: string;
+  onDone: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [categoryId, setCategoryId] = useState("");
+  const [reason, setReason] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const trigger = useTriggerRun(clientId);
+  const categories = useCategories(clientId);
+  const qc = useQueryClient();
+
+  const submit = async () => {
+    setError(null);
+    const scope = { clientId, transactionIds, categoryId, reason: reason.trim() };
+    try {
+      const preview = await trigger.mutateAsync({ runCode: "TXN-RECODE", body: { mode: "preview", scope } });
+      if (preview.status !== "completed" && preview.status !== "completed_with_skips") {
+        setError(preview.errors[0]?.message ?? `The run ended ${preview.status}.`);
+        return;
+      }
+      const applied = await trigger.mutateAsync({
+        runCode: "TXN-RECODE",
+        body: { mode: "apply", scope, previewRunId: preview.executionId },
+      });
+      if (applied.status !== "completed" && applied.status !== "completed_with_skips") {
+        setError(applied.errors[0]?.message ?? `The run ended ${applied.status}.`);
+        return;
+      }
+      invalidateTransactions(qc, clientId);
+      setOpen(false);
+      onDone();
+    } catch (e) {
+      setError(errorMessage(e));
+    }
+  };
+
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        setOpen(next);
+        if (next) { setCategoryId(""); setReason(""); setError(null); }
+      }}
+    >
+      <DialogTrigger asChild>
+        <Button size="sm" variant="outline" data-testid="button-reject-coding">
+          {label}
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>Reject coding{transactionIds.length > 1 ? `, ${transactionIds.length} transactions` : ""}</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-3">
+          <p className="text-sm text-muted-foreground">
+            Picks the right category and reverses whatever already posted, reposting it correctly. Also tells the rule it got this wrong.
+          </p>
+          <div className="space-y-1">
+            <label className="text-xs font-medium text-muted-foreground">Correct category</label>
+            <select
+              className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
+              value={categoryId}
+              onChange={(e) => setCategoryId(e.target.value)}
+              data-testid="reject-category"
+            >
+              <option value="">Choose a category…</option>
+              {(categories.data?.items ?? []).map((c) => (
+                <option key={c.id} value={c.id}>{c.name}</option>
+              ))}
+            </select>
+          </div>
+          <div className="space-y-1">
+            <label className="text-xs font-medium text-muted-foreground">Reason</label>
+            <Textarea value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Wrong category for this vendor" data-testid="reject-reason" />
+          </div>
+          {error ? <p className="break-words text-xs text-destructive">{error}</p> : null}
+        </div>
+        <DialogFooter>
+          <Button size="sm" variant="outline" onClick={() => setOpen(false)}>
+            Cancel
+          </Button>
+          <Button
+            size="sm"
+            variant="destructive"
+            onClick={() => void submit()}
+            disabled={trigger.isPending || !categoryId || reason.trim().length === 0}
+            data-testid="reject-confirm"
+          >
+            Reject
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 /**
  * Transactions for one client, read from GET /api/firm/clients/:id/transactions.
  * Filters are the query parameters the API accepts; the page shows what the
@@ -231,6 +388,8 @@ export default function Transactions() {
   const [scope, setScope] = useState<"period" | "all">("period");
   const [bank, setBank] = useState("all");
   const [uncategorized, setUncategorized] = useState(false);
+  const [pendingReview, setPendingReview] = useState(false);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
   const [search, setSearch] = useState("");
   const [offset, setOffset] = useState(0);
 
@@ -242,6 +401,7 @@ export default function Transactions() {
     bankAccountId: bank === "all" ? undefined : bank,
     search: search.trim() ? search.trim() : undefined,
     uncategorized: uncategorized ? true : undefined,
+    pendingRuleReview: pendingReview ? true : undefined,
   });
   const banksQ = useReconcile(clientId, period, null);
   const banks = banksQ.data?.bankAccounts ?? [];
@@ -249,7 +409,25 @@ export default function Transactions() {
   if (q.isError) return <ErrorState message={errorMessage(q.error)} onRetry={() => void q.refetch()} />;
 
   const bankName = (id: string) => banks.find((b) => b.id === id)?.nickname ?? id;
-  const reset = () => setOffset(0);
+  const reset = () => { setOffset(0); setSelected(new Set()); };
+  // A per-row accept or reject takes its own row out of "pending review"
+  // without going through the bulk toolbar's onDone, so the selection set
+  // can end up naming a row that no longer appears once the page refetches.
+  useEffect(() => {
+    if (!d) return;
+    const valid = new Set(d.items.map((t) => t.id));
+    setSelected((prev) => {
+      const next = new Set([...prev].filter((id) => valid.has(id)));
+      return next.size === prev.size ? prev : next;
+    });
+  }, [d]);
+  const isPending = (t: Transaction) => t.ruleId !== null && t.ruleReviewedAt === null && !t.voided;
+  const toggleSelected = (id: string) =>
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
 
   return (
     <div className="space-y-4" data-testid="page-transactions">
@@ -277,6 +455,10 @@ export default function Transactions() {
               <Checkbox id="uncat" checked={uncategorized} onCheckedChange={(v) => { setUncategorized(v === true); reset(); }} data-testid="checkbox-uncategorized" />
               <Label htmlFor="uncat" className="text-xs">Uncategorized only</Label>
             </div>
+            <div className="flex items-center gap-2">
+              <Checkbox id="pending-review" checked={pendingReview} onCheckedChange={(v) => { setPendingReview(v === true); reset(); }} data-testid="checkbox-pending-review" />
+              <Label htmlFor="pending-review" className="text-xs">Pending rule review</Label>
+            </div>
             {(["period", "all"] as const).map((s) => (
               <Button key={s} size="sm" variant={scope === s ? "default" : "outline"} onClick={() => { setScope(s); reset(); }} data-testid={`button-scope-${s}`}>
                 {s === "period" ? "This period" : "All"}
@@ -285,7 +467,29 @@ export default function Transactions() {
           </div>
         </div>
       </SectionCard>
-      <SectionCard title="Ledger" description="Posted bank and card transactions as the API returns them.">
+      <SectionCard
+        title="Ledger"
+        description="Posted bank and card transactions as the API returns them."
+        actions={
+          pendingReview && selected.size > 0 && clientId ? (
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-muted-foreground">{selected.size} selected</span>
+              <AcceptCodingButton
+                clientId={clientId}
+                transactionIds={[...selected]}
+                label={`Accept ${selected.size}`}
+                onDone={() => setSelected(new Set())}
+              />
+              <RejectCodingDialog
+                clientId={clientId}
+                transactionIds={[...selected]}
+                label={`Reject ${selected.size}`}
+                onDone={() => setSelected(new Set())}
+              />
+            </div>
+          ) : null
+        }
+      >
         <DataGrid
           rows={d?.items ?? []}
           rowKey={(t: Transaction) => t.id}
@@ -293,10 +497,47 @@ export default function Transactions() {
           testId="grid-transactions"
           empty={<EmptyState title="No transactions" body="Nothing matched these filters. Clear them or import a statement." />}
           cols={[
+            ...(pendingReview
+              ? [
+                  {
+                    key: "sel",
+                    label: "",
+                    mobile: "row" as const,
+                    render: (t: Transaction) => (
+                      <Checkbox
+                        checked={selected.has(t.id)}
+                        onCheckedChange={() => toggleSelected(t.id)}
+                        data-testid={`txn-select-${t.id}`}
+                      />
+                    ),
+                  },
+                ]
+              : []),
             { key: "date", label: "Date", mobile: "row", render: (t) => <span className="tnum text-xs">{fmtShortDate(t.postedDate)}</span> },
             { key: "desc", label: "Description", mobile: "title", render: (t) => <div><div>{t.description}</div>{t.normalizedVendor ? <div className="text-xs text-muted-foreground">{t.normalizedVendor}</div> : null}</div> },
             { key: "bank", label: "Account", mobile: "row", render: (t) => <span className="text-xs">{bankName(t.bankAccountId)}</span> },
-            { key: "cat", label: "Category", mobile: "row", render: (t) => (t.categoryId ? <span className="text-xs">{t.categoryName ?? t.categoryId}{t.manualOverride ? " (manual)" : t.cascadeLevel !== null ? ` (level ${t.cascadeLevel})` : ""}</span> : <Pill tone="watch">Uncategorized</Pill>) },
+            {
+              key: "cat",
+              label: "Category",
+              mobile: "row",
+              render: (t) =>
+                t.categoryId ? (
+                  <div className="space-y-0.5">
+                    <span className="text-xs">
+                      {t.categoryName ?? t.categoryId}
+                      {t.manualOverride ? " (manual)" : t.cascadeLevel !== null ? ` (level ${t.cascadeLevel})` : ""}
+                    </span>
+                    {t.ruleId ? (
+                      <div className="text-xs text-muted-foreground">
+                        by {t.ruleName ?? t.ruleId}
+                        {isPending(t) ? <Pill tone="watch">pending review</Pill> : null}
+                      </div>
+                    ) : null}
+                  </div>
+                ) : (
+                  <Pill tone="watch">Uncategorized</Pill>
+                ),
+            },
             {
               key: "status",
               label: "Status",
@@ -331,7 +572,13 @@ export default function Transactions() {
               mobile: "row",
               render: (t) =>
                 !t.voided && t.status === "active" && clientId ? (
-                  <div className="flex gap-2">
+                  <div className="flex flex-wrap justify-end gap-2">
+                    {isPending(t) ? (
+                      <>
+                        <AcceptCodingButton clientId={clientId} transactionIds={[t.id]} label="Accept" onDone={() => {}} />
+                        <RejectCodingDialog clientId={clientId} transactionIds={[t.id]} label="Reject" onDone={() => {}} />
+                      </>
+                    ) : null}
                     <VoidDialog clientId={clientId} transaction={t} />
                     <ReissueDialog clientId={clientId} transaction={t} />
                   </div>

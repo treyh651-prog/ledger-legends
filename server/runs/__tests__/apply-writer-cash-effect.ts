@@ -89,6 +89,8 @@ function txnFor(id: string, extra: Record<string, unknown> = {}): TransactionRow
     manualOverride: false,
     manualOverrideBy: null,
     manualOverrideAt: null,
+    ruleReviewedAt: null,
+    ruleReviewOutcome: null,
     version: 1,
     ...extra,
   };
