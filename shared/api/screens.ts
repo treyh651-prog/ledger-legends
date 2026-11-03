@@ -527,6 +527,54 @@ export type ReportPackages = z.infer<typeof reportPackagesSchema>;
 export type ReportSection = z.infer<typeof reportSectionSchema>;
 export type ReportPackage = z.infer<typeof reportPackageSchema>;
 
+/* ------------------------------------------------------------------------ */
+/* Group consolidation                                                       */
+/* ------------------------------------------------------------------------ */
+
+export const entityGroupMemberSchema = z.object({
+  clientId: idSchema,
+  clientName: z.string(),
+});
+export const entityGroupSchema = z.object({
+  id: idSchema,
+  name: z.string(),
+  archivedAt: instantSchema.nullable(),
+  members: z.array(entityGroupMemberSchema),
+});
+export const entityGroupsSchema = z.object({
+  items: z.array(entityGroupSchema),
+});
+export type EntityGroup = z.infer<typeof entityGroupSchema>;
+export type EntityGroupMember = z.infer<typeof entityGroupMemberSchema>;
+export type EntityGroups = z.infer<typeof entityGroupsSchema>;
+
+/** Mirrors reportPackageSchema with memberCount in place of a single client. */
+export const consolidatedPackageSchema = z.object({
+  id: idSchema,
+  period: daySchema,
+  basis: z.enum(["accrual", "cash"]),
+  comparisonBasis: z.string(),
+  comparisonAvailable: z.boolean(),
+  comparisonNote: z.string(),
+  state: z.enum(["draft", "superseded"]),
+  watermark: z.string().nullable(),
+  closedWithExceptions: z.boolean(),
+  exceptionBanner: z.string().nullable(),
+  memberCount: z.number().int(),
+  sectionCount: z.number().int(),
+  omissionCount: z.number().int(),
+  builtAt: instantSchema,
+});
+export const consolidatedPackagesSchema = z.object({
+  groupId: idSchema,
+  period: daySchema,
+  packages: z.array(consolidatedPackageSchema),
+  selectedPackageId: idSchema.nullable(),
+  sections: z.array(reportSectionSchema),
+});
+export type ConsolidatedPackages = z.infer<typeof consolidatedPackagesSchema>;
+export type ConsolidatedPackage = z.infer<typeof consolidatedPackageSchema>;
+
 export const narrativeSchema = z.object({
   id: idSchema,
   period: daySchema,

@@ -2153,17 +2153,95 @@ export interface PayrollApprovalRow {
   manualOverride: boolean;
 }
 
-/** The whole delivery surface of module 8. Two actions, no address column. */
+/**
+ * The whole delivery surface of module 8. Two actions, no address column.
+ *
+ * clientId/groupId are mutually exclusive (migration 0061's
+ * report_audit_event_one_subject check) -- a single-entity package names a
+ * client, a consolidated package names a group, and the one row shape is
+ * reused across both rather than forking a second audit table.
+ */
 export interface ReportAuditEventRow {
   id: Ulid;
   firmId: Ulid;
-  clientId: Ulid;
+  clientId: Ulid | null;
+  groupId: Ulid | null;
   version: number;
   periodStart: string;
   action: "report_available" | "narrative_available";
   subjectTable: string;
   subjectId: Ulid;
   detail: string;
+  createdByRunId: string | null;
+  createdAt: string;
+  manualOverride: boolean;
+}
+
+/** Group consolidation. A firm-defined set of client entities, migration 0061. */
+export interface EntityGroupRow {
+  id: Ulid;
+  firmId: Ulid;
+  name: string;
+  createdAt: string;
+  archivedAt: string | null;
+}
+
+/** One client's membership in a group. removedAt is a soft delete, never a row deletion. */
+export interface EntityGroupMemberRow {
+  id: Ulid;
+  groupId: Ulid;
+  firmId: Ulid;
+  clientId: Ulid;
+  addedAt: string;
+  removedAt: string | null;
+}
+
+/** Mirrors ReportPackageRow with clientId replaced by groupId, plus memberCount. */
+export interface ConsolidatedPackageRow {
+  id: Ulid;
+  groupId: Ulid;
+  firmId: Ulid;
+  version: number;
+  periodStart: string;
+  periodEnd: string;
+  basis: "accrual" | "cash";
+  comparisonBasis: "prior_period" | "prior_year" | "budget" | "none";
+  comparisonAvailable: boolean;
+  comparisonNote: string;
+  state: "draft" | "superseded";
+  watermark: string | null;
+  closedWithExceptions: boolean;
+  exceptionBanner: string | null;
+  memberCount: number;
+  sectionCount: number;
+  omissionCount: number;
+  contentChecksum: string;
+  ledgerFingerprint: string;
+  vaultObjectKey: string;
+  vaultObjectLockMode: "GOVERNANCE";
+  vaultRetentionStartsOn: string;
+  vaultObjectLockUntil: string;
+  builtByRunId: string | null;
+  builtAt: string;
+  manualOverride: boolean;
+}
+
+/** Mirrors ReportSectionRow with clientId replaced by groupId. */
+export interface ConsolidatedSectionRow {
+  id: Ulid;
+  groupId: Ulid;
+  firmId: Ulid;
+  version: number;
+  packageId: Ulid;
+  sequence: number;
+  sectionCode: string;
+  sectionTitle: string;
+  status: "rendered" | "omitted";
+  omissionReason: string | null;
+  asOfDate: string;
+  bannerText: string | null;
+  lines: ReportSectionLine[];
+  contentChecksum: string;
   createdByRunId: string | null;
   createdAt: string;
   manualOverride: boolean;
@@ -2908,6 +2986,10 @@ export interface RowMap {
   run_log_items: RunLogItemRow;
   run_log_events: RunLogEventRow;
   run_sequence: RunSequenceRow;
+  entity_groups: EntityGroupRow;
+  entity_group_members: EntityGroupMemberRow;
+  consolidated_packages: ConsolidatedPackageRow;
+  consolidated_sections: ConsolidatedSectionRow;
 }
 
 export type TableName = keyof RowMap;

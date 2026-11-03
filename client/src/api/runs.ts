@@ -43,6 +43,18 @@ export function useTriggerRun(clientId: string | null) {
   });
 }
 
+/** POST /api/firm/entity-groups/runs/:runCode -- a scope that names no single client. */
+export function useTriggerFirmRun() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ runCode, body }: { runCode: string; body: TriggerRunInput }) =>
+      api<RunOutcomeDto>("POST", `/api/firm/entity-groups/runs/${runCode}`, body),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["api", "firm", "entity-groups"] });
+    },
+  });
+}
+
 export function useApplyRun(clientId: string | null) {
   const qc = useQueryClient();
   return useMutation({

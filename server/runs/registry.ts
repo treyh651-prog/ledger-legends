@@ -137,6 +137,8 @@ import { txnVoidAndReissue } from "./runs/txn-void-and-reissue";
 import { txnAcceptCoding } from "./runs/txn-accept-coding";
 import { txnRecode } from "./runs/txn-recode";
 import { cfgDisableRuleAutopost } from "./runs/cfg-disable-rule-autopost";
+import { cfgCreateEntityGroup, cfgEditEntityGroup, cfgSetGroupMembers } from "./runs/cfg-entity-group";
+import { rptBuildConsolidatedPackage } from "./runs/rpt-build-consolidated-package";
 
 /** Scope types differ per run, so the registry stores erased entries. */
 export interface RegistryEntry {
@@ -278,6 +280,13 @@ export const registry: readonly RegistryEntry[] = [
   entry(txnAcceptCoding),
   entry(txnRecode),
   entry(cfgDisableRuleAutopost),
+  // Group consolidation. Manual, triggered from the firm's entity-groups
+  // screen rather than any pipeline, same reasoning as the reference data
+  // edits above -- which clients belong together is a person's decision.
+  entry(cfgCreateEntityGroup),
+  entry(cfgEditEntityGroup),
+  entry(cfgSetGroupMembers),
+  entry(rptBuildConsolidatedPackage),
 ];
 
 /**

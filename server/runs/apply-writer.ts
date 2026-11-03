@@ -98,6 +98,10 @@ import type {
   ReportSectionRow,
   ReportVarianceRow,
   RuleVersionRow,
+  EntityGroupRow,
+  EntityGroupMemberRow,
+  ConsolidatedPackageRow,
+  ConsolidatedSectionRow,
 } from "./tables";
 
 /**
@@ -569,6 +573,23 @@ async function writeField(
     case "client_policies":
       await tx.update("client_policies", rowId, after);
       return;
+    // CFG-EDIT-ENTITY-GROUP (rename, archive/unarchive).
+    case "entity_groups":
+      await tx.update("entity_groups", rowId, after);
+      return;
+    // CFG-SET-GROUP-MEMBERS's only write path: removed_at set or cleared.
+    // Never a delete -- this framework has no delete-shaped proposal.
+    case "entity_group_members":
+      await tx.update("entity_group_members", rowId, after);
+      return;
+    // RPT-BUILD-CONSOLIDATED-PACKAGE's rebuild path, same as
+    // report_packages/report_sections above.
+    case "consolidated_packages":
+      await tx.update("consolidated_packages", rowId, after);
+      return;
+    case "consolidated_sections":
+      await tx.update("consolidated_sections", rowId, after);
+      return;
     /*
      * practice_escalations is absent on purpose. Doc 02 PRAC-ESCALATE-OVERDUE
      * says an escalation record is never edited and never removed, so there is
@@ -922,6 +943,24 @@ async function insertRow(
       await tx.insert("client_policy_versions", [
         row as unknown as ClientPolicyVersionRow,
       ]);
+      return;
+    // CFG-CREATE-ENTITY-GROUP. CFG-EDIT-ENTITY-GROUP never inserts one; a
+    // group is edited in place, never replaced.
+    case "entity_groups":
+      await tx.insert("entity_groups", [withId as unknown as EntityGroupRow]);
+      return;
+    // CFG-CREATE-ENTITY-GROUP's initial roster, and CFG-SET-GROUP-MEMBERS
+    // adding a client that was never a member before. Re-adding a
+    // previously removed member is a field write on the existing row
+    // instead (see cfg-entity-group.ts), never a second insert.
+    case "entity_group_members":
+      await tx.insert("entity_group_members", [withId as unknown as EntityGroupMemberRow]);
+      return;
+    case "consolidated_packages":
+      await tx.insert("consolidated_packages", [withId as unknown as ConsolidatedPackageRow]);
+      return;
+    case "consolidated_sections":
+      await tx.insert("consolidated_sections", [withId as unknown as ConsolidatedSectionRow]);
       return;
     /**
      * The two tenancy rows INTAKE-CREATE-CLIENT writes. Insert only, like the

@@ -1,6 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type {
   AnswerRequestBody,
+  ConsolidatedPackages,
+  EntityGroup,
   PortalActionResult,
   PortalAging,
   PortalBudget,
@@ -126,6 +128,14 @@ export function usePortalReports(clientId: string | null) {
 
 export function usePortalPeriods(clientId: string | null) {
   return read<PortalPeriods>(clientId, portalScreenKeys.periods(clientId ?? "none"), "/periods");
+}
+
+export function usePortalEntityGroup(clientId: string | null, period: string) {
+  return useQuery({
+    queryKey: [...portalKeys.client(clientId ?? "none"), "entity-group", period],
+    queryFn: () => api<{ group: EntityGroup | null; packages: ConsolidatedPackages | null }>("GET", `/api/portal/${clientId}/entity-group${toQuery({ period })}`),
+    enabled: !!clientId,
+  });
 }
 
 /* ---------------- Documents: upload and download ---------------- */

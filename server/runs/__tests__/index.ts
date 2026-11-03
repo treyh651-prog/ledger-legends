@@ -156,6 +156,11 @@ import "./intake-open-requests";
 import "./setup-add-bank-account";
 import "./setup-import-balances";
 import "./intake-pipeline";
+import "./intake-build-chart-backfill";
+
+// Group consolidation.
+import "./cfg-entity-group";
+import "./rpt-build-consolidated-package";
 
 // The four hard lines, checked on their own rather than inside a run's suite.
 import "./compliance-tests";

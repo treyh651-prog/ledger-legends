@@ -14,6 +14,7 @@ import { clientParamsSchema, periodQuerySchema } from "../../shared/api/common";
 import { createClientBodySchema } from "../../shared/api/clients";
 import {
   applyBodySchema,
+  firmRunParamsSchema,
   logParamsSchema,
   runHistoryQuerySchema,
   runParamsSchema,
@@ -27,7 +28,7 @@ const runSucceeded = (status: string) => status === "completed" || status === "c
 const taskParamsSchema = clientParamsSchema.extend({ taskId: z.string().min(1) });
 const batchParamsSchema = clientParamsSchema.extend({ batchId: z.string().min(1) });
 const setBillingStatusBodySchema = z.object({ billingStatus: z.enum(["current", "past_due"]) });
-import { aging, budget, categoriesForClient, clientSetup, closeChecklist, firmRequests, firmTasks, forecast, journal, narratives, reconcile, reportPackages, rules, stagedBatches, substantiation, taxForms, trialBalance } from "./reads-screens";
+import { aging, budget, categoriesForClient, clientSetup, closeChecklist, consolidatedPackages, entityGroups, firmRequests, firmTasks, forecast, journal, narratives, reconcile, reportPackages, rules, stagedBatches, substantiation, taxForms, trialBalance } from "./reads-screens";
 import { rejectBatchBodySchema, updateTaskBodySchema, type FirmMember, type FirmTeam } from "../../shared/api/screens";
 import { CODING_CASCADE_ORDER, lookupRun } from "../runs/registry";
 import { executeSequence, step } from "../runs/sequence";
@@ -58,7 +59,7 @@ import {
   runHistory,
   transactionPage,
 } from "./reads";
-import { applyPreview, createClientFirstStep, dispatchOnboardingContinuation, runCatalog, triggerRun, undoApplied } from "./runs";
+import { applyPreview, createClientFirstStep, dispatchOnboardingContinuation, runCatalog, triggerFirmRun, triggerRun, undoApplied } from "./runs";
 import { readSession } from "./session";
 import { createFirmMessagesRouter, createPortalScreensRouter } from "./portal-router";
 
@@ -255,6 +256,63 @@ export function createApiRouter(deps: ApiDeps): Router {
   firm.get(
     "/runs/catalog",
     route(async () => ({ body: { items: runCatalog() } })),
+  );
+
+  /**
+   * Group consolidation. Firm-wide reads and triggers: a group names no
+   * single client, so these live on the firm router rather than under
+   * /clients/:clientId the way every other screen's routes do.
+   */
+  firm.get(
+    "/entity-groups",
+    route(async (req) => {
+      const firmId = req.firm!.firmId;
+      const body = await withOneRetry(() => deps.db.tx(readSession(req.actor!, firmId, ""), (tx) => entityGroups(tx, firmId)));
+      return { body };
+    }),
+  );
+
+  firm.get(
+    "/entity-groups/:groupId/consolidated-packages",
+    route(async (req) => {
+      const { groupId } = parse(z.object({ groupId: z.string().min(1) }), req.params);
+      const period = screenPeriod(req);
+      const { packageId } = parse(z.object({ packageId: z.string().min(1).max(64).optional() }), req.query);
+      const firmId = req.firm!.firmId;
+      const body = await deps.db.tx(readSession(req.actor!, firmId, ""), (tx) => consolidatedPackages(tx, firmId, groupId, period, packageId ?? null));
+      return { body };
+    }),
+  );
+
+  /**
+   * The firm-wide run trigger, for a scope that names no single client
+   * (CFG-CREATE-ENTITY-GROUP/CFG-EDIT-ENTITY-GROUP/CFG-SET-GROUP-MEMBERS/
+   * RPT-BUILD-CONSOLIDATED-PACKAGE so far). triggerRun's own /clients/:id/runs
+   * route forces a clientId onto the scope body, which these scopes don't
+   * carry -- triggerFirmRun resolves any real client of the firm to anchor
+   * execute()'s session on instead, and never touches the run's own scope.
+   */
+  firm.post(
+    "/entity-groups/runs/:runCode",
+    route(async (req) => {
+      const { runCode } = parse(firmRunParamsSchema, req.params);
+      const body = parse(triggerRunBodySchema, req.body ?? {});
+      const firmId = req.firm!.firmId;
+      const clients = await deps.db.tx(readSession(req.actor!, firmId, ""), (tx) => tx.query("clients_for_firm", { firmId }));
+      if (clients.length === 0) throw new ApiFailure(409, "validation_failed", "this firm has no clients yet, so there is nothing to group");
+      const outcome = await triggerFirmRun({
+        db: deps.db,
+        actor: req.actor!,
+        firmId,
+        anchorClientId: clients[0].id,
+        runCode,
+        mode: body.mode,
+        previewRunId: body.previewRunId,
+        scope: body.scope,
+        now: now(),
+      });
+      return { status: outcome.status === "refused" || outcome.status === "rejected_locked" ? 409 : 200, body: outcome };
+    }),
   );
 
   firm.post(

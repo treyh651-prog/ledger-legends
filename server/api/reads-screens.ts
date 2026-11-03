@@ -8,6 +8,8 @@ import type {
   Aging,
   Categories,
   ClientSetup,
+  ConsolidatedPackages,
+  EntityGroups,
   FirmTask,
   FirmTasks,
   AgingParty,
@@ -755,6 +757,104 @@ export async function reportPackages(tx: RunTx, firmId: string, clientId: string
         })),
       })),
   };
+}
+
+/* ---------------- Group consolidation ---------------- */
+
+export async function entityGroups(tx: RunTx, firmId: string): Promise<EntityGroups> {
+  const groups = await tx.query("entity_groups_for_firm", { firmId });
+  const items = [];
+  for (const g of groups) {
+    const memberships = await tx.query("entity_group_members_for_group", { firmId, groupId: g.id });
+    const active = memberships.filter((m) => m.removedAt === null);
+    const members = [];
+    for (const m of active) {
+      const rows = await tx.query("client_by_id", { firmId, clientId: m.clientId });
+      members.push({ clientId: m.clientId, clientName: rows[0]?.name ?? m.clientId });
+    }
+    items.push({ id: g.id, name: g.name, archivedAt: g.archivedAt, members });
+  }
+  return { items };
+}
+
+/** Mirrors reportPackages field for field, with groupId in place of clientId. */
+export async function consolidatedPackages(
+  tx: RunTx,
+  firmId: string,
+  groupId: string,
+  period: string,
+  packageId: string | null,
+): Promise<ConsolidatedPackages> {
+  const periodStart = periodWindow(period).periodStart;
+  const all = await tx.query("consolidated_packages_for_group", { firmId, groupId });
+  const inPeriod = all
+    .filter((p) => p.periodStart === periodStart)
+    .sort((a, b) => (a.builtAt !== b.builtAt ? (a.builtAt < b.builtAt ? 1 : -1) : a.id < b.id ? -1 : 1));
+  const selected = (packageId ? inPeriod.find((p) => p.id === packageId) : inPeriod[0]) ?? null;
+  const sections = selected ? await tx.query("consolidated_sections_for_package", { firmId, groupId, packageId: selected.id }) : [];
+  return {
+    groupId,
+    period: periodStart,
+    packages: inPeriod.map((p) => ({
+      id: p.id,
+      period: p.periodStart,
+      basis: p.basis,
+      comparisonBasis: p.comparisonBasis,
+      comparisonAvailable: p.comparisonAvailable,
+      comparisonNote: p.comparisonNote,
+      state: p.state,
+      watermark: p.watermark,
+      closedWithExceptions: p.closedWithExceptions,
+      exceptionBanner: p.exceptionBanner,
+      memberCount: p.memberCount,
+      sectionCount: p.sectionCount,
+      omissionCount: p.omissionCount,
+      builtAt: p.builtAt,
+    })),
+    selectedPackageId: selected?.id ?? null,
+    sections: sections
+      .sort((a, b) => a.sequence - b.sequence)
+      .map((s) => ({
+        id: s.id,
+        sequence: s.sequence,
+        sectionCode: s.sectionCode,
+        sectionTitle: s.sectionTitle,
+        status: s.status,
+        omissionReason: s.omissionReason,
+        bannerText: s.bannerText,
+        lines: s.lines.map((l) => ({
+          label: l.label,
+          accountNumber: l.accountNumber,
+          amountCents: Number(l.amountCents),
+          comparisonCents: l.comparisonCents === null ? null : Number(l.comparisonCents),
+          note: l.note,
+        })),
+      })),
+  };
+}
+
+/**
+ * Portal side: the firm-defined group (if any) this client belongs to, and
+ * its latest consolidated package for the period. RLS does the real work
+ * in production -- entity_groups_for_firm, called under a client scoped
+ * portal session, is narrowed by the member_can_read policy (migration
+ * 0061) to exactly the groups this client is an active member of, and
+ * consolidated_packages_for_group is narrowed by has_group_access to
+ * nothing at all unless this actor can also see every other member. This
+ * function does not re-check either -- it reads what RLS already handed
+ * back and reports an honest empty state when that is nothing.
+ */
+export async function portalEntityGroup(
+  tx: RunTx,
+  firmId: string,
+  clientId: string,
+  period: string,
+): Promise<{ group: EntityGroups["items"][number] | null; packages: ConsolidatedPackages | null }> {
+  const groups = await entityGroups(tx, firmId);
+  const group = groups.items.find((g) => g.members.some((m) => m.clientId === clientId)) ?? null;
+  if (group === null) return { group: null, packages: null };
+  const packages = await consolidatedPackages(tx, firmId, group.id, period, null);
+  return { group, packages };
 }
 
 /* ---------------- Narrative ---------------- */

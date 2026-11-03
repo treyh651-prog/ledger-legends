@@ -74,6 +74,7 @@ const FIRM_NAV: NavGroup[] = [
     items: [
       { href: "/", label: "Firm overview", icon: Gauge },
       { href: "/clients", label: "Client book", icon: Building2 },
+      { href: "/entity-groups", label: "Entity groups", icon: Layers },
       { href: "/intake", label: "New client intake", icon: UserPlus },
       { href: "/portal/intake", label: "Client setup wizard", icon: Wand2 },
       { href: "/portal/mapping-profiles", label: "Mapping profiles", icon: Columns3 },

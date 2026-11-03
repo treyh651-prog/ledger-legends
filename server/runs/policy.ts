@@ -503,6 +503,26 @@ export const RUN_POLICIES: Readonly<Record<string, RunPolicy>> = {
     reason:
       "a person can always revoke a rule's auto post privilege without needing to manufacture a reject first",
   },
+  "CFG-CREATE-ENTITY-GROUP": {
+    tier: "manual",
+    reason:
+      "a firm declares which clients belong to the same group once, by hand, and a clock has no group of its own to discover",
+  },
+  "CFG-EDIT-ENTITY-GROUP": {
+    tier: "manual",
+    reason:
+      "renaming or archiving a group is a firm decision, the same reasoning every other CFG-EDIT-* run gives",
+  },
+  "CFG-SET-GROUP-MEMBERS": {
+    tier: "manual",
+    reason:
+      "which clients belong together is a judgment a person makes on purpose, never something a clock infers",
+  },
+  "RPT-BUILD-CONSOLIDATED-PACKAGE": {
+    tier: "manual",
+    reason:
+      "combines two or more entities' figures into one package, and a firm decides when that is ready to build -- there is no group scoped schedule concept for a clock to use the way RPT-BUILD-PACKAGE's own schedule is per client",
+  },
 };
 
 export const RUN_TIER_VALUES: readonly RunTier[] = [

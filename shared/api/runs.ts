@@ -73,6 +73,11 @@ export const runParamsSchema = z.object({
   runCode: z.string().regex(/^[A-Z0-9]+(-[A-Z0-9]+)+$/, "a run code like TXN-APPLY-RULES"),
 });
 
+/** A firm-wide run, named by code alone -- group consolidation's four runs name no single client. */
+export const firmRunParamsSchema = z.object({
+  runCode: z.string().regex(/^[A-Z0-9]+(-[A-Z0-9]+)+$/, "a run code like CFG-CREATE-ENTITY-GROUP"),
+});
+
 export const triggerRunBodySchema = z.object({
   mode: runModeSchema.default("preview"),
   /** Required for apply, unless the run policy does not call for one. */

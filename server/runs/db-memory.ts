@@ -104,6 +104,10 @@ import {
   type TransactionRow,
   type ClientRow,
   type EngagementRow,
+  type EntityGroupRow,
+  type EntityGroupMemberRow,
+  type ConsolidatedPackageRow,
+  type ConsolidatedSectionRow,
   type PortalRequestRow,
   type PortalMessageRow,
   type DocumentRow,
@@ -212,6 +216,10 @@ const TABLES: TableName[] = [
   "sched_run_policies",
   "sched_schedules",
   "sched_windows",
+  "entity_groups",
+  "entity_group_members",
+  "consolidated_packages",
+  "consolidated_sections",
 ];
 
 function key(table: string, rowId: string): string {
@@ -2088,6 +2096,49 @@ class MemoryTx implements RunTx {
           .map((r) => r as unknown as ClientRow)
           .filter((r) => r.firmId === p.firmId && r.id === p.clientId)
           .map((r) => clone(r as unknown as AnyRow));
+      }
+      case "entity_groups_for_firm": {
+        const p = rawParams as QueryCatalog["entity_groups_for_firm"]["params"];
+        return this.view("entity_groups")
+          .map((r) => r as unknown as EntityGroupRow)
+          .filter((r) => r.firmId === p.firmId)
+          .sort((a, b) => (a.name !== b.name ? (a.name < b.name ? -1 : 1) : byId(a, b)))
+          .map((r) => clone(r as unknown as AnyRow));
+      }
+      case "entity_group_members_for_group": {
+        const p = rawParams as QueryCatalog["entity_group_members_for_group"]["params"];
+        return this.view("entity_group_members")
+          .map((r) => r as unknown as EntityGroupMemberRow)
+          .filter((r) => r.firmId === p.firmId && r.groupId === p.groupId)
+          .sort(byId)
+          .map((r) => clone(r as unknown as AnyRow));
+      }
+      case "consolidated_packages_for_group": {
+        const p = rawParams as QueryCatalog["consolidated_packages_for_group"]["params"];
+        return this.view("consolidated_packages")
+          .map((r) => r as unknown as ConsolidatedPackageRow)
+          .filter((r) => r.firmId === p.firmId && r.groupId === p.groupId)
+          .sort((a, b) =>
+            a.periodStart !== b.periodStart ? (a.periodStart < b.periodStart ? -1 : 1) : byId(a, b),
+          )
+          .map((r) => clone(r as unknown as AnyRow));
+      }
+      case "consolidated_sections_for_package": {
+        const p = rawParams as QueryCatalog["consolidated_sections_for_package"]["params"];
+        return this.view("consolidated_sections")
+          .map((r) => r as unknown as ConsolidatedSectionRow)
+          .filter(
+            (r) => r.firmId === p.firmId && r.groupId === p.groupId && r.packageId === p.packageId,
+          )
+          .sort((a, b) => (a.sequence !== b.sequence ? a.sequence - b.sequence : byId(a, b)))
+          .map((r) => clone(r as unknown as AnyRow));
+      }
+      case "report_audit_events_for_group": {
+        const p = rawParams as QueryCatalog["report_audit_events_for_group"]["params"];
+        return this.view("report_audit_events")
+          .filter((r) => r.firmId === p.firmId && (r as unknown as { groupId: string | null }).groupId === p.groupId)
+          .sort(byId)
+          .map(clone);
       }
       case "engagements_for_client": {
         const p = rawParams as QueryCatalog["engagements_for_client"]["params"];

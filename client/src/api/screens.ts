@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { Aging, Budget, Categories, ClientSetup, CloseChecklist, FirmRequests, FirmTasks, FirmTeam, RunOutcomeDto, UpdateTaskBody, Forecast, Journal, Narratives, PortalStatements, Reconcile, ReportPackages, Rules, StagedBatches, Substantiation, TaxForms, TrialBalance } from "@shared/api";
+import type { Aging, Budget, Categories, ClientSetup, CloseChecklist, ConsolidatedPackages, EntityGroups, FirmRequests, FirmTasks, FirmTeam, RunOutcomeDto, UpdateTaskBody, Forecast, Journal, Narratives, PortalStatements, Reconcile, ReportPackages, Rules, StagedBatches, Substantiation, TaxForms, TrialBalance } from "@shared/api";
 import { api, toQuery } from "./http";
 
 /** Reads for the firm screens. Keys live under the client so run mutations invalidate them. */
@@ -185,6 +185,26 @@ export function useReportPackages(clientId: string | null, period: string, packa
     queryKey: ["api", "firm", "clients", clientId ?? "none", "report-packages", p, packageId ?? "latest"],
     queryFn: () => api<ReportPackages>("GET", `/api/firm/clients/${clientId}/report-packages${toQuery({ period: p, packageId: packageId ?? undefined })}`),
     enabled: !!clientId,
+  });
+}
+
+export const entityGroupKeys = {
+  all: ["api", "firm", "entity-groups"] as const,
+};
+
+export function useEntityGroups() {
+  return useQuery({
+    queryKey: entityGroupKeys.all,
+    queryFn: () => api<EntityGroups>("GET", "/api/firm/entity-groups"),
+  });
+}
+
+export function useConsolidatedPackages(groupId: string | null, period: string, packageId: string | null) {
+  const p = periodStartOf(period);
+  return useQuery({
+    queryKey: ["api", "firm", "entity-groups", groupId ?? "none", "consolidated-packages", p, packageId ?? "latest"],
+    queryFn: () => api<ConsolidatedPackages>("GET", `/api/firm/entity-groups/${groupId}/consolidated-packages${toQuery({ period: p, packageId: packageId ?? undefined })}`),
+    enabled: !!groupId,
   });
 }
 

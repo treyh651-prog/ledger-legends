@@ -129,6 +129,51 @@ export async function triggerRun(args: TriggerArgs): Promise<RunOutcomeDto> {
   return outcomeDto(outcome);
 }
 
+export interface TriggerFirmArgs {
+  db: RunDb;
+  actor: Actor;
+  firmId: string;
+  /**
+   * Any real client of this firm, purely so execute()'s session has a row
+   * has_client_access can find (TxSession.clientId is read by nothing in
+   * the schema -- db-postgres.ts's own sessionSettings comment says so --
+   * but ledger.run_log.client_id is still a real column this framework
+   * always writes). The route resolves this from clients_for_firm; it is
+   * never read by the run itself, which works entirely off its own scope.
+   */
+  anchorClientId: string;
+  runCode: string;
+  mode: "preview" | "apply";
+  previewRunId?: string;
+  scope: Record<string, unknown>;
+  now?: Date;
+}
+
+/**
+ * A firm-wide run whose scope names no single client (group consolidation's
+ * four runs, so far the only ones) -- triggerRun's own `{ ...args.scope,
+ * clientId: args.clientId }` would silently force a clientId field these
+ * scopes don't have. Never used for a run CLIENT_SIDE_RUNS lists, or for
+ * any run whose own scope schema actually requires a clientId -- those
+ * still go through the ordinary firmClient route and triggerRun above.
+ */
+export async function triggerFirmRun(args: TriggerFirmArgs): Promise<RunOutcomeDto> {
+  const run = resolveRun(args.runCode);
+  if (!modeAllowed(tierOf(args.runCode), args.mode)) {
+    throw new ApiFailure(403, "forbidden", `${args.runCode} may not be started in ${args.mode} mode from the interface.`);
+  }
+  const outcome = await execute(args.db, run as unknown as Run<unknown, Proposal>, args.scope, {
+    mode: args.mode,
+    firmId: args.firmId,
+    clientId: args.anchorClientId,
+    actor: runActor(args.actor),
+    now: args.now ?? new Date(),
+    previewRunId: args.previewRunId,
+    source: "button",
+  });
+  return outcomeDto(outcome);
+}
+
 /** The run log row a log id names, within the actor's firm. */
 export async function findLog(db: RunDb, actor: Actor, firmId: string, logId: string) {
   const rows = await db.tx(readSession(actor, firmId, ""), (tx) =>

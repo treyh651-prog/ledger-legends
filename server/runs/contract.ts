@@ -164,7 +164,20 @@ export type RunTypeId =
   // manual escape hatch neither of those two needs a threshold to use.
   | "TXN-ACCEPT-CODING"
   | "TXN-RECODE"
-  | "CFG-DISABLE-RULE-AUTOPOST";
+  | "CFG-DISABLE-RULE-AUTOPOST"
+  // Group consolidation. tenancy.entity_groups/entity_group_members
+  // (migration 0061) had no writer at all until this round -- the only
+  // multi-entity relationship on file before this was tenancy.memberships,
+  // which ties a person to a client, not a client to another client.
+  // CFG-CREATE-ENTITY-GROUP/CFG-EDIT-ENTITY-GROUP/CFG-SET-GROUP-MEMBERS are
+  // the firm-side setup for a group, same manual-tier shape as every other
+  // CFG-* reference-data run. RPT-BUILD-CONSOLIDATED-PACKAGE is the run
+  // itself: client/src/pages/portal-entities.tsx used to say plainly "no
+  // consolidation run exists in the engine yet."
+  | "CFG-CREATE-ENTITY-GROUP"
+  | "CFG-EDIT-ENTITY-GROUP"
+  | "CFG-SET-GROUP-MEMBERS"
+  | "RPT-BUILD-CONSOLIDATED-PACKAGE";
 
 /** Doc 03 Part 7 names the reversal of a run `<ORIGINAL>-UNDO`. */
 export type UndoRunTypeId = `${RunTypeId}-UNDO`;

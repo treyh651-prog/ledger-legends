@@ -110,6 +110,10 @@ import type {
   SchedWindowRow,
   ClientRow,
   EngagementRow,
+  EntityGroupRow,
+  EntityGroupMemberRow,
+  ConsolidatedPackageRow,
+  ConsolidatedSectionRow,
 } from "./tables";
 
 export type Isolation = "repeatable read" | "serializable";
@@ -945,6 +949,34 @@ export interface QueryCatalog {
     params: { firmId: Ulid; limit: number };
     row: RunLogRow;
   };
+  /**
+   * Group consolidation, migration 0061. Every group of a firm, every
+   * membership row of a group (removed ones included -- callers filter by
+   * removedAt themselves, the same shape mapping_profiles_for_client's
+   * callers filter on isActive), and the consolidated package/section rows
+   * module 8's own conventions mirror with groupId in place of clientId.
+   */
+  entity_groups_for_firm: {
+    params: { firmId: Ulid };
+    row: EntityGroupRow;
+  };
+  entity_group_members_for_group: {
+    params: { firmId: Ulid; groupId: Ulid };
+    row: EntityGroupMemberRow;
+  };
+  consolidated_packages_for_group: {
+    params: { firmId: Ulid; groupId: Ulid };
+    row: ConsolidatedPackageRow;
+  };
+  consolidated_sections_for_package: {
+    params: { firmId: Ulid; groupId: Ulid; packageId: Ulid };
+    row: ConsolidatedSectionRow;
+  };
+  report_audit_events_for_group: {
+    params: { firmId: Ulid; groupId: Ulid };
+    row: ReportAuditEventRow;
+  };
+
   /** The register, newest first, with the filters the screen offers. */
   transactions_page: {
     params: {

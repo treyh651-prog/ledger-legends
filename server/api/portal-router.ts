@@ -43,6 +43,7 @@ import { triggerRun } from "./runs";
 import { SIGN_CONSENT_TEXT } from "../runs/runs/eng-sign-letter";
 import type { ApiDeps } from "./router";
 import type { DocumentRow } from "../runs/tables";
+import { portalEntityGroup } from "./reads-screens";
 import { createDocumentRoutes } from "./uploads";
 import { type DocumentStorage, uploadMaxBytes } from "../storage/document-storage";
 
@@ -532,6 +533,11 @@ export function createPortalScreensRouter({ deps, entitlementFor }: PortalRouter
   portal.get("/narrative", gate("narrative"), read((tx, f, c) => narrativeFor(tx, f, c)));
   portal.get("/reports", gate("custom_reports"), read((tx, f, c) => reportsFor(tx, f, c)));
   portal.get("/periods", gate("open_period"), read((tx, f, c) => periodsFor(tx, f, c)));
+  portal.get(
+    "/entity-group",
+    gate("consolidation"),
+    read((tx, f, c, req) => portalEntityGroup(tx, f, c, typeof req.query.period === "string" ? req.query.period : todayOf(deps).slice(0, 7) + "-01")),
+  );
 
   return portal;
 }

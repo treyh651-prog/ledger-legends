@@ -171,6 +171,11 @@ export const SHARED_CORE_ACCOUNTS: readonly TemplateAccount[] = [
   acct("1390", "Other prepaid and current assets", "debit"),
   acct("1400", "Employee advances", "debit"),
   acct("1410", "Other receivables", "debit"),
+  // Paired with 2900 "Due to related parties" below -- the asset side of an
+  // intercompany balance, added for group consolidation's elimination check
+  // (consolidation-shared.ts). Never seeded before this: a related-party
+  // claim had a liability account to land on but no matching receivable one.
+  acct("1420", "Due from related parties", "debit"),
   acct("1500", "Furniture and fixtures", "debit"),
   acct("1510", "Computer and office equipment", "debit"),
   acct("1520", "Leasehold improvements", "debit"),
@@ -272,6 +277,7 @@ export const UNIVERSAL_SPINE_CATEGORIES: readonly TemplateCategory[] = [
   cat("PENALTY-FINE", "Penalty or fine", "7900", "debit", { tax: "nondeductible" }),
   cat("ASSET-DISPOSAL", "Asset disposal proceeds", "8200", "credit"),
   cat("DUE-TO-RELATED", "Due to a related party", "2900", "credit"),
+  cat("DUE-FROM-RELATED", "Due from a related party", "1420", "debit"),
   cat("STATE-TAX-PAYMENT", "State income or franchise tax", "9000", "debit", {
     tax: "nondeductible",
   }),

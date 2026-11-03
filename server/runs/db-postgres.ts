@@ -144,6 +144,10 @@ export const PHYSICAL_TABLES: Partial<Record<TableName, string>> = {
   sched_schedules: "sched.schedules",
   sched_windows: "sched.windows",
   offboard_exports: "deliverable.offboard_exports",
+  entity_groups: "tenancy.entity_groups",
+  entity_group_members: "tenancy.entity_group_members",
+  consolidated_packages: "report.consolidated_packages",
+  consolidated_sections: "report.consolidated_sections",
 };
 
 export function physical(table: TableName): string {
@@ -1199,9 +1203,49 @@ const PAYROLL_APPROVAL_COLUMNS = `
 `;
 
 const REPORT_AUDIT_EVENT_COLUMNS = `
-  id, firm_id as "firmId", client_id as "clientId", version,
+  id, firm_id as "firmId", client_id as "clientId", group_id as "groupId", version,
   period_start::text as "periodStart", action,
   subject_table as "subjectTable", subject_id as "subjectId", detail,
+  created_by_run_id as "createdByRunId", created_at::text as "createdAt",
+  manual_override as "manualOverride"
+`;
+
+const ENTITY_GROUP_COLUMNS = `
+  id, firm_id as "firmId", name,
+  created_at::text as "createdAt", archived_at::text as "archivedAt"
+`;
+
+const ENTITY_GROUP_MEMBER_COLUMNS = `
+  id, group_id as "groupId", firm_id as "firmId", client_id as "clientId",
+  added_at::text as "addedAt", removed_at::text as "removedAt"
+`;
+
+const CONSOLIDATED_PACKAGE_COLUMNS = `
+  id, group_id as "groupId", firm_id as "firmId", version,
+  period_start::text as "periodStart", period_end::text as "periodEnd",
+  basis, comparison_basis as "comparisonBasis",
+  comparison_available as "comparisonAvailable",
+  comparison_note as "comparisonNote", state, watermark,
+  closed_with_exceptions as "closedWithExceptions",
+  exception_banner as "exceptionBanner", member_count as "memberCount",
+  section_count as "sectionCount",
+  omission_count as "omissionCount", content_checksum as "contentChecksum",
+  ledger_fingerprint as "ledgerFingerprint",
+  vault_object_key as "vaultObjectKey",
+  vault_object_lock_mode as "vaultObjectLockMode",
+  vault_retention_starts_on::text as "vaultRetentionStartsOn",
+  vault_object_lock_until::text as "vaultObjectLockUntil",
+  built_by_run_id as "builtByRunId", built_at::text as "builtAt",
+  manual_override as "manualOverride"
+`;
+
+const CONSOLIDATED_SECTION_COLUMNS = `
+  id, group_id as "groupId", firm_id as "firmId", version,
+  package_id as "packageId", sequence, section_code as "sectionCode",
+  section_title as "sectionTitle", status,
+  omission_reason as "omissionReason", as_of_date::text as "asOfDate",
+  banner_text as "bannerText", lines,
+  content_checksum as "contentChecksum",
   created_by_run_id as "createdByRunId", created_at::text as "createdAt",
   manual_override as "manualOverride"
 `;
@@ -2704,6 +2748,46 @@ export const QUERIES: Record<QueryName, SqlSpec> = {
           from tenancy.clients
           where firm_id = $1 and id = $2`,
     params: (p) => [p.firmId, p.clientId],
+  },
+  entity_groups_for_firm: {
+    table: "entity_groups",
+    sql: `select ${ENTITY_GROUP_COLUMNS}
+          from tenancy.entity_groups
+          where firm_id = $1
+          order by name asc, id asc`,
+    params: (p) => [p.firmId],
+  },
+  entity_group_members_for_group: {
+    table: "entity_group_members",
+    sql: `select ${ENTITY_GROUP_MEMBER_COLUMNS}
+          from tenancy.entity_group_members
+          where firm_id = $1 and group_id = $2
+          order by id asc`,
+    params: (p) => [p.firmId, p.groupId],
+  },
+  consolidated_packages_for_group: {
+    table: "consolidated_packages",
+    sql: `select ${CONSOLIDATED_PACKAGE_COLUMNS}
+          from report.consolidated_packages
+          where firm_id = $1 and group_id = $2
+          order by period_start asc, id asc`,
+    params: (p) => [p.firmId, p.groupId],
+  },
+  consolidated_sections_for_package: {
+    table: "consolidated_sections",
+    sql: `select ${CONSOLIDATED_SECTION_COLUMNS}
+          from report.consolidated_sections
+          where firm_id = $1 and group_id = $2 and package_id = $3
+          order by sequence asc, id asc`,
+    params: (p) => [p.firmId, p.groupId, p.packageId],
+  },
+  report_audit_events_for_group: {
+    table: "report_audit_events",
+    sql: `select ${REPORT_AUDIT_EVENT_COLUMNS}
+          from report.report_audit_events
+          where firm_id = $1 and group_id = $2
+          order by id asc`,
+    params: (p) => [p.firmId, p.groupId],
   },
   engagements_for_client: {
     table: "engagements",
