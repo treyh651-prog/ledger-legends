@@ -219,11 +219,16 @@ export const cfgEditClientPolicy: Run<EditClientPolicyScope, Proposal> = {
     // exactly the same degraded state CLOSE-POST-YEAREND already tolerates
     // for a client with no policy row at all, so an edit that only touches
     // something else (currency, the capitalize threshold) is not blocked by
-    // equity setup it never asked to change. The check applies once a row
-    // already exists (entity kind is then a real, previously-set fact) or
-    // once this edit actually names entity kind or an equity account.
+    // equity setup it never asked to change. That has to hold for every
+    // later edit too, not only the first one: a row already sitting in the
+    // degraded state is exactly the state an edit touching something else
+    // is allowed to leave alone. So the check applies only when THIS edit
+    // actually names entity kind or an equity account -- never merely
+    // because a row already exists. (A prior version of this check also
+    // fired whenever existing !== undefined, which re-refused every later
+    // edit to a degraded row, including ones that never touched entity
+    // kind or equity at all -- caught by a test that edited twice.)
     const entityOrEquityInPlay =
-      existing !== undefined ||
       scope.fields.entityKind !== undefined ||
       scope.fields.retainedEarningsAccount !== undefined ||
       scope.fields.netAssetsWithoutRestrictionsAccount !== undefined;

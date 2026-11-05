@@ -109,6 +109,15 @@ test("cfg-edit-client-policy: creating a row that touches nothing about entity k
   assertEqual(policyOf(db)?.retainedEarningsAccount, null, "same degraded state as having no row at all");
 });
 
+test("cfg-edit-client-policy: a second edit to a row still in the degraded default state, touching neither entity kind nor equity, is not blocked by equity it never asked to change", async () => {
+  const db = dbWithEquityAccounts();
+  await editAndApply(db, scopeFor({ functionalCurrency: "EUR" }));
+  assertEqual(policyOf(db)?.retainedEarningsAccount, null, "still degraded after the first edit");
+  const { applied } = await editAndApply(db, scopeFor({ capitalizeOverCents: 500000 }));
+  assertEqual(applied.status, "completed", "the second edit is not refused just because a row now exists");
+  assertEqual(policyOf(db)?.capitalizeOverCents, BigInt(500000), "the second edit's own field landed");
+});
+
 test("cfg-edit-client-policy: an unknown account number is refused before anything is written", async () => {
   const db = dbWithEquityAccounts();
   const preview = await execute(

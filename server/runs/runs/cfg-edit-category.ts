@@ -54,9 +54,15 @@ export const editableCategoryFieldsSchema = z.object({
     ])
     .optional(),
   class1099: z.enum(["none", "nec", "misc_rent", "misc_other", "attorney"]).optional(),
-  requiresReceiptOverCents: z.bigint().nonnegative().nullable().optional(),
+  // Plain numbers, not z.bigint(): the scope arrives as parsed JSON over
+  // HTTP, which has no bigint, and JSON.stringify throws on one client
+  // side before the request is even sent -- the same wire-safe-number
+  // convention CFG-CREATE-CATEGORY's identical two fields now use, and
+  // TXN-VOID-AND-REISSUE's own corrections schema named first. Cast to
+  // Cents in propose() below.
+  requiresReceiptOverCents: z.number().int().nonnegative().safe().nullable().optional(),
   requiresClass: z.boolean().optional(),
-  capitalizeOverCents: z.bigint().nonnegative().nullable().optional(),
+  capitalizeOverCents: z.number().int().nonnegative().safe().nullable().optional(),
   restrictionRelevant: z.boolean().optional(),
   isActive: z.boolean().optional(),
 });
@@ -75,9 +81,22 @@ export const ERR_CATEGORY_NOT_FOUND = "CFG-CATEGORY-NOT-FOUND";
 /** Backfilled history carries this note, so it reads as what it is, not a real edit. */
 export const BACKFILL_CHANGE_NOTE = "initial version, backfilled on first edit";
 
+/** scope.fields with the two cents fields already converted to the internal bigint shape. */
+type EditableCategoryFieldsInternal = Omit<
+  z.infer<typeof editableCategoryFieldsSchema>,
+  "requiresReceiptOverCents" | "capitalizeOverCents"
+> & {
+  requiresReceiptOverCents?: bigint | null;
+  capitalizeOverCents?: bigint | null;
+};
+
+function toCentsOrNull(n: number | null | undefined): bigint | null | undefined {
+  return n == null ? n : BigInt(n);
+}
+
 function changedFields(
   current: CategoryRow,
-  fields: z.infer<typeof editableCategoryFieldsSchema>,
+  fields: EditableCategoryFieldsInternal,
 ): { before: Record<string, unknown>; after: Record<string, unknown> } {
   const before: Record<string, unknown> = {};
   const after: Record<string, unknown> = {};
@@ -152,7 +171,12 @@ export const cfgEditCategory: Run<EditCategoryScope, Proposal> = {
       return makeResult<Proposal>(1, [], [], errors, BigInt(0));
     }
 
-    const { before, after } = changedFields(category, scope.fields);
+    const fields: EditableCategoryFieldsInternal = {
+      ...scope.fields,
+      requiresReceiptOverCents: toCentsOrNull(scope.fields.requiresReceiptOverCents),
+      capitalizeOverCents: toCentsOrNull(scope.fields.capitalizeOverCents),
+    };
+    const { before, after } = changedFields(category, fields);
     if (Object.keys(after).length === 0) {
       return makeResult<Proposal>(
         1,

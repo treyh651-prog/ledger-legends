@@ -73,6 +73,27 @@ test("cfg-edit-category: a renamed category is updated and its version bumps", a
   assertEqual(row.updatedAt, NOW.toISOString(), "updatedAt bumped to the run's timestamp");
 });
 
+test("cfg-edit-category: the receipt and capitalize thresholds arrive as wire-safe numbers and are stored as real cents", async () => {
+  const db = new MemoryRunDb();
+  seedCategory(db);
+  const { applied } = await editAndApply(
+    db,
+    scopeFor({ requiresReceiptOverCents: 7500, capitalizeOverCents: 250000 }),
+  );
+  assertEqual(applied.status, "completed", "apply completed");
+  const row = categoryOf(db);
+  assertEqual(row.requiresReceiptOverCents, BigInt(7500), "converted to a real bigint");
+  assertEqual(row.capitalizeOverCents, BigInt(250000), "converted to a real bigint");
+});
+
+test("cfg-edit-category: resubmitting the same thresholds is a no op, the wire number converts before comparing", async () => {
+  const db = new MemoryRunDb();
+  seedCategory(db, { requiresReceiptOverCents: BigInt(7500) });
+  const preview = await execute(db, cfgEditCategory, scopeFor({ requiresReceiptOverCents: 7500 }), opts("preview"));
+  assertEqual(preview.status, "no_op", "no_op, the converted bigint equals the stored one");
+  assert(preview.result.skips.some((s) => s.reason === "already_applied"), "reported as already applied");
+});
+
 test("cfg-edit-category: the first edit backfills a version 1 snapshot of the row before it", async () => {
   const db = new MemoryRunDb();
   seedCategory(db);
