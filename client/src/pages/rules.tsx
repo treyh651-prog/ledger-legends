@@ -274,7 +274,12 @@ function CreateRuleDialog({ clientId }: { clientId: string }) {
         const min = Number(minDollars);
         const max = Number(maxDollars);
         if (!Number.isFinite(min) || !Number.isFinite(max)) return null;
-        return { type: "amount_range", minCents: BigInt(Math.round(min * 100)), maxCents: BigInt(Math.round(max * 100)) };
+        // A plain number, not BigInt: the request body goes through
+        // JSON.stringify, which has no bigint and throws before the request
+        // is even sent. The run's own scope schema (ruleConditionSchema,
+        // cfg-edit-rule.ts) takes this wire-safe number and converts it to
+        // the real Cents bigint server side.
+        return { type: "amount_range", minCents: Math.round(min * 100), maxCents: Math.round(max * 100) };
       }
       case "sign":
         return { type: "sign", value: sign };

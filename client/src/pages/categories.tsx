@@ -107,9 +107,13 @@ function CreateCategoryDialog({ clientId }: { clientId: string }) {
     setError(null);
   };
 
-  const dollarsToCents = (v: string): bigint | null => {
+  // A plain number, not bigint: the request body goes through
+  // JSON.stringify, which has no bigint and throws before the request is
+  // even sent. The run's own scope schema (cfg-create-category.ts) takes
+  // this wire-safe number and casts it to Cents server side.
+  const dollarsToCents = (v: string): number | null => {
     const n = Number(v);
-    return v.trim() === "" || !Number.isFinite(n) ? null : BigInt(Math.round(n * 100));
+    return v.trim() === "" || !Number.isFinite(n) ? null : Math.round(n * 100);
   };
 
   const save = async () => {

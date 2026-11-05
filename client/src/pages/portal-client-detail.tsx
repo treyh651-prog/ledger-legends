@@ -252,7 +252,11 @@ function ClientPolicyDialog({ clientId, policy }: { clientId: string; policy: Se
     if (functionalCurrency !== (policy?.functionalCurrency ?? "USD")) fields.functionalCurrency = functionalCurrency;
     const parsedCents = Math.round(Number(capitalizeOverDollars) * 100);
     if (Number.isFinite(parsedCents) && parsedCents !== (policy?.capitalizeOverCents ?? 250000)) {
-      fields.capitalizeOverCents = BigInt(parsedCents);
+      // A plain number, not BigInt: the request body goes through
+      // JSON.stringify, which has no bigint and throws before the request
+      // is even sent. CFG-EDIT-CLIENT-POLICY's own scope schema takes this
+      // wire-safe number and casts it to Cents server side.
+      fields.capitalizeOverCents = parsedCents;
     }
     if (grossAtSaleTime !== (policy?.grossAtSaleTime ?? false)) fields.grossAtSaleTime = grossAtSaleTime;
     if (cleanupEngagement !== (policy?.cleanupEngagement ?? false)) fields.cleanupEngagement = cleanupEngagement;

@@ -60,6 +60,19 @@ test("cfg-create-category: a brand new category is created", async () => {
   assertEqual(versions[0].changeNote, "added for job costing", "carries the caller's note");
 });
 
+test("cfg-create-category: receipt and capitalize thresholds arrive as wire-safe numbers and are stored as real cents", async () => {
+  const db = codingDb();
+  const { applied } = await createAndApply(
+    db,
+    scopeFor({ requiresReceiptOverCents: 7500, capitalizeOverCents: 250000 }),
+  );
+  assertEqual(applied.status, "completed", "apply completed");
+  const id = categoryIdFor(CLIENT_A1, "Equipment rental");
+  const row = (db.all("categories") as unknown as CategoryRow[]).find((c) => c.id === id);
+  assertEqual(row?.requiresReceiptOverCents, BigInt(7500), "converted to a real bigint");
+  assertEqual(row?.capitalizeOverCents, BigInt(250000), "converted to a real bigint");
+});
+
 test("cfg-create-category: creating the same name twice is a no op the second time", async () => {
   const db = codingDb();
   await createAndApply(db, scopeFor());

@@ -82,6 +82,19 @@ test("cfg-create-rule: an unknown target category is refused", async () => {
   assertEqual((db.all("rules") as unknown as RuleRow[]).length, 0, "nothing was created");
 });
 
+test("cfg-create-rule: an amount_range condition arrives as wire-safe numbers and is stored as real cents", async () => {
+  const db = ruleDb();
+  const { applied } = await createAndApply(
+    db,
+    scopeFor({ conditions: [{ type: "amount_range", minCents: 100, maxCents: 50000 }] }),
+  );
+  assertEqual(applied.status, "completed", "apply completed");
+  const row = (db.all("rules") as unknown as RuleRow[])[0];
+  const condition = row.conditions[0] as { type: "amount_range"; minCents: bigint; maxCents: bigint };
+  assertEqual(condition.minCents, BigInt(100), "minCents converted to a real bigint");
+  assertEqual(condition.maxCents, BigInt(50000), "maxCents converted to a real bigint");
+});
+
 test("cfg-create-rule: undo does nothing, every proposal here is an insert", async () => {
   const db = ruleDb();
   const { applied } = await createAndApply(db, scopeFor());

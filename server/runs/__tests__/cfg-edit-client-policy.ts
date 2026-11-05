@@ -64,6 +64,23 @@ test("cfg-edit-client-policy: the first edit for a client with no row creates on
   assertEqual(versionsOf(db).length, 1, "one history row for the creation itself");
 });
 
+test("cfg-edit-client-policy: capitalizeOverCents arrives as a wire-safe number and is stored as a real bigint", async () => {
+  const db = dbWithEquityAccounts();
+  await editAndApply(db, scopeFor({ entityKind: "for_profit", retainedEarningsAccount: "3200" }));
+  const { applied } = await editAndApply(db, scopeFor({ capitalizeOverCents: 500000 }));
+  assertEqual(applied.status, "completed", "apply completed");
+  assertEqual(policyOf(db)?.capitalizeOverCents, BigInt(500000), "converted to a real bigint");
+});
+
+test("cfg-edit-client-policy: resubmitting the same capitalizeOverCents is a no op, the wire number converts before comparing", async () => {
+  const db = dbWithEquityAccounts();
+  await editAndApply(db, scopeFor({ entityKind: "for_profit", retainedEarningsAccount: "3200" }));
+  await editAndApply(db, scopeFor({ capitalizeOverCents: 500000 }));
+  const preview = await execute(db, cfgEditClientPolicy, scopeFor({ capitalizeOverCents: 500000 }), opts("preview"));
+  assertEqual(preview.status, "no_op", "no_op, the converted bigint equals the stored one");
+  assert(preview.result.skips.some((s) => s.reason === "already_applied"), "reported as already applied");
+});
+
 test("cfg-edit-client-policy: a nonprofit client can be created when its net assets account is named", async () => {
   const db = dbWithEquityAccounts();
   const { applied } = await editAndApply(

@@ -57,9 +57,17 @@ export const newCategoryFieldsSchema = z.object({
     "not_applicable",
   ]),
   class1099: z.enum(["none", "nec", "misc_rent", "misc_other", "attorney"]).default("none"),
-  requiresReceiptOverCents: z.bigint().nonnegative().nullable().default(null),
+  // Plain numbers, not z.bigint(): the scope arrives as parsed JSON over
+  // HTTP, which has no bigint, and JSON.stringify throws on one client
+  // side before the request is even sent -- categories.tsx's dollar
+  // inputs were constructing a real BigInt and handing it straight to
+  // JSON.stringify, which has been throwing on every category create that
+  // actually set either dollar field. Cast to Cents below, the same
+  // wire-safe-number convention TXN-VOID-AND-REISSUE's own corrections
+  // schema uses.
+  requiresReceiptOverCents: z.number().int().nonnegative().safe().nullable().default(null),
   requiresClass: z.boolean().default(false),
-  capitalizeOverCents: z.bigint().nonnegative().nullable().default(null),
+  capitalizeOverCents: z.number().int().nonnegative().safe().nullable().default(null),
   restrictionRelevant: z.boolean().default(false),
   isActive: z.boolean().default(true),
 });
@@ -73,6 +81,10 @@ export const createCategoryScopeSchema = z.object({
 export type CreateCategoryScope = z.infer<typeof createCategoryScopeSchema>;
 
 export const ERR_CATEGORY_UNKNOWN_ACCOUNT = "CFG-CATEGORY-UNKNOWN-ACCOUNT";
+
+function toCentsOrNull(n: number | null): bigint | null {
+  return n === null ? null : BigInt(n);
+}
 
 export function categoryIdFor(clientId: string, name: string): string {
   return derivedId(`${clientId}:${name}`, "cfg-create-category", 0);
@@ -142,9 +154,9 @@ export const cfgCreateCategory: Run<CreateCategoryScope, Proposal> = {
       normalSide: scope.fields.normalSide,
       taxTreatment: scope.fields.taxTreatment,
       class1099: scope.fields.class1099,
-      requiresReceiptOverCents: scope.fields.requiresReceiptOverCents,
+      requiresReceiptOverCents: toCentsOrNull(scope.fields.requiresReceiptOverCents),
       requiresClass: scope.fields.requiresClass,
-      capitalizeOverCents: scope.fields.capitalizeOverCents,
+      capitalizeOverCents: toCentsOrNull(scope.fields.capitalizeOverCents),
       restrictionRelevant: scope.fields.restrictionRelevant,
       isActive: scope.fields.isActive,
       updatedAt: NOW_PLACEHOLDER,

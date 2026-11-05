@@ -43,7 +43,7 @@ import {
 import { ACTOR_PLACEHOLDER, NOW_PLACEHOLDER, applyProposals, requireTx } from "../apply-writer";
 import { canonicalJson, derivedId, scopeHashFor } from "../ids";
 import { categoryIndex } from "./coding-cascade";
-import { ruleConditionSchema } from "./cfg-edit-rule";
+import { ruleConditionSchema, toRuleConditions } from "./cfg-edit-rule";
 import type { RuleRow } from "../tables";
 
 export const newRuleFieldsSchema = z.object({
@@ -134,7 +134,7 @@ export const cfgCreateRule: Run<CreateRuleScope, Proposal> = {
       name: scope.fields.name,
       priority: scope.fields.priority,
       conditionCount: scope.fields.conditions.length,
-      conditions: scope.fields.conditions,
+      conditions: toRuleConditions(scope.fields.conditions),
       targetCategoryId: scope.fields.targetCategoryId,
       targetClassId: scope.fields.targetClassId,
       scopeKind: scope.fields.scopeKind,

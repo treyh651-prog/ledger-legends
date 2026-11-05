@@ -46,18 +46,42 @@ import { scopeHashFor, canonicalJson } from "../ids";
 import { revertFieldWrite } from "../undo";
 import type { RuleCondition, RuleRow } from "../tables";
 
-export const ruleConditionSchema: z.ZodType<RuleCondition> = z.union([
+/**
+ * The wire shape of a condition. amount_range carries plain numbers, not
+ * z.bigint(): the scope arrives as parsed JSON over HTTP, which has no
+ * bigint, and JSON.stringify throws on one client side before the request
+ * is even sent -- the same wire-safe-number convention centsSchema names
+ * (shared/api/common.ts) and TXN-VOID-AND-REISSUE's own corrections
+ * schema already uses for amountCents. rules.tsx's condition builder was
+ * constructing a real BigInt for minCents/maxCents and handing it straight
+ * to JSON.stringify, which has been throwing on every real amount-range
+ * rule creation or edit. toRuleCondition converts back to the bigint
+ * RuleCondition shape TXN-APPLY-RULES actually matches amounts against.
+ */
+export const ruleConditionSchema = z.union([
   z.object({ type: z.literal("vendor_equals"), value: z.string().min(1) }),
   z.object({ type: z.literal("vendor_prefix"), value: z.string().min(1) }),
   z.object({
     type: z.literal("amount_range"),
-    minCents: z.bigint().nonnegative(),
-    maxCents: z.bigint().nonnegative(),
+    minCents: z.number().int().nonnegative().safe(),
+    maxCents: z.number().int().nonnegative().safe(),
   }),
   z.object({ type: z.literal("sign"), value: z.enum(["debit", "credit"]) }),
   z.object({ type: z.literal("bank_account"), value: z.string().min(1) }),
   z.object({ type: z.literal("bank_code"), value: z.string().min(1) }),
 ]);
+
+export type RuleConditionWire = z.infer<typeof ruleConditionSchema>;
+
+export function toRuleCondition(c: RuleConditionWire): RuleCondition {
+  return c.type === "amount_range"
+    ? { type: "amount_range", minCents: BigInt(c.minCents), maxCents: BigInt(c.maxCents) }
+    : c;
+}
+
+export function toRuleConditions(cs: readonly RuleConditionWire[]): RuleCondition[] {
+  return cs.map(toRuleCondition);
+}
 
 export const editableRuleFieldsSchema = z.object({
   name: z.string().min(1).optional(),
@@ -91,9 +115,14 @@ function valueChanged(current: unknown, next: unknown): boolean {
   return current !== next;
 }
 
+/** scope.fields with conditions already converted to the internal bigint shape. */
+type EditableRuleFieldsInternal = Omit<z.infer<typeof editableRuleFieldsSchema>, "conditions"> & {
+  conditions?: RuleCondition[];
+};
+
 function changedFields(
   current: RuleRow,
-  fields: z.infer<typeof editableRuleFieldsSchema>,
+  fields: EditableRuleFieldsInternal,
 ): { before: Record<string, unknown>; after: Record<string, unknown> } {
   const before: Record<string, unknown> = {};
   const after: Record<string, unknown> = {};
@@ -172,7 +201,11 @@ export const cfgEditRule: Run<EditRuleScope, Proposal> = {
       return makeResult<Proposal>(1, [], [], errors, BigInt(0));
     }
 
-    const { before, after } = changedFields(rule, scope.fields);
+    const fields: EditableRuleFieldsInternal = {
+      ...scope.fields,
+      conditions: scope.fields.conditions === undefined ? undefined : toRuleConditions(scope.fields.conditions),
+    };
+    const { before, after } = changedFields(rule, fields);
     if (Object.keys(after).length === 0) {
       return makeResult<Proposal>(
         1,

@@ -456,7 +456,10 @@ export function createApiRouter(deps: ApiDeps): Router {
     route(async (req) => {
       const { clientId } = parse(clientParamsSchema, req.params);
       const period = screenPeriod(req);
-      const { batchId } = parse(z.object({ batchId: z.string().uuid().optional() }), req.query);
+      // A derivedId, not a uuid -- ledger.rec_batches.id is a char(26) ULID
+      // derived from the statement id, like every other run-minted row,
+      // never a uuid. Same bug shape as RPT-BUILD-PACKAGE's packageId below.
+      const { batchId } = parse(z.object({ batchId: z.string().min(1).max(64).optional() }), req.query);
       const firmId = req.firm!.firmId;
       const body = await deps.db.tx(readSession(req.actor!, firmId, clientId), (tx) =>
         reconcile(tx, firmId, clientId, period, batchId ?? null),
@@ -611,7 +614,10 @@ export function createApiRouter(deps: ApiDeps): Router {
     "/forecast",
     route(async (req) => {
       const { clientId } = parse(clientParamsSchema, req.params);
-      const { runId } = parse(z.object({ runId: z.string().uuid().optional() }), req.query);
+      // A derivedId, not a uuid -- report.cash_forecast_runs.id is a
+      // char(26) ULID, never a uuid. Same bug shape as RPT-BUILD-PACKAGE's
+      // packageId below.
+      const { runId } = parse(z.object({ runId: z.string().min(1).max(64).optional() }), req.query);
       const firmId = req.firm!.firmId;
       const body = await deps.db.tx(readSession(req.actor!, firmId, clientId), (tx) => forecast(tx, firmId, clientId, runId ?? null));
       return { body };
@@ -653,7 +659,9 @@ export function createApiRouter(deps: ApiDeps): Router {
     "/tax-forms",
     route(async (req) => {
       const { clientId } = parse(clientParamsSchema, req.params);
-      const { dataSetId } = parse(z.object({ dataSetId: z.string().uuid().optional() }), req.query);
+      // A derivedId, not a uuid -- tax.data_sets.id is a char(26) ULID,
+      // never a uuid. Same bug shape as RPT-BUILD-PACKAGE's packageId below.
+      const { dataSetId } = parse(z.object({ dataSetId: z.string().min(1).max(64).optional() }), req.query);
       const firmId = req.firm!.firmId;
       const body = await deps.db.tx(readSession(req.actor!, firmId, clientId), (tx) => taxForms(tx, firmId, clientId, todayOf(deps), dataSetId ?? null));
       return { body };

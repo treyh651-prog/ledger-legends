@@ -94,6 +94,32 @@ test("cfg-edit-rule: editing conditions recomputes conditionCount rather than tr
   assertEqual(row.conditionCount, 2, "conditionCount matches conditions.length, migration 0004's own check");
 });
 
+test("cfg-edit-rule: an amount_range condition arrives as wire-safe numbers and is stored as real cents", async () => {
+  const db = new MemoryRunDb();
+  seedRule(db);
+  const { applied } = await editAndApply(
+    db,
+    scopeFor({ conditions: [{ type: "amount_range", minCents: 100, maxCents: 50000 }] }),
+  );
+  assertEqual(applied.status, "completed", "apply completed");
+  const condition = ruleOf(db).conditions[0] as { type: "amount_range"; minCents: bigint; maxCents: bigint };
+  assertEqual(condition.minCents, BigInt(100), "minCents converted to a real bigint");
+  assertEqual(condition.maxCents, BigInt(50000), "maxCents converted to a real bigint");
+});
+
+test("cfg-edit-rule: resubmitting the same amount_range condition is a no op, the wire number converts before comparing", async () => {
+  const db = new MemoryRunDb();
+  seedRule(db, { conditions: [{ type: "amount_range", minCents: BigInt(100), maxCents: BigInt(50000) }] });
+  const preview = await execute(
+    db,
+    cfgEditRule,
+    scopeFor({ conditions: [{ type: "amount_range", minCents: 100, maxCents: 50000 }] }),
+    opts("preview"),
+  );
+  assertEqual(preview.status, "no_op", "no_op, the converted bigint array is structurally identical to the stored one");
+  assert(preview.result.skips.some((s) => s.reason === "already_applied"), "reported as already applied");
+});
+
 test("cfg-edit-rule: any real change resets the promotion state, doc 02 Part D condition 2", async () => {
   const db = new MemoryRunDb();
   seedRule(db);

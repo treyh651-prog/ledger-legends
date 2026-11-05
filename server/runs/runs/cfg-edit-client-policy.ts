@@ -61,7 +61,15 @@ import type { ClientPolicyRow } from "../tables";
 
 export const editableClientPolicyFieldsSchema = z.object({
   functionalCurrency: z.string().regex(/^[A-Z]{3}$/).optional(),
-  capitalizeOverCents: z.bigint().nonnegative().nullable().optional(),
+  // A plain number, not z.bigint(): the scope arrives as parsed JSON over
+  // HTTP, which has no bigint, and JSON.stringify throws on one client
+  // side before the request is even sent. ClientPolicyDialog's "Capitalize
+  // over ($)" field was constructing a real BigInt and handing it straight
+  // to JSON.stringify, which has been throwing on every save that actually
+  // changed this field. Cast to Cents in propose() below, the same
+  // wire-safe-number convention TXN-VOID-AND-REISSUE's own corrections
+  // schema uses.
+  capitalizeOverCents: z.number().int().nonnegative().safe().nullable().optional(),
   grossAtSaleTime: z.boolean().optional(),
   cleanupEngagement: z.boolean().optional(),
   entityKind: z.enum(["for_profit", "nonprofit"]).optional(),
@@ -94,9 +102,17 @@ const EQUITY_ACCOUNT_FIELDS = [
   "netAssetsWithRestrictionsAccount",
 ] as const;
 
+/** scope.fields with capitalizeOverCents already converted to the internal bigint shape. */
+type EditableClientPolicyFieldsInternal = Omit<
+  z.infer<typeof editableClientPolicyFieldsSchema>,
+  "capitalizeOverCents"
+> & {
+  capitalizeOverCents?: bigint | null;
+};
+
 function changedFields(
   current: ClientPolicyRow,
-  fields: z.infer<typeof editableClientPolicyFieldsSchema>,
+  fields: EditableClientPolicyFieldsInternal,
 ): { before: Record<string, unknown>; after: Record<string, unknown> } {
   const before: Record<string, unknown> = {};
   const after: Record<string, unknown> = {};
@@ -168,6 +184,15 @@ export const cfgEditClientPolicy: Run<EditClientPolicyScope, Proposal> = {
     const rows = await tx.query("client_policy", { firmId: ctx.firmId, clientId: scope.clientId });
     const existing: ClientPolicyRow | undefined = rows[0];
 
+    // Converted once, here, to the internal Cents (bigint) shape -- every
+    // use below reads this, never scope.fields.capitalizeOverCents directly.
+    const capitalizeOverCents: bigint | null | undefined =
+      scope.fields.capitalizeOverCents === undefined
+        ? undefined
+        : scope.fields.capitalizeOverCents === null
+          ? null
+          : BigInt(scope.fields.capitalizeOverCents);
+
     const chart = await tx.query("chart_accounts_for_client", { firmId: ctx.firmId, clientId: scope.clientId });
     const knownNumbers = new Set(chart.map((a) => a.accountNumber));
     for (const field of EQUITY_ACCOUNT_FIELDS) {
@@ -228,10 +253,7 @@ export const cfgEditClientPolicy: Run<EditClientPolicyScope, Proposal> = {
         firmId: ctx.firmId,
         clientId: scope.clientId,
         functionalCurrency: scope.fields.functionalCurrency ?? FUNCTIONAL_CURRENCY,
-        capitalizeOverCents:
-          scope.fields.capitalizeOverCents !== undefined
-            ? scope.fields.capitalizeOverCents
-            : DEFAULT_CAPITALIZE_OVER_CENTS,
+        capitalizeOverCents: capitalizeOverCents !== undefined ? capitalizeOverCents : DEFAULT_CAPITALIZE_OVER_CENTS,
         grossAtSaleTime: scope.fields.grossAtSaleTime ?? false,
         cleanupEngagement: scope.fields.cleanupEngagement ?? false,
         entityKind,
@@ -268,7 +290,7 @@ export const cfgEditClientPolicy: Run<EditClientPolicyScope, Proposal> = {
       return makeResult<Proposal>(1, proposals, [], [], BigInt(0));
     }
 
-    const { before, after } = changedFields(existing, scope.fields);
+    const { before, after } = changedFields(existing, { ...scope.fields, capitalizeOverCents });
     if (Object.keys(after).length === 0) {
       return makeResult<Proposal>(
         1,
