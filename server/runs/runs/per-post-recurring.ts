@@ -340,7 +340,7 @@ interface BuildFailure {
  * single remainder line takes whatever the basis points did not reach, which
  * is what makes a 3333 and 3333 and 3334 split land exactly on 10000.
  */
-function buildLines(
+export function buildLines(
   template: RecurringTemplateRow,
   splits: readonly RecurringSplitRow[],
   postingDay: string,

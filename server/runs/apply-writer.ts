@@ -31,6 +31,8 @@ import type {
   BillApplicationRow,
   BillRow,
   CategoryRow,
+  RecurringSplitRow,
+  RecurringTemplateRow,
   CategoryVersionRow,
   ChartAccountRow,
   ClientPolicyRow,
@@ -679,6 +681,15 @@ async function insertRow(
       await tx.insert("depreciation_schedule", [
         withId as unknown as DepreciationScheduleRow,
       ]);
+      return;
+    // Doc 04 Part 6. CFG-CREATE-RECURRING-TEMPLATE is the first writer of
+    // either table -- PER-POST-RECURRING has always been able to post a
+    // generated_entry template, but nothing ever inserted one.
+    case "recurring_templates":
+      await tx.insert("recurring_templates", [withId as unknown as RecurringTemplateRow]);
+      return;
+    case "recurring_splits":
+      await tx.insert("recurring_splits", [withId as unknown as RecurringSplitRow]);
       return;
     // Doc 02 module 5. Four of the six receivable and payable runs produce a
     // subledger record rather than only a ledger entry: the aging snapshot, the

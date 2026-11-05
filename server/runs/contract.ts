@@ -177,7 +177,14 @@ export type RunTypeId =
   | "CFG-CREATE-ENTITY-GROUP"
   | "CFG-EDIT-ENTITY-GROUP"
   | "CFG-SET-GROUP-MEMBERS"
-  | "RPT-BUILD-CONSOLIDATED-PACKAGE";
+  | "RPT-BUILD-CONSOLIDATED-PACKAGE"
+  // subledger.recurring_templates has carried a generated_entry match_kind
+  // since migration 0005, and PER-POST-RECURRING has been able to post one
+  // in full since before this round -- but nothing in the registry ever
+  // inserted a recurring_templates or recurring_splits row at all, for
+  // either match_kind. This is that insert, scoped to generated_entry; a
+  // transaction_match creator has the identical gap and is still missing.
+  | "CFG-CREATE-RECURRING-TEMPLATE";
 
 /** Doc 03 Part 7 names the reversal of a run `<ORIGINAL>-UNDO`. */
 export type UndoRunTypeId = `${RunTypeId}-UNDO`;

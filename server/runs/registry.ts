@@ -139,6 +139,7 @@ import { txnRecode } from "./runs/txn-recode";
 import { cfgDisableRuleAutopost } from "./runs/cfg-disable-rule-autopost";
 import { cfgCreateEntityGroup, cfgEditEntityGroup, cfgSetGroupMembers } from "./runs/cfg-entity-group";
 import { rptBuildConsolidatedPackage } from "./runs/rpt-build-consolidated-package";
+import { cfgCreateRecurringTemplate } from "./runs/cfg-create-recurring-template";
 
 /** Scope types differ per run, so the registry stores erased entries. */
 export interface RegistryEntry {
@@ -287,6 +288,11 @@ export const registry: readonly RegistryEntry[] = [
   entry(cfgEditEntityGroup),
   entry(cfgSetGroupMembers),
   entry(rptBuildConsolidatedPackage),
+  // The missing writer for subledger.recurring_templates/recurring_splits,
+  // generated_entry only. Manual, triggered from the recurring-entries
+  // screen -- an amount and a cadence a clock has no schedule of its own to
+  // discover, the same reasoning every other CFG-CREATE-* gives.
+  entry(cfgCreateRecurringTemplate),
 ];
 
 /**

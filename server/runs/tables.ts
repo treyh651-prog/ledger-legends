@@ -603,6 +603,22 @@ export interface RecurringTemplateRow {
   driverAmountCents: Cents | null;
   entryMemoTemplate: string | null;
   manualOverride: boolean;
+  /**
+   * Required not null by rec_generated_needs_cadence for a generated_entry
+   * template, null for transaction_match. Never modeled here, never read
+   * anywhere in server/runs -- PER-POST-RECURRING computes dueness from
+   * startDate and cadence directly (per-shared.ts's cadenceDueIn), not from
+   * this column. CFG-CREATE-RECURRING-TEMPLATE sets it to startDate purely
+   * to satisfy the constraint, the same cosmetic treatment as contra_of.
+   */
+  nextDueDate: string | null;
+  /**
+   * Migration 0005 carries both not null, with created_at defaulting to
+   * now(). Never modeled here before CFG-CREATE-RECURRING-TEMPLATE, the
+   * first writer this table ever had.
+   */
+  createdAt: string;
+  createdBy: Ulid;
 }
 
 /** subledger.recurring_splits, doc 04 Part 6. */

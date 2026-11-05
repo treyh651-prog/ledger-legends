@@ -173,10 +173,13 @@ export function template(
     cadence: null,
     startDate: null,
     endDate: null,
+    nextDueDate: null,
     postingDateRule: "period_end",
     driverAmountCents: null,
     entryMemoTemplate: null,
     manualOverride: false,
+    createdAt: NOW.toISOString(),
+    createdBy: ACTOR,
     ...extra,
   };
 }

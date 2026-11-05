@@ -1865,11 +1865,12 @@ export const QUERIES: Record<QueryName, SqlSpec> = {
             day_of_month as "dayOfMonth", day_window as "dayWindow",
             split_mode as "splitMode", is_active as "isActive",
             cadence, start_date::text as "startDate",
-            end_date::text as "endDate",
+            end_date::text as "endDate", next_due_date::text as "nextDueDate",
             posting_date_rule as "postingDateRule",
             driver_amount_cents::text as "driverAmountCents",
             entry_memo_template as "entryMemoTemplate",
-            manual_override as "manualOverride"
+            manual_override as "manualOverride",
+            created_at::text as "createdAt", created_by as "createdBy"
           from subledger.recurring_templates
           where firm_id = $1 and client_id = $2
           order by id asc`,

@@ -523,6 +523,11 @@ export const RUN_POLICIES: Readonly<Record<string, RunPolicy>> = {
     reason:
       "combines two or more entities' figures into one package, and a firm decides when that is ready to build -- there is no group scoped schedule concept for a clock to use the way RPT-BUILD-PACKAGE's own schedule is per client",
   },
+  "CFG-CREATE-RECURRING-TEMPLATE": {
+    tier: "manual",
+    reason:
+      "a person at the firm names the amount, the cadence, and which accounts a recurring entry posts to, once, and a clock has no recurring obligation of its own to discover",
+  },
 };
 
 export const RUN_TIER_VALUES: readonly RunTier[] = [

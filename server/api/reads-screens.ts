@@ -28,13 +28,14 @@ import type {
   RecBatch,
   RecLine,
   Reconcile,
+  RecurringTemplates,
   StagedBatch,
   StagedBatches,
   TrialBalance,
 } from "../../shared/api/screens";
 import type { Cents } from "../runs/contract";
 import type { RunTx } from "../runs/db";
-import type { PracticeTaskRow } from "../runs/tables";
+import type { PracticeTaskRow, RecurringSplitRow } from "../runs/tables";
 import { blockOf } from "../runs/runs/close-shared";
 import { periodWindow } from "../runs/runs/per-shared";
 
@@ -581,6 +582,49 @@ export async function categoriesForClient(tx: RunTx, firmId: string, clientId: s
       capitalizeOverCents: cents(c.capitalizeOverCents),
       restrictionRelevant: c.restrictionRelevant,
       isActive: c.isActive,
+    })),
+  };
+}
+
+/* ---------------- Recurring templates ---------------- */
+
+export async function recurringTemplates(tx: RunTx, firmId: string, clientId: string): Promise<RecurringTemplates> {
+  const templates = await tx.query("recurring_templates_for_client", { firmId, clientId });
+  const generated = templates.filter((t) => t.matchKind === "generated_entry");
+  const splitsByTemplate = new Map<string, RecurringSplitRow[]>();
+  await Promise.all(
+    generated.map(async (t) => {
+      const splits = await tx.query("recurring_splits_for_template", {
+        firmId,
+        clientId,
+        templateId: t.id,
+        templateVersion: t.version,
+      });
+      splitsByTemplate.set(t.id, splits);
+    }),
+  );
+  return {
+    clientId,
+    items: generated.map((t) => ({
+      id: t.id,
+      name: t.name,
+      cadence: t.cadence,
+      startDate: t.startDate,
+      endDate: t.endDate,
+      postingDateRule: t.postingDateRule,
+      dayOfMonth: t.dayOfMonth,
+      driverAmountCents: orNull(t.driverAmountCents),
+      entryMemoTemplate: t.entryMemoTemplate,
+      isActive: t.isActive,
+      splits: (splitsByTemplate.get(t.id) ?? []).map((s) => ({
+        id: s.id,
+        accountNumber: s.accountNumber,
+        categoryId: s.categoryId,
+        fixedAmountCents: orNull(s.fixedAmountCents),
+        percentBps: s.percentBps,
+        isRemainder: s.isRemainder,
+        memo: s.memo,
+      })),
     })),
   };
 }

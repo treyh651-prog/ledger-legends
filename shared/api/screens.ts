@@ -394,6 +394,38 @@ export const categoriesSchema = z.object({
 });
 export type Categories = z.infer<typeof categoriesSchema>;
 
+export const recurringSplitSchema = z.object({
+  id: z.string(),
+  accountNumber: z.string(),
+  categoryId: z.string(),
+  fixedAmountCents: centsSchema.nullable(),
+  percentBps: z.number().int().nullable(),
+  isRemainder: z.boolean(),
+  memo: z.string().nullable(),
+});
+export type RecurringSplit = z.infer<typeof recurringSplitSchema>;
+
+export const recurringTemplateSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  cadence: z.enum(["weekly", "semi_monthly", "monthly", "quarterly", "semi_annual", "annual"]).nullable(),
+  startDate: z.string().nullable(),
+  endDate: z.string().nullable(),
+  postingDateRule: z.enum(["period_end", "day_n"]),
+  dayOfMonth: z.number().int().nullable(),
+  driverAmountCents: centsSchema.nullable(),
+  entryMemoTemplate: z.string().nullable(),
+  isActive: z.boolean(),
+  splits: z.array(recurringSplitSchema),
+});
+export type RecurringTemplate = z.infer<typeof recurringTemplateSchema>;
+
+export const recurringTemplatesSchema = z.object({
+  clientId: idSchema,
+  items: z.array(recurringTemplateSchema),
+});
+export type RecurringTemplates = z.infer<typeof recurringTemplatesSchema>;
+
 /* ------------------------------------------------------------------------ */
 /* Tax forms, the 1099 compilation                                           */
 /* ------------------------------------------------------------------------ */

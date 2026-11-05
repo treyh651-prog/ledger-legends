@@ -86,10 +86,13 @@ export function generatedTemplate(
     cadence: "monthly",
     startDate: "2026-01-01",
     endDate: null,
+    nextDueDate: "2026-01-01",
     postingDateRule: "period_end",
     driverAmountCents: null,
     entryMemoTemplate: null,
     manualOverride: false,
+    createdAt: NOW.toISOString(),
+    createdBy: ACTOR,
     ...extra,
   };
 }
