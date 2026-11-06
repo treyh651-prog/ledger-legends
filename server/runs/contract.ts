@@ -195,7 +195,22 @@ export type RunTypeId =
   // previewed and applied by the same actor, tripping G18 every close)
   // had no way to lock a period at all. This is that missing writer, for
   // any gate, not only G18.
-  | "CLOSE-OVERRIDE-GATE";
+  | "CLOSE-OVERRIDE-GATE"
+  // Audit fix, problem 7: seven kinds of setup data had no creation path
+  // at all -- fixed_assets, loans/loan_schedule, deferral_schedules,
+  // accrual_templates, arap_policies, bank_code_mappings, budgets/
+  // budget_thresholds all had readers (PER-POST-DEPRECIATION,
+  // PER-SPLIT-LOAN, PER-AMORTIZE-PREPAIDS, PER-POST-ACCRUALS, the AR/AP
+  // module 5 runs, TXN-MAP-BANKCODES, RPT-FLAG-VARIANCES) but no writer
+  // at all in apply-writer.ts. These eight runs are that writer.
+  | "CFG-CREATE-FIXED-ASSET"
+  | "CFG-CREATE-LOAN"
+  | "CFG-CREATE-DEFERRAL-SCHEDULE"
+  | "CFG-CREATE-ACCRUAL-TEMPLATE"
+  | "CFG-CREATE-ARAP-POLICY"
+  | "CFG-CREATE-BANKCODE-MAPPING"
+  | "CFG-CREATE-BUDGET-LINES"
+  | "CFG-CREATE-BUDGET-THRESHOLD";
 
 /** Doc 03 Part 7 names the reversal of a run `<ORIGINAL>-UNDO`. */
 export type UndoRunTypeId = `${RunTypeId}-UNDO`;

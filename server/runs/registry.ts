@@ -80,6 +80,14 @@ import { arapRefreshAging } from "./runs/ar-refresh-aging";
 import { arWriteoffUncollectible } from "./runs/ar-writeoff-uncollectible";
 import { clsEvaluateGates } from "./runs/cls-evaluate-gates";
 import { closeOverrideGate } from "./runs/close-override-gate";
+import { cfgCreateFixedAsset } from "./runs/cfg-create-fixed-asset";
+import { cfgCreateLoan } from "./runs/cfg-create-loan";
+import { cfgCreateDeferralSchedule } from "./runs/cfg-create-deferral-schedule";
+import { cfgCreateAccrualTemplate } from "./runs/cfg-create-accrual-template";
+import { cfgCreateArapPolicy } from "./runs/cfg-create-arap-policy";
+import { cfgCreateBankcodeMapping } from "./runs/cfg-create-bankcode-mapping";
+import { cfgCreateBudgetLines } from "./runs/cfg-create-budget-lines";
+import { cfgCreateBudgetThreshold } from "./runs/cfg-create-budget-threshold";
 import { clsLockPeriod } from "./runs/cls-lock-period";
 import { clsPostYearEnd } from "./runs/cls-post-yearend";
 import { rptBuildPackage } from "./runs/rpt-build-package";
@@ -244,6 +252,14 @@ export const registry: readonly RegistryEntry[] = [
   // accepting a known exception is a person's decision, the same
   // reasoning the reference data edits above give.
   entry(closeOverrideGate),
+  entry(cfgCreateFixedAsset),
+  entry(cfgCreateLoan),
+  entry(cfgCreateDeferralSchedule),
+  entry(cfgCreateAccrualTemplate),
+  entry(cfgCreateArapPolicy),
+  entry(cfgCreateBankcodeMapping),
+  entry(cfgCreateBudgetLines),
+  entry(cfgCreateBudgetThreshold),
   entry(clsLockPeriod),
   entry(clsRollForward),
   entry(clsPostYearEnd),

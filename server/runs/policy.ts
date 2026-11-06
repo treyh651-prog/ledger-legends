@@ -355,6 +355,46 @@ export const RUN_POLICIES: Readonly<Record<string, RunPolicy>> = {
     reason:
       "accepting a known gate exception and writing down why is a decision a person makes on purpose, and a clock has no exception of its own to accept",
   },
+  "CFG-CREATE-FIXED-ASSET": {
+    tier: "manual",
+    reason:
+      "naming a real asset, its cost, and how it depreciates is a judgment a person makes once, and a clock has no asset of its own to discover",
+  },
+  "CFG-CREATE-LOAN": {
+    tier: "manual",
+    reason:
+      "entering a real lender's note and its own amortization table is a one time setup decision, and a clock has no loan of its own to discover",
+  },
+  "CFG-CREATE-DEFERRAL-SCHEDULE": {
+    tier: "manual",
+    reason:
+      "naming a prepaid policy, a deferred revenue contract, or an intangible's amortization term is a one time setup decision",
+  },
+  "CFG-CREATE-ACCRUAL-TEMPLATE": {
+    tier: "manual",
+    reason:
+      "naming a recurring accrual and which basis computes its amount is a judgment a person makes once",
+  },
+  "CFG-CREATE-ARAP-POLICY": {
+    tier: "manual",
+    reason:
+      "setting a client's late fee terms and write off thresholds is a judgment a person makes once",
+  },
+  "CFG-CREATE-BANKCODE-MAPPING": {
+    tier: "manual",
+    reason:
+      "deciding what a bank's own code means on this client's books is a judgment a person makes, the same reasoning CFG-CREATE-RULE gives for its own category mapping",
+  },
+  "CFG-CREATE-BUDGET-LINES": {
+    tier: "manual",
+    reason:
+      "entering a budget is a judgment a person makes once per period",
+  },
+  "CFG-CREATE-BUDGET-THRESHOLD": {
+    tier: "manual",
+    reason:
+      "deciding what counts as a real variance is a judgment a person makes",
+  },
   "CLOSE-ROLL-FORWARD": {
     tier: "propose",
     reason:

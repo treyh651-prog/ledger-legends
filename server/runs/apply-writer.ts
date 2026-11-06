@@ -105,6 +105,15 @@ import type {
   ConsolidatedPackageRow,
   ConsolidatedSectionRow,
   SchedScheduleRow,
+  FixedAssetRow,
+  LoanRow,
+  LoanScheduleRow,
+  DeferralScheduleRow,
+  AccrualTemplateRow,
+  ArapPolicyRow,
+  BankCodeMappingRow,
+  BudgetRow,
+  BudgetThresholdRow,
 } from "./tables";
 
 /**
@@ -980,6 +989,41 @@ async function insertRow(
     // migration, ever inserted the first one for a real client.
     case "sched_schedules":
       await tx.insert("sched_schedules", [withId as unknown as SchedScheduleRow]);
+      return;
+    // CFG-CREATE-FIXED-ASSET / CFG-CREATE-LOAN / CFG-CREATE-DEFERRAL-SCHEDULE
+    // / CFG-CREATE-ACCRUAL-TEMPLATE / CFG-CREATE-ARAP-POLICY /
+    // CFG-CREATE-BANKCODE-MAPPING / CFG-CREATE-BUDGET-LINES /
+    // CFG-CREATE-BUDGET-THRESHOLD. Audit fix (problem 7): none of these
+    // eight tables had an insert case at all -- each had a reader
+    // (PER-POST-DEPRECIATION, PER-SPLIT-LOAN, PER-AMORTIZE-PREPAIDS,
+    // PER-POST-ACCRUALS, the AR/AP module 5 runs, TXN-MAP-BANKCODES,
+    // RPT-FLAG-VARIANCES) but nothing could ever write the first row.
+    case "fixed_assets":
+      await tx.insert("fixed_assets", [withId as unknown as FixedAssetRow]);
+      return;
+    case "loans":
+      await tx.insert("loans", [withId as unknown as LoanRow]);
+      return;
+    case "loan_schedule":
+      await tx.insert("loan_schedule", [withId as unknown as LoanScheduleRow]);
+      return;
+    case "deferral_schedules":
+      await tx.insert("deferral_schedules", [withId as unknown as DeferralScheduleRow]);
+      return;
+    case "accrual_templates":
+      await tx.insert("accrual_templates", [withId as unknown as AccrualTemplateRow]);
+      return;
+    case "arap_policies":
+      await tx.insert("arap_policies", [withId as unknown as ArapPolicyRow]);
+      return;
+    case "bank_code_mappings":
+      await tx.insert("bank_code_mappings", [withId as unknown as BankCodeMappingRow]);
+      return;
+    case "budgets":
+      await tx.insert("budgets", [withId as unknown as BudgetRow]);
+      return;
+    case "budget_thresholds":
+      await tx.insert("budget_thresholds", [withId as unknown as BudgetThresholdRow]);
       return;
     /**
      * The two tenancy rows INTAKE-CREATE-CLIENT writes. Insert only, like the

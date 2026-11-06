@@ -395,6 +395,20 @@ export const COLUMN_OVERRIDES: Partial<
   },
 };
 
+/**
+ * Columns Postgres computes itself (`generated always as ... stored`) and
+ * refuses an explicit value for. insert() below filters these out of the
+ * statement it actually sends; the field still lives on the row object
+ * every run and every test builds, so the in-memory double (which has no
+ * such column and simply stores whatever it is given) keeps seeing a real
+ * value, computed once by whichever run built the row rather than
+ * recomputed, possibly differently, by Postgres and the memory double.
+ * CFG-CREATE-FIXED-ASSET is the first insert this table has ever had.
+ */
+const GENERATED_INSERT_COLUMNS: Partial<Record<TableName, readonly string[]>> = {
+  fixed_assets: ["depreciableBaseCents"],
+};
+
 /** The column a field is written to, and the value the column wants. */
 function columnFor(
   table: TableName,
@@ -2954,7 +2968,10 @@ class PostgresTx implements RunTx {
     }
     for (const key of order) {
       const group = groups.get(key)!;
-      const fieldNames = key.length === 0 ? [] : key.split(" ");
+      const generated: readonly string[] = GENERATED_INSERT_COLUMNS[table] ?? [];
+      const fieldNames = (key.length === 0 ? [] : key.split(" ")).filter(
+        (f) => !generated.includes(f),
+      );
       if (fieldNames.length === 0) continue;
       const resolvedCols = fieldNames.map((f) => columnFor(table, f, group[0][f])[0]);
       const placeholderRows: string[] = [];
