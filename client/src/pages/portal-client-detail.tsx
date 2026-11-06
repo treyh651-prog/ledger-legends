@@ -149,13 +149,17 @@ export default function PortalClientDetail() {
           )}
         </SectionCard>
 
-        <SectionCard title="Accounts and how activity reaches the books" bodyClassName="p-0">
+        <SectionCard
+          title="Accounts and how activity reaches the books"
+          bodyClassName="p-0"
+          actions={id ? <AddBankAccountDialog clientId={id} /> : null}
+        >
           {setup.isError ? (
             <div className="p-4">
               <ErrorState message={errorMessage(setup.error)} onRetry={() => void setup.refetch()} />
             </div>
           ) : banks.length === 0 ? (
-            <p className="px-4 py-3 text-xs text-muted-foreground">No bank or card accounts on this client yet. The first import records them.</p>
+            <p className="px-4 py-3 text-xs text-muted-foreground">No bank or card accounts on this client yet. Add one, or the wizard's own bank account step already did.</p>
           ) : (
             <table className="w-full text-xs">
               <thead>
@@ -366,6 +370,125 @@ function ClientPolicyDialog({ clientId, policy }: { clientId: string; policy: Se
           </Button>
           <Button size="sm" onClick={() => void save()} disabled={trigger.isPending} data-testid="policy-save">
             Save
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/**
+ * Audit fix, 2026-11-05. SETUP-ADD-BANK-ACCOUNT has existed since early
+ * in this engagement, but the only caller was the intake wizard's own
+ * finish() -- meaning a firm could never add an account to a client
+ * after onboarding at all. This is that standalone affordance.
+ */
+function AddBankAccountDialog({ clientId }: { clientId: string }) {
+  const [open, setOpen] = useState(false);
+  const [institutionName, setInstitutionName] = useState("");
+  const [nickname, setNickname] = useState("");
+  const [accountNumber, setAccountNumber] = useState("");
+  const [kind, setKind] = useState<"bank" | "card">("bank");
+  const [error, setError] = useState<string | null>(null);
+  const trigger = useTriggerRun(clientId);
+  const qc = useQueryClient();
+
+  const reset = () => {
+    setInstitutionName("");
+    setNickname("");
+    setAccountNumber("");
+    setKind("bank");
+    setError(null);
+  };
+
+  const save = async () => {
+    setError(null);
+    if (!institutionName.trim() || !/^[0-9]{4}$/.test(accountNumber.trim())) {
+      setError("An institution name and a 4 digit chart account number are required.");
+      return;
+    }
+    const scope = {
+      clientId,
+      accountNumber: accountNumber.trim(),
+      nickname: nickname.trim() || institutionName.trim(),
+      kind,
+      institutionName: institutionName.trim(),
+    };
+    try {
+      const preview = await trigger.mutateAsync({ runCode: "SETUP-ADD-BANK-ACCOUNT", body: { mode: "preview", scope } });
+      if (preview.status !== "completed") {
+        setError(preview.errors[0]?.message ?? `The run ended ${preview.status}.`);
+        return;
+      }
+      const applied = await trigger.mutateAsync({
+        runCode: "SETUP-ADD-BANK-ACCOUNT",
+        body: { mode: "apply", scope, previewRunId: preview.executionId },
+      });
+      if (applied.status !== "completed") {
+        setError(applied.errors[0]?.message ?? `The run ended ${applied.status}.`);
+        return;
+      }
+      void qc.invalidateQueries({ queryKey: firmKeys.setup(clientId) });
+      setOpen(false);
+    } catch (e) {
+      setError(errorMessage(e));
+    }
+  };
+
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        setOpen(next);
+        if (next) reset();
+      }}
+    >
+      <DialogTrigger asChild>
+        <Button size="sm" variant="outline" data-testid="bank-account-add">
+          Add account
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>Add a bank or card account</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-3">
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-muted-foreground">Institution</label>
+              <Input value={institutionName} onChange={(e) => setInstitutionName(e.target.value)} data-testid="bank-account-institution" />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-muted-foreground">Nickname</label>
+              <Input value={nickname} onChange={(e) => setNickname(e.target.value)} placeholder={institutionName || "Optional"} data-testid="bank-account-nickname" />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-muted-foreground">Chart account number</label>
+              <Input value={accountNumber} onChange={(e) => setAccountNumber(e.target.value)} placeholder="1000" data-testid="bank-account-number" />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-muted-foreground">Kind</label>
+              <select
+                className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
+                value={kind}
+                onChange={(e) => setKind(e.target.value as "bank" | "card")}
+                data-testid="bank-account-kind"
+              >
+                <option value="bank">Bank</option>
+                <option value="card">Card</option>
+              </select>
+            </div>
+          </div>
+          {error ? <p className="break-words text-xs text-destructive">{error}</p> : null}
+        </div>
+        <DialogFooter>
+          <Button size="sm" variant="outline" onClick={() => setOpen(false)}>
+            Cancel
+          </Button>
+          <Button size="sm" onClick={() => void save()} disabled={trigger.isPending} data-testid="bank-account-save">
+            Add
           </Button>
         </DialogFooter>
       </DialogContent>

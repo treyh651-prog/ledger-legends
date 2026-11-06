@@ -150,12 +150,23 @@ export default function PortalIntake() {
     patch({ profiles: draft.profiles.map((x) => (x.key === key ? { ...x, ...p } : x)) });
 
   /**
-   * Finish is two requests. POST /api/firm/clients runs the four intake runs
-   * on the server in order and stops at the first refusal. When the sheet has
-   * balance lines, SETUP-IMPORT-BALANCES follows, preview then apply, with
-   * the typed lines as integer cents. Bank accounts, people, and mapping
-   * profiles are not written: no run records them yet, and the review step
-   * says so rather than pretending.
+   * Finish. POST /api/firm/clients runs the four intake runs on the server
+   * in order and stops at the first refusal, which includes INTAKE-BUILD-
+   * CHART -- so the chart this wizard's own bank account rows point at
+   * already exists by the time SETUP-ADD-BANK-ACCOUNT runs for each of
+   * them next. Then, when the sheet has balance lines, SETUP-IMPORT-
+   * BALANCES follows, preview then apply, with the typed lines as integer
+   * cents.
+   *
+   * Audit fix, 2026-11-05. Bank accounts used to be discarded here --
+   * typed into step 4, never written -- even though SETUP-ADD-BANK-
+   * ACCOUNT has existed and worked since early in this engagement; the
+   * wizard was simply never wired to call it. Without this, the upload
+   * screen's own account picker had nothing to list for a client created
+   * on screen, so a bank file could never be imported for one. People and
+   * mapping profiles still are not written: no run records a person yet,
+   * and a mapping profile is created from a real pasted sample on the
+   * mapping profiles screen, not invented here from a format name alone.
    */
   async function finish() {
     if (!canFinish(draft) || finishing) return;
@@ -180,6 +191,42 @@ export default function PortalIntake() {
         return;
       }
       const clientId = created.client.id;
+
+      // SETUP-ADD-BANK-ACCOUNT's own kind enum is "bank" | "card" -- the
+      // wizard offers a finer taxonomy (checking/savings/credit_card/loan)
+      // for the person's own clarity, collapsed here to what the run
+      // actually models.
+      const toRunKind = (kind: string): "bank" | "card" => (kind === "credit_card" ? "card" : "bank");
+      for (const b of draft.bankAccounts) {
+        const accountNumber = b.glAccountNumber.trim();
+        const institutionName = b.institutionName.trim();
+        if (accountNumber.length === 0 || institutionName.length === 0) continue;
+        const scope = {
+          clientId,
+          accountNumber,
+          nickname: b.nickname.trim() || institutionName,
+          kind: toRunKind(b.kind),
+          institutionName,
+        };
+        const preview = await api<RunOutcomeDto>("POST", `/api/firm/clients/${clientId}/runs/SETUP-ADD-BANK-ACCOUNT`, { mode: "preview", scope });
+        if (preview.status === "completed") {
+          const applied = await api<RunOutcomeDto>("POST", `/api/firm/clients/${clientId}/runs/SETUP-ADD-BANK-ACCOUNT`, {
+            mode: "apply",
+            previewRunId: preview.executionId,
+            scope,
+          });
+          if (applied.status !== "completed") {
+            setFailure(`The client was created but the bank account ${institutionName} ended ${applied.status}: ${applied.errors[0]?.message ?? "see the run log."}`);
+            navigate(`/portal/clients/${clientId}`);
+            return;
+          }
+        } else if (preview.status !== "no_op") {
+          setFailure(`The client was created but the bank account ${institutionName} ended ${preview.status}: ${preview.errors[0]?.message ?? "see the run log."}`);
+          navigate(`/portal/clients/${clientId}`);
+          return;
+        }
+      }
+
       const lines = draft.balanceLines
         .map((l) => ({ accountNumber: l.accountNumber.trim(), cents: centsOf(l.amount) }))
         .filter((l): l is { accountNumber: string; cents: bigint } => l.accountNumber.length > 0 && l.cents !== null)
