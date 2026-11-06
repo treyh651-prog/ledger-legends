@@ -26,7 +26,7 @@ function scopeFor(fields: Partial<CreateRuleScope["fields"]> = {}, changeNote = 
       effectiveFrom: null,
       effectiveTo: null,
       isActive: true,
-      autoPostCeilingCents: BigInt(250000),
+      autoPostCeilingCents: 250000,
       ...fields,
     },
   };

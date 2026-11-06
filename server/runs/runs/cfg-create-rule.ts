@@ -56,7 +56,12 @@ export const newRuleFieldsSchema = z.object({
   effectiveFrom: z.string().nullable().default(null),
   effectiveTo: z.string().nullable().default(null),
   isActive: z.boolean().default(true),
-  autoPostCeilingCents: z.bigint().nonnegative().default(BigInt(250000)),
+  // A plain number, not z.bigint(): the scope arrives as parsed JSON over
+  // HTTP, which has no bigint, so no real caller could ever set its own
+  // ceiling -- every rule silently fell back to the default (audit's
+  // problem 6 companion finding). Cast to Cents below, the same
+  // safe-integer-number-on-the-wire convention centsSchema names.
+  autoPostCeilingCents: z.number().int().nonnegative().safe().default(250000),
 });
 
 export const createRuleScopeSchema = z.object({
@@ -147,7 +152,7 @@ export const cfgCreateRule: Run<CreateRuleScope, Proposal> = {
       rejectedCount: 0,
       autoPostEnabled: false,
       autoPostEnabledBy: null,
-      autoPostCeilingCents: scope.fields.autoPostCeilingCents,
+      autoPostCeilingCents: BigInt(scope.fields.autoPostCeilingCents),
     };
     const insert: ProposedRowInsert = {
       kind: "row_insert",

@@ -239,7 +239,7 @@ test("withholding above gross is refused rather than netted below zero", async (
   const out = await previewDlv(
     db,
     payApproveRun,
-    approveScope({ employeeWithholdingCents: GROSS + BigInt(1) }),
+    approveScope({ employeeWithholdingCents: Number(GROSS) + 1 }),
   );
   assertEqual((out.result?.proposals ?? []).length, 0, "nothing was approved");
   const errors = out.result?.errors ?? [];
@@ -330,7 +330,7 @@ test("the checksum follows the figures, so a changed register is a changed row",
   await applyDlv(
     second,
     payApproveRun,
-    approveScope({ employeeWithholdingCents: WITHHOLDING + BigInt(100) }),
+    approveScope({ employeeWithholdingCents: Number(WITHHOLDING) + 100 }),
   );
   assert(
     payRunsOf(second)[0].registerChecksum !== first,

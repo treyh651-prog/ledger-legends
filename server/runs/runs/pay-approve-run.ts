@@ -76,10 +76,16 @@ export const approveRunScopeSchema = z.object({
   period: z.string().min(10),
   payDate: z.string().min(10),
   providerName: z.string().min(1),
+  // A plain number, not z.bigint(): the scope arrives as parsed JSON over
+  // HTTP, which has no bigint, and zod's z.bigint() refuses a plain number
+  // even server side -- this run was unreachable from any real caller, the
+  // audit's problem 6. Cast to Cents in propose() below, the same
+  // safe-integer-number-on-the-wire convention centsSchema names
+  // (shared/api/common.ts), already used by TXN-VOID-AND-REISSUE.
   /** Withholding taken from employees, a positive magnitude in cents. */
-  employeeWithholdingCents: z.bigint().nonnegative(),
+  employeeWithholdingCents: z.number().int().nonnegative().safe(),
   /** Employer side taxes, a positive magnitude in cents. */
-  employerTaxCents: z.bigint().nonnegative(),
+  employerTaxCents: z.number().int().nonnegative().safe(),
   employeeCount: z.number().int().nonnegative().optional(),
 });
 
@@ -197,6 +203,8 @@ export const payApproveRun: Run<ApproveRunScope, Proposal> = {
     const skips: Skip[] = [];
     const errors: RunError[] = [];
     const rowId = payRunIdOf(frozen.clientId, scope.payDate, scope.providerName);
+    const employeeWithholdingCents: Cents = BigInt(scope.employeeWithholdingCents);
+    const employerTaxCents: Cents = BigInt(scope.employerTaxCents);
 
     /*
      * G19 in calendar terms. Approval writes a row about a period, so a locked
@@ -255,13 +263,13 @@ export const payApproveRun: Run<ApproveRunScope, Proposal> = {
      * checked against the second independent source below.
      */
     const grossCents = register.supportedBalanceCents;
-    const netCents = grossCents - scope.employeeWithholdingCents;
+    const netCents = grossCents - employeeWithholdingCents;
     if (netCents < ZERO) {
       errors.push({
         rowId,
         code: "unbalancedEntry",
         message:
-          `withholding of ${scope.employeeWithholdingCents.toString()} cents exceeds ` +
+          `withholding of ${employeeWithholdingCents.toString()} cents exceeds ` +
           `gross wages of ${grossCents.toString()} cents on the register`,
         retryable: false,
       });
@@ -296,12 +304,12 @@ export const payApproveRun: Run<ApproveRunScope, Proposal> = {
       registerChecksum: checksumOf({
         register: register.id,
         gross: grossCents.toString(),
-        withholding: scope.employeeWithholdingCents.toString(),
-        employerTax: scope.employerTaxCents.toString(),
+        withholding: employeeWithholdingCents.toString(),
+        employerTax: employerTaxCents.toString(),
       }),
       grossCents,
-      employerTaxCents: scope.employerTaxCents,
-      employeeWithholdingCents: scope.employeeWithholdingCents,
+      employerTaxCents,
+      employeeWithholdingCents,
       netCents,
       status: "approved",
       approvalStatement: APPROVAL_STATEMENT,

@@ -147,15 +147,19 @@ export function payRun(id: string, extra: Partial<PayRunRow> = {}): PayRunRow {
   };
 }
 
-/** The scope PAY-APPROVE-RUN takes. */
+/**
+ * The scope PAY-APPROVE-RUN takes. A plain number, not bigint: the run's own
+ * scope schema is wire safe (audit fix, problem 6), so this fixture mirrors
+ * what a real HTTP caller actually sends.
+ */
 export function approveScope(
   extra: Partial<{
     clientId: string;
     period: string;
     payDate: string;
     providerName: string;
-    employeeWithholdingCents: bigint;
-    employerTaxCents: bigint;
+    employeeWithholdingCents: number;
+    employerTaxCents: number;
     employeeCount: number;
   }> = {},
 ) {
@@ -164,8 +168,8 @@ export function approveScope(
     period: PERIOD,
     payDate: PAY_DATE,
     providerName: PROVIDER,
-    employeeWithholdingCents: WITHHOLDING,
-    employerTaxCents: EMPLOYER_TAX,
+    employeeWithholdingCents: Number(WITHHOLDING),
+    employerTaxCents: Number(EMPLOYER_TAX),
     employeeCount: 4,
     ...extra,
   };
