@@ -47,7 +47,14 @@ export default function CloseChecklist() {
               }.`
             : `${client?.name ?? ""}, ${fmtPeriod(period)}.`
         }
-        actions={clientId && canLock ? <LockPeriodButton clientId={clientId} period={period} /> : null}
+        actions={
+          clientId ? (
+            <div className="flex gap-2">
+              {d && d.periodStatus === "locked" ? <PostYearEndDialog clientId={clientId} period={period} /> : null}
+              {canLock ? <LockPeriodButton clientId={clientId} period={period} /> : null}
+            </div>
+          ) : null
+        }
       />
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -190,6 +197,73 @@ function LockPeriodButton({ clientId, period }: { clientId: string; period: stri
       </Button>
       {error ? <p className="max-w-[16rem] break-words text-right text-xs text-destructive">{error}</p> : null}
     </div>
+  );
+}
+
+/**
+ * CLOSE-POST-YEAREND. Audit fix (problem 8): existed and worked, but
+ * nothing in the client ever called it. Idempotent per fiscal year
+ * (closing_entries' own claim row), so a click on a period that is not
+ * actually the fiscal year end is safe -- the run itself computes the
+ * real fiscal year boundary from the client's own policy, not a guess
+ * this dialog makes. Shown only once the current period is locked, a
+ * light safety rail against clicking it mid year by accident.
+ */
+function PostYearEndDialog({ clientId, period }: { clientId: string; period: string }) {
+  const [open, setOpen] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const trigger = useTriggerRun(clientId);
+  const qc = useQueryClient();
+
+  const submit = async () => {
+    setError(null);
+    const scope = { clientId, period: periodStartOf(period) };
+    try {
+      const preview = await trigger.mutateAsync({ runCode: "CLOSE-POST-YEAREND", body: { mode: "preview", scope } });
+      if (preview.status !== "completed" && preview.status !== "no_op") {
+        setError(preview.errors[0]?.message ?? `The run ended ${preview.status}.`);
+        return;
+      }
+      if (preview.status !== "no_op") {
+        const applied = await trigger.mutateAsync({ runCode: "CLOSE-POST-YEAREND", body: { mode: "apply", scope, previewRunId: preview.executionId } });
+        if (applied.status !== "completed") {
+          setError(applied.errors[0]?.message ?? `The run ended ${applied.status}.`);
+          return;
+        }
+      }
+      void qc.invalidateQueries({ queryKey: screenKeys.close(clientId, periodStartOf(period)) });
+      setOpen(false);
+    } catch (e) {
+      setError(errorMessage(e));
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={(next) => { setOpen(next); if (next) setError(null); }}>
+      <DialogTrigger asChild>
+        <Button size="sm" variant="outline" data-testid="close-post-yearend">
+          Post year end
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>Post year end</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-3">
+          <p className="text-sm text-muted-foreground">
+            Empties revenue and expense into equity for the fiscal year that covers {fmtPeriod(period)}. Posting a year
+            that is already closed is a safe no-op; posting before the year has actually ended is not what this is for.
+          </p>
+          {error ? <p className="break-words text-xs text-destructive">{error}</p> : null}
+        </div>
+        <DialogFooter>
+          <Button size="sm" variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
+          <Button size="sm" onClick={() => void submit()} disabled={trigger.isPending} data-testid="close-post-yearend-confirm">
+            Post year end
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 

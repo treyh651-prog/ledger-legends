@@ -1,11 +1,57 @@
 import { useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Button } from "@/components/ui/button";
 import { DataGrid, EmptyState, ErrorState, Kpi, Money, PageHeader, Pill, SectionCard } from "@/components/kit";
+import { useApp } from "@/store";
 import { useActiveClient } from "@/lib/active-client";
-import { useTaxForms, errorMessage } from "@/api";
+import { useTaxForms, useTriggerRun, errorMessage, periodStartOf } from "@/api";
 import { fmtShortDate, fmtTimestamp, usd } from "@/lib/money";
 import type { TaxDataLine, W9State } from "@shared/api";
+
+/**
+ * TAX-BUILD-1099 / TAX-TRACK-W9. Audit fix (problem 8): both existed and
+ * worked, but nothing in the client ever called either one -- this screen
+ * was 100% read only, confirmed by its own file: no run trigger anywhere
+ * in it before this.
+ */
+function BuildTaxDataButton({ clientId, period, runCode, label, testId }: { clientId: string; period: string; runCode: "TAX-BUILD-1099" | "TAX-TRACK-W9"; label: string; testId: string }) {
+  const trigger = useTriggerRun(clientId);
+  const qc = useQueryClient();
+  const [error, setError] = useState<string | null>(null);
+
+  const submit = async () => {
+    setError(null);
+    const scope = { clientId, period: periodStartOf(period) };
+    try {
+      const preview = await trigger.mutateAsync({ runCode, body: { mode: "preview", scope } });
+      if (preview.status !== "completed" && preview.status !== "completed_with_skips" && preview.status !== "no_op") {
+        setError(preview.errors[0]?.message ?? `The run ended ${preview.status}.`);
+        return;
+      }
+      if (preview.status !== "no_op") {
+        const applied = await trigger.mutateAsync({ runCode, body: { mode: "apply", scope, previewRunId: preview.executionId } });
+        if (applied.status !== "completed" && applied.status !== "completed_with_skips") {
+          setError(applied.errors[0]?.message ?? `The run ended ${applied.status}.`);
+          return;
+        }
+      }
+      void qc.invalidateQueries({ queryKey: ["api", "firm", "clients", clientId, "tax-forms"] });
+    } catch (e) {
+      setError(errorMessage(e));
+    }
+  };
+
+  return (
+    <div className="flex flex-col items-end gap-1">
+      <Button size="sm" variant="outline" onClick={() => void submit()} disabled={trigger.isPending} data-testid={testId}>
+        {label}
+      </Button>
+      {error ? <p className="max-w-[16rem] break-words text-right text-xs text-destructive">{error}</p> : null}
+    </div>
+  );
+}
 
 /**
  * The 1099 compilation and W-9 tracking, read from
@@ -15,6 +61,7 @@ import type { TaxDataLine, W9State } from "@shared/api";
  */
 export default function TaxForms() {
   const { client, clientId } = useActiveClient();
+  const { period } = useApp();
   const [dataSetId, setDataSetId] = useState<string | null>(null);
   const q = useTaxForms(clientId, dataSetId);
   const d = q.data;
@@ -28,19 +75,25 @@ export default function TaxForms() {
         title="Tax forms"
         subtitle={`${client?.name ?? ""}, tax year ${d?.taxYear ?? ""}. ${d?.threshold ? `Reporting threshold ${usd(d.threshold.thresholdCents)} effective ${fmtShortDate(d.threshold.effectiveFrom)}.` : d ? "No reporting threshold on file for the firm." : ""}`}
         actions={
-          d && d.dataSets.length > 1 ? (
-            <Select value={d.selectedDataSetId ?? ""} onValueChange={setDataSetId}>
-              <SelectTrigger className="w-72" data-testid="select-tax-set">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {d.dataSets.map((s) => (
-                  <SelectItem key={s.id} value={s.id}>
-                    {s.taxYear}, built {fmtTimestamp(s.builtAt)}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+          clientId ? (
+            <div className="flex flex-wrap items-center gap-2">
+              {d && d.dataSets.length > 1 ? (
+                <Select value={d.selectedDataSetId ?? ""} onValueChange={setDataSetId}>
+                  <SelectTrigger className="w-72" data-testid="select-tax-set">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {d.dataSets.map((s) => (
+                      <SelectItem key={s.id} value={s.id}>
+                        {s.taxYear}, built {fmtTimestamp(s.builtAt)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              ) : null}
+              <BuildTaxDataButton clientId={clientId} period={period} runCode="TAX-TRACK-W9" label="Refresh W-9 tracking" testId="button-track-w9" />
+              <BuildTaxDataButton clientId={clientId} period={period} runCode="TAX-BUILD-1099" label="Build 1099 data" testId="button-build-1099" />
+            </div>
           ) : null
         }
       />
