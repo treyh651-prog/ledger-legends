@@ -153,12 +153,27 @@ export const arRecordPayment: Run<RecordPaymentScope, Proposal> = {
       return refuse("UNKNOWN_CUSTOMER", `customer ${scope.customerId} does not belong to client ${frozen.clientId}`);
     }
 
+    // Audit fix, 2026-11-05. transaction.categoryId is always a category
+    // slug (CAT-AR-COLLECTION), never an account number -- comparing it
+    // directly against chart account numbers can never match real coded
+    // data. Resolve the category first, same as every other run that
+    // needs a transaction's posting account (coding-cascade.ts's own
+    // categoryIndex idiom), and use the category's own accountNumber.
+    const categories = await tx.query("categories_for_client", {
+      firmId: frozen.firmId,
+      clientId: frozen.clientId,
+    });
+    const category = categories.find((c) => c.id === transaction.categoryId);
+    if (!category) {
+      return refuse("UNKNOWN_CATEGORY", `category ${transaction.categoryId} on transaction ${scope.transactionId} does not belong to client ${frozen.clientId}`);
+    }
+
     const accounts = await tx.query("chart_accounts_for_client", {
       firmId: frozen.firmId,
       clientId: frozen.clientId,
     });
-    if (!accounts.some((a) => a.accountNumber === transaction.categoryId)) {
-      return refuse("ACCOUNT_NOT_ON_CHART", `clearing account ${transaction.categoryId} is not on the client's chart`);
+    if (!accounts.some((a) => a.accountNumber === category.accountNumber)) {
+      return refuse("ACCOUNT_NOT_ON_CHART", `clearing account ${category.accountNumber} is not on the client's chart`);
     }
 
     const row: CustomerPaymentRow = {
@@ -173,7 +188,7 @@ export const arRecordPayment: Run<RecordPaymentScope, Proposal> = {
       onHold: scope.onHold,
       matchHint: scope.matchHint,
       transactionId: scope.transactionId,
-      clearingAccount: transaction.categoryId,
+      clearingAccount: category.accountNumber,
       status: "unapplied",
       appliedTier: null,
       manualOverride: false,

@@ -12,6 +12,7 @@ import { assert, assertEqual, test } from "./harness";
 import { execute } from "../execute";
 import { CLIENT_A1, FIRM_A, txn } from "./fixtures";
 import { arapDb, bill, vendor } from "./arap-fixtures";
+import { category } from "./coding-fixtures";
 import { opts } from "./fixtures";
 import {
   apRecordPayment,
@@ -23,13 +24,17 @@ import type { VendorPaymentRow } from "../tables";
 
 const VENDOR_ID = "VEN-1";
 const TRANSACTION_ID = "TX-WITHDRAWAL-1";
+// Audit fix, 2026-11-05. Same correction as ar-record-payment.ts's own
+// test fixture: a real transaction's categoryId is always a category
+// slug, never a bare account number.
+const CLEARING_CATEGORY = "CAT-AP-COLLECTION";
 
 function seedWithdrawal(
   amountCents: bigint = BigInt(-100000),
   extra: Record<string, unknown> = {},
 ) {
   return txn(TRANSACTION_ID, FIRM_A, CLIENT_A1, "BA-A1-OP", "2026-01-20", amountCents, {
-    categoryId: "1910",
+    categoryId: CLEARING_CATEGORY,
     ...extra,
   });
 }
@@ -48,6 +53,7 @@ function scopeFor(extra: Partial<ApRecordPaymentScope> = {}): ApRecordPaymentSco
 test("ap-record-payment: a new payment is inserted from the transaction's own amount and date", async () => {
   const db = arapDb();
   db.seed("vendors", [vendor(VENDOR_ID)]);
+  db.seed("categories", [category(CLEARING_CATEGORY, "1910")]);
   db.seed("transactions", [seedWithdrawal()]);
   const scope = scopeFor();
   const preview = await execute(db, apRecordPayment, scope, opts("preview"));
@@ -70,6 +76,7 @@ test("ap-record-payment: a new payment is inserted from the transaction's own am
 test("ap-record-payment: the same transaction twice is a no op the second time", async () => {
   const db = arapDb();
   db.seed("vendors", [vendor(VENDOR_ID)]);
+  db.seed("categories", [category(CLEARING_CATEGORY, "1910")]);
   db.seed("transactions", [seedWithdrawal()]);
   const scope = scopeFor();
   const first = await execute(db, apRecordPayment, scope, opts("preview"));
@@ -121,6 +128,19 @@ test("ap-record-payment: an uncoded transaction is refused", async () => {
   );
 });
 
+test("ap-record-payment: a category that no longer exists on the client is refused, not silently matched by its own slug", async () => {
+  const db = arapDb();
+  db.seed("vendors", [vendor(VENDOR_ID)]);
+  db.seed("transactions", [seedWithdrawal()]);
+  const scope = scopeFor();
+  const preview = await execute(db, apRecordPayment, scope, opts("preview"));
+  assertEqual(preview.status, "refused", "refused");
+  assert(
+    preview.result.errors.some((e) => e.code === "UNKNOWN_CATEGORY"),
+    "named error code",
+  );
+});
+
 test("ap-record-payment: an unknown vendor is refused", async () => {
   const db = arapDb();
   db.seed("transactions", [seedWithdrawal()]);
@@ -136,6 +156,7 @@ test("ap-record-payment: an unknown vendor is refused", async () => {
 test("ap-record-payment: once recorded, AP-APPLY-PAYMENTS can actually apply it", async () => {
   const db = arapDb();
   db.seed("vendors", [vendor(VENDOR_ID)]);
+  db.seed("categories", [category(CLEARING_CATEGORY, "1910")]);
   db.seed("bills", [bill("BILL-1", VENDOR_ID, { originalAmountCents: BigInt(100000) })]);
   db.seed("transactions", [seedWithdrawal()]);
   const recordPreview = await execute(db, apRecordPayment, scopeFor(), opts("preview"));

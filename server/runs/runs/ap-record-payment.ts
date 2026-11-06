@@ -153,12 +153,24 @@ export const apRecordPayment: Run<ApRecordPaymentScope, Proposal> = {
       return refuse("UNKNOWN_VENDOR", `vendor ${scope.vendorId} does not belong to client ${frozen.clientId}`);
     }
 
+    // Audit fix, 2026-11-05. Same bug as AR-RECORD-PAYMENT's own fix:
+    // transaction.categoryId is always a category slug, never an account
+    // number. Resolve the category first and use its own accountNumber.
+    const categories = await tx.query("categories_for_client", {
+      firmId: frozen.firmId,
+      clientId: frozen.clientId,
+    });
+    const category = categories.find((c) => c.id === transaction.categoryId);
+    if (!category) {
+      return refuse("UNKNOWN_CATEGORY", `category ${transaction.categoryId} on transaction ${scope.transactionId} does not belong to client ${frozen.clientId}`);
+    }
+
     const accounts = await tx.query("chart_accounts_for_client", {
       firmId: frozen.firmId,
       clientId: frozen.clientId,
     });
-    if (!accounts.some((a) => a.accountNumber === transaction.categoryId)) {
-      return refuse("ACCOUNT_NOT_ON_CHART", `clearing account ${transaction.categoryId} is not on the client's chart`);
+    if (!accounts.some((a) => a.accountNumber === category.accountNumber)) {
+      return refuse("ACCOUNT_NOT_ON_CHART", `clearing account ${category.accountNumber} is not on the client's chart`);
     }
 
     const row: VendorPaymentRow = {
@@ -173,7 +185,7 @@ export const apRecordPayment: Run<ApRecordPaymentScope, Proposal> = {
       onHold: scope.onHold,
       matchHint: scope.matchHint,
       transactionId: scope.transactionId,
-      clearingAccount: transaction.categoryId,
+      clearingAccount: category.accountNumber,
       status: "unapplied",
       appliedTier: null,
       manualOverride: false,

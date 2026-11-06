@@ -13,6 +13,7 @@ import { assert, assertEqual, test } from "./harness";
 import { execute } from "../execute";
 import { CLIENT_A1, FIRM_A, txn } from "./fixtures";
 import { arapDb, customer, invoice } from "./arap-fixtures";
+import { category } from "./coding-fixtures";
 import { opts } from "./fixtures";
 import {
   arRecordPayment,
@@ -24,13 +25,19 @@ import type { CustomerPaymentRow } from "../tables";
 
 const CUSTOMER_ID = "CUS-1";
 const TRANSACTION_ID = "TX-DEPOSIT-1";
+// Audit fix, 2026-11-05. A real transaction's categoryId is always a
+// category slug, never a bare account number -- this fixture used to set
+// categoryId: "1200" directly, which no real coding run ever produces,
+// and masked the exact bug the audit found (ar-record-payment.ts
+// comparing that slug straight against chart account numbers).
+const CLEARING_CATEGORY = "CAT-AR-COLLECTION";
 
 function seedDeposit(
   amountCents: bigint = BigInt(100000),
   extra: Record<string, unknown> = {},
 ) {
   return txn(TRANSACTION_ID, FIRM_A, CLIENT_A1, "BA-A1-OP", "2026-01-20", amountCents, {
-    categoryId: "1200",
+    categoryId: CLEARING_CATEGORY,
     ...extra,
   });
 }
@@ -49,6 +56,7 @@ function scopeFor(extra: Partial<RecordPaymentScope> = {}): RecordPaymentScope {
 test("ar-record-payment: a new payment is inserted from the transaction's own amount and date", async () => {
   const db = arapDb();
   db.seed("customers", [customer(CUSTOMER_ID)]);
+  db.seed("categories", [category(CLEARING_CATEGORY, "1200")]);
   db.seed("transactions", [seedDeposit()]);
   const scope = scopeFor();
   const preview = await execute(db, arRecordPayment, scope, opts("preview"));
@@ -71,6 +79,7 @@ test("ar-record-payment: a new payment is inserted from the transaction's own am
 test("ar-record-payment: the same transaction twice is a no op the second time", async () => {
   const db = arapDb();
   db.seed("customers", [customer(CUSTOMER_ID)]);
+  db.seed("categories", [category(CLEARING_CATEGORY, "1200")]);
   db.seed("transactions", [seedDeposit()]);
   const scope = scopeFor();
   const first = await execute(db, arRecordPayment, scope, opts("preview"));
@@ -122,6 +131,19 @@ test("ar-record-payment: an uncoded transaction is refused", async () => {
   );
 });
 
+test("ar-record-payment: a category that no longer exists on the client is refused, not silently matched by its own slug", async () => {
+  const db = arapDb();
+  db.seed("customers", [customer(CUSTOMER_ID)]);
+  db.seed("transactions", [seedDeposit()]);
+  const scope = scopeFor();
+  const preview = await execute(db, arRecordPayment, scope, opts("preview"));
+  assertEqual(preview.status, "refused", "refused");
+  assert(
+    preview.result.errors.some((e) => e.code === "UNKNOWN_CATEGORY"),
+    "named error code",
+  );
+});
+
 test("ar-record-payment: an unknown customer is refused", async () => {
   const db = arapDb();
   db.seed("transactions", [seedDeposit()]);
@@ -137,6 +159,7 @@ test("ar-record-payment: an unknown customer is refused", async () => {
 test("ar-record-payment: once recorded, AR-APPLY-PAYMENTS can actually apply it", async () => {
   const db = arapDb();
   db.seed("customers", [customer(CUSTOMER_ID)]);
+  db.seed("categories", [category(CLEARING_CATEGORY, "1200")]);
   db.seed("invoices", [invoice("INV-1", CUSTOMER_ID, { originalAmountCents: BigInt(100000) })]);
   db.seed("transactions", [seedDeposit()]);
   const recordPreview = await execute(db, arRecordPayment, scopeFor(), opts("preview"));
