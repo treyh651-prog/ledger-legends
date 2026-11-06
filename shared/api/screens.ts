@@ -531,6 +531,49 @@ export const payRunsSchema = z.object({
 });
 export type PayRuns = z.infer<typeof payRunsSchema>;
 
+/**
+ * Audit fix (problem 8): neither the CPA handoff nor the client export had
+ * a screen. Both are vault-locked archive artifacts, so neither row is
+ * ever edited or deleted here -- only built.
+ */
+export const cpaHandoffSchema = z.object({
+  id: z.string(),
+  taxYear: z.number().int(),
+  periodStart: z.string(),
+  periodEnd: z.string(),
+  scopeKind: z.enum(["period", "fiscal_year"]),
+  reportingBasis: z.enum(["accrual", "cash", "both"]),
+  artifactCount: z.number().int(),
+  openItemCount: z.number().int(),
+  builtAt: z.string(),
+});
+export type CpaHandoff = z.infer<typeof cpaHandoffSchema>;
+
+export const cpaHandoffsSchema = z.object({
+  clientId: idSchema,
+  items: z.array(cpaHandoffSchema),
+});
+export type CpaHandoffs = z.infer<typeof cpaHandoffsSchema>;
+
+export const offboardExportSchema = z.object({
+  id: z.string(),
+  requestedOn: z.string(),
+  dueOn: z.string(),
+  periodStart: z.string(),
+  periodEnd: z.string(),
+  fileCount: z.number().int(),
+  documentCount: z.number().int(),
+  totalRowCount: z.number().int(),
+  builtAt: z.string(),
+});
+export type OffboardExport = z.infer<typeof offboardExportSchema>;
+
+export const offboardExportsSchema = z.object({
+  clientId: idSchema,
+  items: z.array(offboardExportSchema),
+});
+export type OffboardExports = z.infer<typeof offboardExportsSchema>;
+
 export const recurringSplitSchema = z.object({
   id: z.string(),
   accountNumber: z.string(),

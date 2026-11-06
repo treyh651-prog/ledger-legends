@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { Link, useLocation } from "wouter";
 import {
+  ArchiveRestore,
   BadgeCheck,
   Banknote,
   BookOpen,
@@ -111,6 +112,7 @@ const FIRM_NAV: NavGroup[] = [
     items: [
       { href: "/close", label: "Close checklist", icon: CalendarCheck },
       { href: "/payroll", label: "Payroll", icon: Wallet },
+      { href: "/handoffs", label: "Handoffs and exports", icon: ArchiveRestore },
       { href: "/board", label: "Workload board", icon: LayoutGrid, badge: (c) => c.overdue || undefined },
       { href: "/team", label: "Team capacity", icon: Users },
       { href: "/access", label: "Access", icon: KeyRound },

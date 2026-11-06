@@ -37,6 +37,8 @@ import type {
   Invoices,
   Bills,
   PayRuns,
+  CpaHandoffs,
+  OffboardExports,
 } from "../../shared/api/screens";
 import type { Cents } from "../runs/contract";
 import type { RunTx } from "../runs/db";
@@ -709,6 +711,46 @@ export async function payRunsForClient(tx: RunTx, firmId: string, clientId: stri
         approvedAt: p.approvedAt,
       }))
       .sort((a, b) => (a.payDate < b.payDate ? 1 : a.payDate > b.payDate ? -1 : 0)),
+  };
+}
+
+export async function cpaHandoffsForClient(tx: RunTx, firmId: string, clientId: string): Promise<CpaHandoffs> {
+  const rows = await tx.query("cpa_handoffs_for_client", { firmId, clientId });
+  return {
+    clientId,
+    items: rows
+      .map((h) => ({
+        id: h.id,
+        taxYear: h.taxYear,
+        periodStart: h.periodStart,
+        periodEnd: h.periodEnd,
+        scopeKind: h.scopeKind,
+        reportingBasis: h.reportingBasis,
+        artifactCount: h.artifactCount,
+        openItemCount: h.openItemCount,
+        builtAt: h.builtAt,
+      }))
+      .sort((a, b) => (a.builtAt < b.builtAt ? 1 : a.builtAt > b.builtAt ? -1 : 0)),
+  };
+}
+
+export async function offboardExportsForClient(tx: RunTx, firmId: string, clientId: string): Promise<OffboardExports> {
+  const rows = await tx.query("offboard_exports_for_client", { firmId, clientId });
+  return {
+    clientId,
+    items: rows
+      .map((e) => ({
+        id: e.id,
+        requestedOn: e.requestedOn,
+        dueOn: e.dueOn,
+        periodStart: e.periodStart,
+        periodEnd: e.periodEnd,
+        fileCount: e.fileCount,
+        documentCount: e.documentCount,
+        totalRowCount: e.totalRowCount,
+        builtAt: e.builtAt,
+      }))
+      .sort((a, b) => (a.builtAt < b.builtAt ? 1 : a.builtAt > b.builtAt ? -1 : 0)),
   };
 }
 

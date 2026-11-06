@@ -27,6 +27,7 @@ import Vendors from "@/pages/vendors";
 import Invoices from "@/pages/invoices";
 import Bills from "@/pages/bills";
 import Payroll from "@/pages/payroll";
+import Handoffs from "@/pages/handoffs";
 import RecurringTemplates from "@/pages/recurring-templates";
 import EntityGroups from "@/pages/entity-groups";
 import Reconcile from "@/pages/reconcile";
@@ -110,6 +111,7 @@ function AppRouter() {
       <Route path="/invoices">{guarded("/invoices", Invoices)}</Route>
       <Route path="/bills">{guarded("/bills", Bills)}</Route>
       <Route path="/payroll">{guarded("/payroll", Payroll)}</Route>
+      <Route path="/handoffs">{guarded("/handoffs", Handoffs)}</Route>
       <Route path="/recurring-templates">{guarded("/recurring-templates", RecurringTemplates)}</Route>
       <Route path="/entity-groups">{guarded("/entity-groups", EntityGroups)}</Route>
       <Route path="/reconcile">{guarded("/reconcile", Reconcile)}</Route>
