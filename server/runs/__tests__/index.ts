@@ -73,6 +73,7 @@ import "./rec-pipeline";
 // The module 4 period end suites, one file per run plus the pipeline test.
 import "./per-post-recurring";
 import "./cfg-create-recurring-template";
+import "./audit-journal-entry-linking";
 import "./per-amortize-prepaids";
 import "./per-split-loan";
 import "./per-post-accruals";

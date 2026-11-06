@@ -109,6 +109,20 @@ export interface SweepDecision {
   detail: string;
 }
 
+/**
+ * Audit fix, 2026-11-05. This run used to leave targetId null and never
+ * write the minted entry id back onto the transaction, so journalEntryId
+ * stayed null on a suspense-coded row forever. TXN-VOID/TXN-RECODE only
+ * reverse an existing entry when journalEntryId names one, so voiding or
+ * recoding a suspense-coded transaction posted a second entry on top of
+ * the first instead of reversing it -- the suspense balance never
+ * cleared and cash was double counted. Derived, the same idiom every
+ * other posting run's own entry id already uses (postedEntryIdFor).
+ */
+export function suspenseEntryIdFor(transactionId: string): string {
+  return derivedId(transactionId, "txn-sweep-suspense", 0);
+}
+
 export interface SweepInputs {
   functionalCurrency: string;
   capitalizeOverCents: bigint;
@@ -345,9 +359,10 @@ export const txnSweepSuspense: Run<CodingScope, Proposal> = {
       const openedOn = t.postedDate;
       const escalatesOn = addDays(openedOn, spec.escalationDays);
 
-      proposals.push(sweepEntry(t, account, decision.reasonCode, decision.detail));
+      const entryId = suspenseEntryIdFor(t.id);
+      proposals.push(sweepEntry(t, account, entryId, decision.reasonCode, decision.detail));
       proposals.push(
-        sweepWrite(t, {
+        sweepWrite(t, entryId, {
           reasonCode: decision.reasonCode,
           owner: spec.owner,
           openedOn,
@@ -410,13 +425,14 @@ export const txnSweepSuspense: Run<CodingScope, Proposal> = {
 function sweepEntry(
   t: TransactionRow,
   account: BankAccountRow,
+  entryId: string,
   reasonCode: string,
   detail: string,
 ): ProposedJournalEntry {
   const memo = `suspense ${reasonCode}, ${detail}`;
   return {
     kind: "journal_entry",
-    targetId: null,
+    targetId: entryId,
     entryDate: t.postedDate,
     lines: [
       {
@@ -440,6 +456,7 @@ function sweepEntry(
 
 function sweepWrite(
   t: TransactionRow,
+  entryId: string,
   args: {
     reasonCode: string;
     owner: "firm" | "client" | "system";
@@ -457,6 +474,7 @@ function sweepWrite(
       suspenseOwner: t.suspenseOwner,
       suspenseOpenedOn: t.suspenseOpenedOn,
       suspenseEscalatesOn: t.suspenseEscalatesOn,
+      journalEntryId: t.journalEntryId,
     },
     after: {
       cascadeLevel: LEVEL.suspense,
@@ -464,6 +482,7 @@ function sweepWrite(
       suspenseOwner: args.owner,
       suspenseOpenedOn: args.openedOn,
       suspenseEscalatesOn: args.escalatesOn,
+      journalEntryId: entryId,
     },
     provenance: { cascadeLevel: LEVEL.suspense },
   };

@@ -54,6 +54,7 @@ import {
 } from "../contract";
 import { applyProposals, requireTx } from "../apply-writer";
 import { addDays, dayGap, isLockedDay } from "../dates";
+import { derivedId } from "../ids";
 import { reverseEntry, revertFieldWrite } from "../undo";
 import type {
   BankAccountRow,
@@ -80,6 +81,17 @@ import { normalizeVendor } from "./txn-normalize-vendors";
 export const SETTLEMENT_DATE_WINDOW_DAYS = 2;
 export const SUS_NOT_SETTLED = "SUS-12";
 export const SUS_AMOUNT_DISAGREES = "SUS-17";
+
+/**
+ * Audit fix, 2026-11-05. Same root cause as TXN-SWEEP-SUSPENSE's own fix:
+ * this run left targetId null and never wrote the minted entry id back
+ * onto the transaction, so journalEntryId stayed null on a split deposit
+ * forever and TXN-VOID/TXN-RECODE (which only reverse when journalEntryId
+ * names one) posted a second entry on top instead of reversing the first.
+ */
+export function settlementEntryIdFor(transactionId: string): string {
+  return derivedId(transactionId, "txn-split-settlements", 0);
+}
 
 /**
  * Token equality on the normalized reference. Containment is measured in whole
@@ -313,8 +325,9 @@ export const txnSplitSettlements: Run<CodingScope, Proposal> = {
       }
 
       consumedSettlements.add(matched.id);
+      const entryId = settlementEntryIdFor(t.id);
       proposals.push(
-        splitEntry(t, matched, account, {
+        splitEntry(t, matched, account, entryId, {
           feeAccountNumber: feeCategory.accountNumber,
           feeCategoryId: feeCategory.id,
           grossAccountNumber: policy.grossAtSaleTime
@@ -325,7 +338,7 @@ export const txnSplitSettlements: Run<CodingScope, Proposal> = {
             : matched.revenueCategoryId,
         }),
       );
-      proposals.push(markDeposit(t, matched));
+      proposals.push(markDeposit(t, matched, entryId));
       proposals.push(markSettlement(matched, t));
     }
 
@@ -382,6 +395,7 @@ function splitEntry(
   t: TransactionRow,
   s: SettlementRowRow,
   account: BankAccountRow,
+  entryId: string,
   dest: {
     feeAccountNumber: string;
     feeCategoryId: string;
@@ -393,7 +407,7 @@ function splitEntry(
   const fee: Cents = abs(s.feeCents);
   return {
     kind: "journal_entry",
-    targetId: null,
+    targetId: entryId,
     entryDate: t.postedDate,
     lines: [
       {
@@ -425,6 +439,7 @@ function splitEntry(
 function markDeposit(
   t: TransactionRow,
   s: SettlementRowRow,
+  entryId: string,
 ): ProposedFieldWrite {
   return {
     kind: "field_write",
@@ -434,11 +449,13 @@ function markDeposit(
       cascadeLevel: t.cascadeLevel,
       isProcessorSettlement: t.isProcessorSettlement,
       settlementOfTransactionId: t.settlementOfTransactionId,
+      journalEntryId: t.journalEntryId,
     },
     after: {
       cascadeLevel: LEVEL.processorSettlement,
       isProcessorSettlement: true,
       settlementOfTransactionId: null,
+      journalEntryId: entryId,
     },
     provenance: { cascadeLevel: LEVEL.processorSettlement },
   };

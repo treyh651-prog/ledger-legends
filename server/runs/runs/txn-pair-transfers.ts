@@ -43,7 +43,7 @@ import {
 } from "../contract";
 import { applyProposals, requireTx } from "../apply-writer";
 import { addDays, dayGap, isLockedDay } from "../dates";
-import { scopeHashFor } from "../ids";
+import { derivedId, scopeHashFor } from "../ids";
 import { reverseEntry, revertFieldWrite } from "../undo";
 import type { BankAccountRow, TransactionRow } from "../tables";
 
@@ -53,6 +53,21 @@ export const PAIR_WINDOW_DAYS = 3;
 export const SUS_AMBIGUOUS_TRANSFER = "SUS-04" as const;
 /** Version of the vendor normalization function in force, stamped on writes. */
 export const VENDOR_NORMALIZATION_VERSION = 1;
+
+/**
+ * Audit fix, 2026-11-05. Derived, like every other posting run's own entry
+ * id (postedEntryIdFor, suspenseEntryIdFor) -- this run used to leave
+ * targetId null and never write the minted id back onto the transaction,
+ * so journalEntryId stayed null on a paired row forever. TXN-VOID and
+ * TXN-RECODE only reverse an entry when journalEntryId names one, so
+ * voiding or recoding a paired transfer leg posted a second entry on top
+ * of the first instead of reversing it -- the same root cause as the
+ * suspense sweep's own fix. Each leg gets its own entry, so each needs its
+ * own derived id.
+ */
+export function transferEntryIdFor(transactionId: string): string {
+  return derivedId(transactionId, "txn-pair-transfers", 0);
+}
 
 export const pairTransfersScopeSchema = z.object({
   clientId: z.string().min(1),
@@ -373,10 +388,12 @@ function pairProposals(
   }
   const gap = dayGap(outbound.postedDate, inbound.postedDate);
   const memo = `transfer ${sourceAccount.nickname} to ${destAccount.nickname}, gap ${String(gap)} days`;
+  const outboundEntryId = transferEntryIdFor(outbound.id);
+  const inboundEntryId = transferEntryIdFor(inbound.id);
 
   const outboundEntry: ProposedJournalEntry = {
     kind: "journal_entry",
-    targetId: null,
+    targetId: outboundEntryId,
     entryDate: outbound.postedDate,
     lines: [
       {
@@ -403,7 +420,7 @@ function pairProposals(
 
   const inboundEntry: ProposedJournalEntry = {
     kind: "journal_entry",
-    targetId: null,
+    targetId: inboundEntryId,
     entryDate: inbound.postedDate,
     lines: [
       {
@@ -431,14 +448,20 @@ function pairProposals(
   const link = (
     self: TransactionRow,
     other: TransactionRow,
+    selfEntryId: string,
   ): ProposedFieldWrite => ({
     kind: "field_write",
     table: "transactions",
     rowId: self.id,
-    before: { categoryId: self.categoryId, pairedWithId: self.pairedWithId },
-    after: { categoryId: TRANSFER_CATEGORY, pairedWithId: other.id },
+    before: { categoryId: self.categoryId, pairedWithId: self.pairedWithId, journalEntryId: self.journalEntryId },
+    after: { categoryId: TRANSFER_CATEGORY, pairedWithId: other.id, journalEntryId: selfEntryId },
     provenance: { cascadeLevel: 3 },
   });
 
-  return [outboundEntry, inboundEntry, link(outbound, inbound), link(inbound, outbound)];
+  return [
+    outboundEntry,
+    inboundEntry,
+    link(outbound, inbound, outboundEntryId),
+    link(inbound, outbound, inboundEntryId),
+  ];
 }

@@ -381,6 +381,14 @@ export function codingWrite(args: {
   vendorId?: Ulid | null;
   classId?: Ulid | null;
   matchedConditions?: unknown;
+  /**
+   * Audit fix, 2026-11-05. Only TXN-APPLY-RECURRING passes this -- it is
+   * the one caller of codingWrite that also posts a journal entry for the
+   * row, in the same proposal set. Every other caller (rules, vendor
+   * defaults, bank codes) only classifies and never posts, so they must
+   * never pass this and leave journalEntryId untouched.
+   */
+  journalEntryId?: Ulid;
 }): ProposedFieldWrite {
   const t = args.t;
   const after: Record<string, unknown> = {
@@ -410,6 +418,10 @@ export function codingWrite(args: {
   if (args.classId !== undefined && args.classId !== null) {
     after.classId = args.classId;
     before.classId = t.classId;
+  }
+  if (args.journalEntryId !== undefined) {
+    after.journalEntryId = args.journalEntryId;
+    before.journalEntryId = t.journalEntryId;
   }
   return {
     kind: "field_write",

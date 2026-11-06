@@ -51,6 +51,7 @@ import {
 } from "../contract";
 import { applyProposals, requireTx } from "../apply-writer";
 import { isLockedDay } from "../dates";
+import { derivedId } from "../ids";
 import { reverseEntry, revertFieldWrite } from "../undo";
 import type {
   BankAccountRow,
@@ -81,6 +82,18 @@ export const DEFAULT_DAY_WINDOW = 5;
 export const BASIS_POINTS_TOTAL = 10000;
 export const SUS_TEMPLATE_CONFLICT = "SUS-19";
 export const SUS_TEMPLATE_AMOUNT = "SUS-17";
+
+/**
+ * Audit fix, 2026-11-05. This run used to leave targetId null and never
+ * write the minted entry id back onto the transaction via codingWrite, so
+ * journalEntryId stayed null on a recurring-matched row forever.
+ * TXN-VOID/TXN-RECODE only reverse an existing entry when journalEntryId
+ * names one, so voiding or recoding a recurring-matched transaction
+ * posted a second entry on top instead of reversing the first.
+ */
+export function recurringMatchEntryIdFor(transactionId: string): string {
+  return derivedId(transactionId, "txn-apply-recurring", 0);
+}
 
 /**
  * Day of month distance with the month boundary treated as a circle of 31 days.
@@ -367,7 +380,8 @@ export const txnApplyRecurring: Run<CodingScope, Proposal> = {
         continue;
       }
 
-      proposals.push(splitEntry(t, tpl, allocations, account));
+      const entryId = recurringMatchEntryIdFor(t.id);
+      proposals.push(splitEntry(t, tpl, allocations, account, entryId));
 
       // The register row carries the largest allocation as its summary category,
       // ties going to the lowest sequence line. The entry is the full truth of the
@@ -389,6 +403,7 @@ export const txnApplyRecurring: Run<CodingScope, Proposal> = {
           cascadeLevel: LEVEL.recurringTemplate,
           templateId: tpl.id,
           templateVersion: tpl.version,
+          journalEntryId: entryId,
         }),
       );
     }
@@ -484,6 +499,7 @@ function splitEntry(
   tpl: RecurringTemplateRow,
   allocations: readonly Allocation[],
   account: BankAccountRow,
+  entryId: string,
 ): ProposedJournalEntry {
   const memo = `recurring template ${tpl.name} version ${String(tpl.version)}`;
   const lines: ProposedLine[] = allocations.map((a) => ({
@@ -508,7 +524,7 @@ function splitEntry(
   });
   return {
     kind: "journal_entry",
-    targetId: null,
+    targetId: entryId,
     entryDate: t.postedDate,
     lines,
     sourceRef: { table: "transactions", rowId: t.id, version: t.version },
