@@ -74,6 +74,7 @@ import "./rec-pipeline";
 import "./per-post-recurring";
 import "./cfg-create-recurring-template";
 import "./audit-journal-entry-linking";
+import "./close-override-gate";
 import "./per-amortize-prepaids";
 import "./per-split-loan";
 import "./per-post-accruals";

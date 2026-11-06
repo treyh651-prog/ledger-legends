@@ -79,6 +79,7 @@ import { arChargeLateFees } from "./runs/ar-charge-latefees";
 import { arapRefreshAging } from "./runs/ar-refresh-aging";
 import { arWriteoffUncollectible } from "./runs/ar-writeoff-uncollectible";
 import { clsEvaluateGates } from "./runs/cls-evaluate-gates";
+import { closeOverrideGate } from "./runs/close-override-gate";
 import { clsLockPeriod } from "./runs/cls-lock-period";
 import { clsPostYearEnd } from "./runs/cls-post-yearend";
 import { rptBuildPackage } from "./runs/rpt-build-package";
@@ -236,6 +237,11 @@ export const registry: readonly RegistryEntry[] = [
   entry(subTieBalances),
   entry(subRaiseRequests),
   entry(clsEvaluateGates),
+  // The missing writer for close.gate_results.manual_override, manual,
+  // triggered from the close checklist screen rather than any pipeline --
+  // accepting a known exception is a person's decision, the same
+  // reasoning the reference data edits above give.
+  entry(closeOverrideGate),
   entry(clsLockPeriod),
   entry(clsRollForward),
   entry(clsPostYearEnd),

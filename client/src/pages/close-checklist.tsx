@@ -1,8 +1,13 @@
+import { useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { CheckCircle2, CircleDashed } from "lucide-react";
 import { DataGrid, EmptyState, ErrorState, Kpi, Meter, Money, PageHeader, Pill, SectionCard } from "@/components/kit";
+import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { useApp } from "@/store";
 import { useActiveClient } from "@/lib/active-client";
-import { useCloseChecklist, errorMessage } from "@/api";
+import { useCloseChecklist, useTriggerRun, errorMessage, periodStartOf, screenKeys } from "@/api";
 import { fmtPeriod, fmtShortDate, fmtTimestamp } from "@/lib/money";
 import type { CloseGate, CloseTask, Tieout } from "@shared/api";
 
@@ -19,6 +24,8 @@ export default function CloseChecklist() {
   const d = q.data;
 
   if (q.isError) return <ErrorState message={errorMessage(q.error)} onRetry={() => void q.refetch()} />;
+
+  const canLock = d !== undefined && d.periodStatus !== "locked" && d.gates.length > 0 && d.gates.every((g) => g.outcome === "pass" || g.outcome === "not_applicable" || g.manualOverride);
 
   const tasks = d?.tasks ?? [];
   const done = tasks.filter((t) => t.state === "complete").length;
@@ -40,6 +47,7 @@ export default function CloseChecklist() {
               }.`
             : `${client?.name ?? ""}, ${fmtPeriod(period)}.`
         }
+        actions={clientId && canLock ? <LockPeriodButton clientId={clientId} period={period} /> : null}
       />
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -94,7 +102,26 @@ export default function CloseChecklist() {
               { key: "code", label: "Gate", mobile: "title", render: (g) => <span className="font-medium">{g.gateTitle}</span> },
               { key: "blocking", label: "Blocking", align: "right", mobile: "row", render: (g) => <span className="tnum">{g.blockingCount}</span> },
               { key: "at", label: "Evaluated", mobile: "row", render: (g) => <span className="text-xs">{fmtTimestamp(g.evaluatedAt)}</span> },
-              { key: "outcome", label: "Outcome", mobile: "value", render: (g) => <Pill tone={gateTone(g)}>{g.outcome}</Pill> },
+              {
+                key: "outcome",
+                label: "Outcome",
+                mobile: "value",
+                render: (g) =>
+                  g.manualOverride ? (
+                    <Pill tone="watch">overridden</Pill>
+                  ) : (
+                    <Pill tone={gateTone(g)}>{g.outcome}</Pill>
+                  ),
+              },
+              {
+                key: "override",
+                label: "",
+                mobile: "row",
+                render: (g) =>
+                  g.outcome === "fail" && !g.manualOverride && clientId ? (
+                    <OverrideGateDialog clientId={clientId} period={period} gate={g} />
+                  ) : null,
+              },
             ]}
           />
         </SectionCard>
@@ -122,5 +149,124 @@ export default function CloseChecklist() {
         </SectionCard>
       </div>
     </div>
+  );
+}
+
+/**
+ * Audit fix, 2026-11-05. CLOSE-LOCK-PERIOD has always existed; this is
+ * just the button to trigger it, which this screen never had.
+ */
+function LockPeriodButton({ clientId, period }: { clientId: string; period: string }) {
+  const trigger = useTriggerRun(clientId);
+  const qc = useQueryClient();
+  const [error, setError] = useState<string | null>(null);
+
+  const submit = async () => {
+    setError(null);
+    const scope = { clientId, period: periodStartOf(period) };
+    try {
+      const preview = await trigger.mutateAsync({ runCode: "CLOSE-LOCK-PERIOD", body: { mode: "preview", scope } });
+      if (preview.status !== "completed" && preview.status !== "no_op") {
+        setError(preview.errors[0]?.message ?? `The run ended ${preview.status}.`);
+        return;
+      }
+      if (preview.status !== "no_op") {
+        const applied = await trigger.mutateAsync({ runCode: "CLOSE-LOCK-PERIOD", body: { mode: "apply", scope, previewRunId: preview.executionId } });
+        if (applied.status !== "completed") {
+          setError(applied.errors[0]?.message ?? `The run ended ${applied.status}.`);
+          return;
+        }
+      }
+      void qc.invalidateQueries({ queryKey: screenKeys.close(clientId, periodStartOf(period)) });
+    } catch (e) {
+      setError(errorMessage(e));
+    }
+  };
+
+  return (
+    <div className="flex flex-col items-end gap-1">
+      <Button size="sm" onClick={() => void submit()} disabled={trigger.isPending} data-testid="close-lock-period">
+        Lock period
+      </Button>
+      {error ? <p className="max-w-[16rem] break-words text-right text-xs text-destructive">{error}</p> : null}
+    </div>
+  );
+}
+
+/**
+ * Audit fix, 2026-11-05 (problem 4). CLOSE-OVERRIDE-GATE is the missing
+ * writer for close.gate_results.manual_override -- this is the one and
+ * only place a person accepts a known exception and writes down why.
+ * The common case: a solo firm's every real close trips G18 (separation
+ * of duties) because the same person previews and applies everything,
+ * and before this there was no way to accept that and move on.
+ */
+function OverrideGateDialog({ clientId, period, gate }: { clientId: string; period: string; gate: CloseGate }) {
+  const [open, setOpen] = useState(false);
+  const [reason, setReason] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const trigger = useTriggerRun(clientId);
+  const qc = useQueryClient();
+
+  const save = async () => {
+    setError(null);
+    if (!reason.trim()) {
+      setError("A written reason is required.");
+      return;
+    }
+    const scope = { clientId, period: periodStartOf(period), gateCode: gate.gateCode, reason: reason.trim() };
+    try {
+      const preview = await trigger.mutateAsync({ runCode: "CLOSE-OVERRIDE-GATE", body: { mode: "preview", scope } });
+      if (preview.status !== "completed") {
+        setError(preview.errors[0]?.message ?? `The run ended ${preview.status}.`);
+        return;
+      }
+      const applied = await trigger.mutateAsync({ runCode: "CLOSE-OVERRIDE-GATE", body: { mode: "apply", scope, previewRunId: preview.executionId } });
+      if (applied.status !== "completed") {
+        setError(applied.errors[0]?.message ?? `The run ended ${applied.status}.`);
+        return;
+      }
+      void qc.invalidateQueries({ queryKey: screenKeys.close(clientId, periodStartOf(period)) });
+      setOpen(false);
+    } catch (e) {
+      setError(errorMessage(e));
+    }
+  };
+
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        setOpen(next);
+        if (next) {
+          setReason("");
+          setError(null);
+        }
+      }}
+    >
+      <DialogTrigger asChild>
+        <Button size="sm" variant="outline" data-testid={`gate-override-${gate.gateCode}`}>
+          Override
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>Override {gate.gateCode}</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-3">
+          <p className="text-xs text-muted-foreground">{gate.gateTitle}. Locking will carry this period as closed with exceptions.</p>
+          <Textarea value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Why this exception is accepted" data-testid="gate-override-reason" />
+          {error ? <p className="break-words text-xs text-destructive">{error}</p> : null}
+        </div>
+        <DialogFooter>
+          <Button size="sm" variant="outline" onClick={() => setOpen(false)}>
+            Cancel
+          </Button>
+          <Button size="sm" onClick={() => void save()} disabled={trigger.isPending} data-testid="gate-override-save">
+            Accept exception
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

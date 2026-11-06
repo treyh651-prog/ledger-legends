@@ -345,6 +345,11 @@ export const RUN_POLICIES: Readonly<Record<string, RunPolicy>> = {
     reason:
       "a clock must not lock a period, because the lock is the firm's assertion that the period is finished and every later correction has to be redated around it",
   },
+  "CLOSE-OVERRIDE-GATE": {
+    tier: "manual",
+    reason:
+      "accepting a known gate exception and writing down why is a decision a person makes on purpose, and a clock has no exception of its own to accept",
+  },
   "CLOSE-ROLL-FORWARD": {
     tier: "propose",
     reason:

@@ -35,6 +35,8 @@ export const closeGateSchema = z.object({
   blockingCount: z.number().int(),
   evaluatedAt: instantSchema,
   scopeReason: z.string().nullable(),
+  manualOverride: z.boolean(),
+  overrideReason: z.string().nullable(),
 });
 export type CloseGate = z.infer<typeof closeGateSchema>;
 

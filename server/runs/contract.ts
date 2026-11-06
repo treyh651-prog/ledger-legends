@@ -184,7 +184,14 @@ export type RunTypeId =
   // inserted a recurring_templates or recurring_splits row at all, for
   // either match_kind. This is that insert, scoped to generated_entry; a
   // transaction_match creator has the identical gap and is still missing.
-  | "CFG-CREATE-RECURRING-TEMPLATE";
+  | "CFG-CREATE-RECURRING-TEMPLATE"
+  // close.gate_results has carried manual_override/override_reason since
+  // the close module was built, and CLOSE-LOCK-PERIOD has always read
+  // both -- but nothing ever wrote either, so a solo firm (every run
+  // previewed and applied by the same actor, tripping G18 every close)
+  // had no way to lock a period at all. This is that missing writer, for
+  // any gate, not only G18.
+  | "CLOSE-OVERRIDE-GATE";
 
 /** Doc 03 Part 7 names the reversal of a run `<ORIGINAL>-UNDO`. */
 export type UndoRunTypeId = `${RunTypeId}-UNDO`;

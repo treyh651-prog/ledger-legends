@@ -97,6 +97,8 @@ export async function closeChecklist(tx: RunTx, firmId: string, clientId: string
         blockingCount: g.blockingCount,
         evaluatedAt: g.evaluatedAt,
         scopeReason: g.scopeReason,
+        manualOverride: g.manualOverride,
+        overrideReason: g.overrideReason,
       })),
     tieouts: tieouts
       .sort((a, b) => (a.accountNumber < b.accountNumber ? -1 : 1))

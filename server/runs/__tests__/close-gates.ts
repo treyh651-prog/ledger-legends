@@ -512,6 +512,27 @@ test("G10 fails when the register is smaller than the accrued liability", async 
   assertGate(await gatesOn(db), "G10", "fail");
 });
 
+test("audit fix: G10 passes for a client with a payroll liability account on the chart but no payroll ever run", async () => {
+  // Every real chart template seeds the 2300 block whether or not a client
+  // actually runs payroll -- the account existing is not a signal that
+  // payroll happened. Before this fix, a zero balance with no
+  // payroll_register substantiation record still blocked, which is the
+  // only state every real no-payroll client was ever in.
+  const db = closeDb();
+  addAccount(db, "2300", "Payroll liabilities");
+  assertGate(await gatesOn(db), "G10", "pass");
+});
+
+test("audit fix: G10 still fails a nonzero payroll liability balance with no register to support it", async () => {
+  const db = closeDb();
+  addAccount(db, "2300", "Payroll liabilities");
+  seedEntry(db, "JE-PR-UNSUPPORTED", "2026-01-31", [
+    ["6100", BigInt(30000)],
+    ["2300", -BigInt(30000)],
+  ]);
+  assertGate(await gatesOn(db), "G10", "fail");
+});
+
 // ---------------------------------------------------------------------------
 // G11 accruals due to reverse in the period were reversed.
 // ---------------------------------------------------------------------------

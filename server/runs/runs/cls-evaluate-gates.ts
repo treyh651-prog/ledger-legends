@@ -243,6 +243,15 @@ function blockTieGate(
     const ledger = balanceOf(data.through, account.accountNumber);
     const source = tieSourceFor(data, account);
     if (source.supportedCents === null) {
+      // Audit fix, 2026-11-05. A zero balance with no outside record is
+      // not a missing tie out -- it is a block this client never used
+      // (every chart template seeds every block's accounts, payroll
+      // included, whether or not the client actually runs payroll). The
+      // common case this unblocks: G10 failing for every client with no
+      // payroll at all, because nothing ever substantiates an account
+      // nobody ever posted to. A nonzero balance with no record is still
+      // a real gap and still blocks.
+      if (ledger === ZERO) continue;
       blocking.push(
         blocker(account.id, account.accountNumber, source.detail, ledger),
       );
