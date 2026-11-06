@@ -442,6 +442,68 @@ export const vendorsSchema = z.object({
 });
 export type Vendors = z.infer<typeof vendorsSchema>;
 
+/** Audit fix (problem 8): invoices, credit memos, and bills had no screen. */
+export const invoiceSchema = z.object({
+  id: z.string(),
+  customerId: z.string(),
+  customerName: z.string(),
+  invoiceNumber: z.string(),
+  invoiceDate: z.string(),
+  dueDate: z.string(),
+  originalAmountCents: centsSchema,
+  taxCents: centsSchema,
+  appliedPaymentsCents: centsSchema,
+  appliedCreditsCents: centsSchema,
+  writtenOffCents: centsSchema,
+  status: z.enum(["draft", "posted", "paid", "void", "written_off"]),
+  isLateFee: z.boolean(),
+});
+export type Invoice = z.infer<typeof invoiceSchema>;
+
+export const creditMemoSchema = z.object({
+  id: z.string(),
+  customerId: z.string(),
+  customerName: z.string(),
+  memoNumber: z.string(),
+  memoDate: z.string(),
+  amountCents: centsSchema,
+  appliedCents: centsSchema,
+  status: z.enum(["open", "applied", "void"]),
+});
+export type CreditMemo = z.infer<typeof creditMemoSchema>;
+
+export const invoicesSchema = z.object({
+  clientId: idSchema,
+  invoices: z.array(invoiceSchema),
+  creditMemos: z.array(creditMemoSchema),
+});
+export type Invoices = z.infer<typeof invoicesSchema>;
+
+export const billSchema = z.object({
+  id: z.string(),
+  vendorId: z.string(),
+  vendorName: z.string(),
+  billNumber: z.string(),
+  billDate: z.string(),
+  dueDate: z.string(),
+  originalAmountCents: centsSchema,
+  freightCents: centsSchema,
+  taxCents: centsSchema,
+  paidCents: centsSchema,
+  discountTakenCents: centsSchema,
+  creditsCents: centsSchema,
+  status: z.enum(["draft", "posted", "paid", "void"]),
+  onHold: z.boolean(),
+  inDispute: z.boolean(),
+});
+export type Bill = z.infer<typeof billSchema>;
+
+export const billsSchema = z.object({
+  clientId: idSchema,
+  items: z.array(billSchema),
+});
+export type Bills = z.infer<typeof billsSchema>;
+
 export const recurringSplitSchema = z.object({
   id: z.string(),
   accountNumber: z.string(),

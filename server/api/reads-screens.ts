@@ -34,6 +34,8 @@ import type {
   TrialBalance,
   Customers,
   Vendors,
+  Invoices,
+  Bills,
 } from "../../shared/api/screens";
 import type { Cents } from "../runs/contract";
 import type { RunTx } from "../runs/db";
@@ -612,6 +614,77 @@ export async function customersForClient(tx: RunTx, firmId: string, clientId: st
         doNotPursue: c.doNotPursue,
       }))
       .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0)),
+  };
+}
+
+export async function invoicesForClient(tx: RunTx, firmId: string, clientId: string): Promise<Invoices> {
+  const [invoices, creditMemos, customers] = await Promise.all([
+    tx.query("invoices_for_client", { firmId, clientId }),
+    tx.query("credit_memos_for_client", { firmId, clientId }),
+    tx.query("customers_for_client", { firmId, clientId }),
+  ]);
+  const customerName = new Map(customers.map((c) => [c.id, c.name]));
+  return {
+    clientId,
+    invoices: invoices
+      .map((i) => ({
+        id: i.id,
+        customerId: i.customerId,
+        customerName: customerName.get(i.customerId) ?? i.customerId,
+        invoiceNumber: i.invoiceNumber,
+        invoiceDate: i.invoiceDate,
+        dueDate: i.dueDate,
+        originalAmountCents: cents(i.originalAmountCents),
+        taxCents: cents(i.taxCents),
+        appliedPaymentsCents: cents(i.appliedPaymentsCents),
+        appliedCreditsCents: cents(i.appliedCreditsCents),
+        writtenOffCents: cents(i.writtenOffCents),
+        status: i.status,
+        isLateFee: i.isLateFee,
+      }))
+      .sort((a, b) => (a.invoiceDate < b.invoiceDate ? 1 : a.invoiceDate > b.invoiceDate ? -1 : 0)),
+    creditMemos: creditMemos
+      .map((m) => ({
+        id: m.id,
+        customerId: m.customerId,
+        customerName: customerName.get(m.customerId) ?? m.customerId,
+        memoNumber: m.memoNumber,
+        memoDate: m.memoDate,
+        amountCents: cents(m.amountCents),
+        appliedCents: cents(m.appliedCents),
+        status: m.status,
+      }))
+      .sort((a, b) => (a.memoDate < b.memoDate ? 1 : a.memoDate > b.memoDate ? -1 : 0)),
+  };
+}
+
+export async function billsForClient(tx: RunTx, firmId: string, clientId: string): Promise<Bills> {
+  const [bills, vendors] = await Promise.all([
+    tx.query("bills_for_client", { firmId, clientId }),
+    tx.query("vendors_for_client", { firmId, clientId }),
+  ]);
+  const vendorName = new Map(vendors.map((v) => [v.id, v.legalName]));
+  return {
+    clientId,
+    items: bills
+      .map((b) => ({
+        id: b.id,
+        vendorId: b.vendorId,
+        vendorName: vendorName.get(b.vendorId) ?? b.vendorId,
+        billNumber: b.billNumber,
+        billDate: b.billDate,
+        dueDate: b.dueDate,
+        originalAmountCents: cents(b.originalAmountCents),
+        freightCents: cents(b.freightCents),
+        taxCents: cents(b.taxCents),
+        paidCents: cents(b.paidCents),
+        discountTakenCents: cents(b.discountTakenCents),
+        creditsCents: cents(b.creditsCents),
+        status: b.status,
+        onHold: b.onHold,
+        inDispute: b.inDispute,
+      }))
+      .sort((a, b) => (a.billDate < b.billDate ? 1 : a.billDate > b.billDate ? -1 : 0)),
   };
 }
 

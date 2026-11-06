@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { Aging, Budget, Categories, ClientSetup, CloseChecklist, ConsolidatedPackages, Customers, EntityGroups, FirmRequests, FirmTasks, FirmTeam, RunOutcomeDto, UpdateTaskBody, Forecast, Journal, Narratives, PortalStatements, Reconcile, RecurringTemplates, ReportPackages, Rules, StagedBatches, Substantiation, TaxForms, TrialBalance, Vendors } from "@shared/api";
+import type { Aging, Bills, Budget, Categories, ClientSetup, CloseChecklist, ConsolidatedPackages, Customers, EntityGroups, FirmRequests, FirmTasks, FirmTeam, RunOutcomeDto, UpdateTaskBody, Forecast, Invoices, Journal, Narratives, PortalStatements, Reconcile, RecurringTemplates, ReportPackages, Rules, StagedBatches, Substantiation, TaxForms, TrialBalance, Vendors } from "@shared/api";
 import { api, toQuery } from "./http";
 
 /** Reads for the firm screens. Keys live under the client so run mutations invalidate them. */
@@ -20,6 +20,8 @@ export const screenKeys = {
   recurringTemplates: (clientId: string) => ["api", "firm", "clients", clientId, "recurring-templates"] as const,
   customers: (clientId: string) => ["api", "firm", "clients", clientId, "customers"] as const,
   vendors: (clientId: string) => ["api", "firm", "clients", clientId, "vendors"] as const,
+  invoices: (clientId: string) => ["api", "firm", "clients", clientId, "invoices"] as const,
+  bills: (clientId: string) => ["api", "firm", "clients", clientId, "bills"] as const,
 };
 
 /** A YYYY-MM from the header becomes the first of that month for the API. */
@@ -185,6 +187,22 @@ export function useVendors(clientId: string | null) {
   return useQuery({
     queryKey: screenKeys.vendors(clientId ?? "none"),
     queryFn: () => api<Vendors>("GET", `/api/firm/clients/${clientId}/vendors`),
+    enabled: !!clientId,
+  });
+}
+
+export function useInvoices(clientId: string | null) {
+  return useQuery({
+    queryKey: screenKeys.invoices(clientId ?? "none"),
+    queryFn: () => api<Invoices>("GET", `/api/firm/clients/${clientId}/invoices`),
+    enabled: !!clientId,
+  });
+}
+
+export function useBills(clientId: string | null) {
+  return useQuery({
+    queryKey: screenKeys.bills(clientId ?? "none"),
+    queryFn: () => api<Bills>("GET", `/api/firm/clients/${clientId}/bills`),
     enabled: !!clientId,
   });
 }
