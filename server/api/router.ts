@@ -28,7 +28,7 @@ const runSucceeded = (status: string) => status === "completed" || status === "c
 const taskParamsSchema = clientParamsSchema.extend({ taskId: z.string().min(1) });
 const batchParamsSchema = clientParamsSchema.extend({ batchId: z.string().min(1) });
 const setBillingStatusBodySchema = z.object({ billingStatus: z.enum(["current", "past_due"]) });
-import { aging, billsForClient, budget, categoriesForClient, clientSetup, closeChecklist, consolidatedPackages, customersForClient, entityGroups, firmRequests, firmTasks, forecast, invoicesForClient, journal, narratives, reconcile, recurringTemplates, reportPackages, rules, stagedBatches, substantiation, taxForms, trialBalance, vendorsForClient } from "./reads-screens";
+import { aging, billsForClient, budget, categoriesForClient, clientSetup, closeChecklist, consolidatedPackages, customersForClient, entityGroups, firmRequests, firmTasks, forecast, invoicesForClient, journal, narratives, payRunsForClient, reconcile, recurringTemplates, reportPackages, rules, stagedBatches, substantiation, taxForms, trialBalance, vendorsForClient } from "./reads-screens";
 import { rejectBatchBodySchema, updateTaskBodySchema, type FirmMember, type FirmTeam } from "../../shared/api/screens";
 import { CODING_CASCADE_ORDER, lookupRun } from "../runs/registry";
 import { executeSequence, step } from "../runs/sequence";
@@ -691,6 +691,16 @@ export function createApiRouter(deps: ApiDeps): Router {
       const { clientId } = parse(clientParamsSchema, req.params);
       const firmId = req.firm!.firmId;
       const body = await deps.db.tx(readSession(req.actor!, firmId, clientId), (tx) => billsForClient(tx, firmId, clientId));
+      return { body };
+    }),
+  );
+
+  firmClient.get(
+    "/pay-runs",
+    route(async (req) => {
+      const { clientId } = parse(clientParamsSchema, req.params);
+      const firmId = req.firm!.firmId;
+      const body = await deps.db.tx(readSession(req.actor!, firmId, clientId), (tx) => payRunsForClient(tx, firmId, clientId));
       return { body };
     }),
   );

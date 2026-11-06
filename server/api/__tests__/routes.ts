@@ -446,7 +446,7 @@ test("api: without a document store the upload route answers 501 not_configured"
 test("api: the run catalog lists every registered run with its tier", async () => {
   const r = await call(world, "GET", "/api/firm/runs/catalog");
   assertEqual(r.status, 200, "status");
-  assertEqual(r.body.items.length, 99, "ninety nine runs");
+  assertEqual(r.body.items.length, 100, "one hundred runs");
   const create = r.body.items.find((x: any) => x.runType === "INTAKE-CREATE-CLIENT");
   assertEqual(create?.tier, "manual", "the intake run is manual");
 });

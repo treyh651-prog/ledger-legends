@@ -210,7 +210,13 @@ export type RunTypeId =
   | "CFG-CREATE-ARAP-POLICY"
   | "CFG-CREATE-BANKCODE-MAPPING"
   | "CFG-CREATE-BUDGET-LINES"
-  | "CFG-CREATE-BUDGET-THRESHOLD";
+  | "CFG-CREATE-BUDGET-THRESHOLD"
+  // close.substantiation_records had a real insert case in apply-writer.ts
+  // already but zero callers in the whole registry -- found while wiring
+  // problem 8's payroll approval UI, since PAY-APPROVE-RUN's own
+  // precondition (a payroll register recorded for the period) could never
+  // be satisfied without this.
+  | "CFG-CREATE-SUBSTANTIATION-RECORD";
 
 /** Doc 03 Part 7 names the reversal of a run `<ORIGINAL>-UNDO`. */
 export type UndoRunTypeId = `${RunTypeId}-UNDO`;

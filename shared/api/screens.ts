@@ -504,6 +504,33 @@ export const billsSchema = z.object({
 });
 export type Bills = z.infer<typeof billsSchema>;
 
+/**
+ * Audit fix (problem 8): payroll had no screen at all. PAY-APPROVE-RUN
+ * never disburses (doc 05 D5) -- it only reviews a register the provider
+ * produced, so there is no payroll amount entry here, only approval.
+ */
+export const payRunSchema = z.object({
+  id: z.string(),
+  providerName: z.string(),
+  payPeriodStart: z.string(),
+  payPeriodEnd: z.string(),
+  payDate: z.string(),
+  employeeCount: z.number().int().nullable(),
+  grossCents: centsSchema,
+  employerTaxCents: centsSchema,
+  employeeWithholdingCents: centsSchema,
+  netCents: centsSchema,
+  status: z.enum(["approved", "posted"]),
+  approvedAt: z.string(),
+});
+export type PayRun = z.infer<typeof payRunSchema>;
+
+export const payRunsSchema = z.object({
+  clientId: idSchema,
+  items: z.array(payRunSchema),
+});
+export type PayRuns = z.infer<typeof payRunsSchema>;
+
 export const recurringSplitSchema = z.object({
   id: z.string(),
   accountNumber: z.string(),

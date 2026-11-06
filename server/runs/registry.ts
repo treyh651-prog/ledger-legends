@@ -88,6 +88,7 @@ import { cfgCreateArapPolicy } from "./runs/cfg-create-arap-policy";
 import { cfgCreateBankcodeMapping } from "./runs/cfg-create-bankcode-mapping";
 import { cfgCreateBudgetLines } from "./runs/cfg-create-budget-lines";
 import { cfgCreateBudgetThreshold } from "./runs/cfg-create-budget-threshold";
+import { cfgCreateSubstantiationRecord } from "./runs/cfg-create-substantiation-record";
 import { clsLockPeriod } from "./runs/cls-lock-period";
 import { clsPostYearEnd } from "./runs/cls-post-yearend";
 import { rptBuildPackage } from "./runs/rpt-build-package";
@@ -260,6 +261,7 @@ export const registry: readonly RegistryEntry[] = [
   entry(cfgCreateBankcodeMapping),
   entry(cfgCreateBudgetLines),
   entry(cfgCreateBudgetThreshold),
+  entry(cfgCreateSubstantiationRecord),
   entry(clsLockPeriod),
   entry(clsRollForward),
   entry(clsPostYearEnd),

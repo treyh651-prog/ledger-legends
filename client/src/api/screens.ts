@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { Aging, Bills, Budget, Categories, ClientSetup, CloseChecklist, ConsolidatedPackages, Customers, EntityGroups, FirmRequests, FirmTasks, FirmTeam, RunOutcomeDto, UpdateTaskBody, Forecast, Invoices, Journal, Narratives, PortalStatements, Reconcile, RecurringTemplates, ReportPackages, Rules, StagedBatches, Substantiation, TaxForms, TrialBalance, Vendors } from "@shared/api";
+import type { Aging, Bills, Budget, Categories, ClientSetup, CloseChecklist, ConsolidatedPackages, Customers, EntityGroups, FirmRequests, FirmTasks, FirmTeam, RunOutcomeDto, UpdateTaskBody, Forecast, Invoices, Journal, Narratives, PayRuns, PortalStatements, Reconcile, RecurringTemplates, ReportPackages, Rules, StagedBatches, Substantiation, TaxForms, TrialBalance, Vendors } from "@shared/api";
 import { api, toQuery } from "./http";
 
 /** Reads for the firm screens. Keys live under the client so run mutations invalidate them. */
@@ -22,6 +22,7 @@ export const screenKeys = {
   vendors: (clientId: string) => ["api", "firm", "clients", clientId, "vendors"] as const,
   invoices: (clientId: string) => ["api", "firm", "clients", clientId, "invoices"] as const,
   bills: (clientId: string) => ["api", "firm", "clients", clientId, "bills"] as const,
+  payRuns: (clientId: string) => ["api", "firm", "clients", clientId, "pay-runs"] as const,
 };
 
 /** A YYYY-MM from the header becomes the first of that month for the API. */
@@ -203,6 +204,14 @@ export function useBills(clientId: string | null) {
   return useQuery({
     queryKey: screenKeys.bills(clientId ?? "none"),
     queryFn: () => api<Bills>("GET", `/api/firm/clients/${clientId}/bills`),
+    enabled: !!clientId,
+  });
+}
+
+export function usePayRuns(clientId: string | null) {
+  return useQuery({
+    queryKey: screenKeys.payRuns(clientId ?? "none"),
+    queryFn: () => api<PayRuns>("GET", `/api/firm/clients/${clientId}/pay-runs`),
     enabled: !!clientId,
   });
 }

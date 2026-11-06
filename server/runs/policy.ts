@@ -395,6 +395,11 @@ export const RUN_POLICIES: Readonly<Record<string, RunPolicy>> = {
     reason:
       "deciding what counts as a real variance is a judgment a person makes",
   },
+  "CFG-CREATE-SUBSTANTIATION-RECORD": {
+    tier: "manual",
+    reason:
+      "a person counted the inventory or pulled the payroll register, and writing down what they found and where it is filed is a decision a person makes once",
+  },
   "CLOSE-ROLL-FORWARD": {
     tier: "propose",
     reason:

@@ -36,6 +36,7 @@ import type {
   Vendors,
   Invoices,
   Bills,
+  PayRuns,
 } from "../../shared/api/screens";
 import type { Cents } from "../runs/contract";
 import type { RunTx } from "../runs/db";
@@ -685,6 +686,29 @@ export async function billsForClient(tx: RunTx, firmId: string, clientId: string
         inDispute: b.inDispute,
       }))
       .sort((a, b) => (a.billDate < b.billDate ? 1 : a.billDate > b.billDate ? -1 : 0)),
+  };
+}
+
+export async function payRunsForClient(tx: RunTx, firmId: string, clientId: string): Promise<PayRuns> {
+  const rows = await tx.query("pay_runs_for_client", { firmId, clientId });
+  return {
+    clientId,
+    items: rows
+      .map((p) => ({
+        id: p.id,
+        providerName: p.providerName,
+        payPeriodStart: p.payPeriodStart,
+        payPeriodEnd: p.payPeriodEnd,
+        payDate: p.payDate,
+        employeeCount: p.employeeCount,
+        grossCents: cents(p.grossCents),
+        employerTaxCents: cents(p.employerTaxCents),
+        employeeWithholdingCents: cents(p.employeeWithholdingCents),
+        netCents: cents(p.netCents),
+        status: p.status,
+        approvedAt: p.approvedAt,
+      }))
+      .sort((a, b) => (a.payDate < b.payDate ? 1 : a.payDate > b.payDate ? -1 : 0)),
   };
 }
 

@@ -38,6 +38,7 @@ import {
   UserPlus,
   Users,
   Users2,
+  Wallet,
   Wand2,
   Columns3,
   KeyRound,
@@ -109,6 +110,7 @@ const FIRM_NAV: NavGroup[] = [
     label: "Management",
     items: [
       { href: "/close", label: "Close checklist", icon: CalendarCheck },
+      { href: "/payroll", label: "Payroll", icon: Wallet },
       { href: "/board", label: "Workload board", icon: LayoutGrid, badge: (c) => c.overdue || undefined },
       { href: "/team", label: "Team capacity", icon: Users },
       { href: "/access", label: "Access", icon: KeyRound },

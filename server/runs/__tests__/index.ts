@@ -166,6 +166,7 @@ import "./cfg-create-arap-policy";
 import "./cfg-create-bankcode-mapping";
 import "./cfg-create-budget-lines";
 import "./cfg-create-budget-threshold";
+import "./cfg-create-substantiation-record";
 import "./setup-import-balances";
 import "./intake-pipeline";
 import "./intake-build-chart-backfill";
