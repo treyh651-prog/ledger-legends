@@ -855,6 +855,11 @@ export interface QueryCatalog {
     params: { firmId: Ulid; clientId: Ulid; scheduleId: Ulid };
     row: SchedScheduleRow;
   };
+  /** Every schedule a client has, enabled or not -- SETUP-CREATE-DEFAULT-SCHEDULES' own idempotency check. */
+  sched_schedules_for_client: {
+    params: { firmId: Ulid; clientId: Ulid };
+    row: SchedScheduleRow;
+  };
   /** Newest window first, so the head of the list is where a sweep resumes. */
   sched_windows_for_schedule: {
     params: { firmId: Ulid; clientId: Ulid; scheduleId: Ulid; limit: number };

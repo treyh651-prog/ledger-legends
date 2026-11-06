@@ -91,6 +91,10 @@ export type RunTypeId =
   | "AR-CREATE-INVOICE"
   | "REC-IMPORT-STATEMENT"
   | "SETUP-ADD-BANK-ACCOUNT"
+  // Audit fix, problem 5: nothing ever inserted a client's first
+  // sched.schedules row. See setup-create-default-schedules.ts for why its
+  // own run-type list is deliberately narrower than every unattended run.
+  | "SETUP-CREATE-DEFAULT-SCHEDULES"
   // The payable side had the identical gap: nothing in the original 49 ever
   // creates a vendor, a bill, or the subledger record of a received payment.
   | "AP-CREATE-VENDOR"

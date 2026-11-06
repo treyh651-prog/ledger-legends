@@ -2691,6 +2691,14 @@ export const QUERIES: Record<QueryName, SqlSpec> = {
           order by id asc`,
     params: (p) => [p.firmId, p.clientId, p.scheduleId],
   },
+  sched_schedules_for_client: {
+    table: "sched_schedules",
+    sql: `select ${SCHED_SCHEDULE_COLUMNS}
+          from sched.schedules
+          where firm_id = $1 and client_id = $2
+          order by id asc`,
+    params: (p) => [p.firmId, p.clientId],
+  },
   sched_windows_for_schedule: {
     table: "sched_windows",
     sql: `select ${SCHED_WINDOW_COLUMNS}

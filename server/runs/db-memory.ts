@@ -2002,6 +2002,14 @@ class MemoryTx implements RunTx {
           )
           .map((r) => clone(r as unknown as AnyRow));
       }
+      case "sched_schedules_for_client": {
+        const p = rawParams as { firmId: string; clientId: string };
+        return this.view("sched_schedules")
+          .map((r) => r as unknown as SchedScheduleRow)
+          .filter((r) => r.firmId === p.firmId && r.clientId === p.clientId)
+          .sort((a, b) => byId(a, b))
+          .map((r) => clone(r as unknown as AnyRow));
+      }
       case "sched_windows_for_schedule": {
         const p = rawParams as {
           firmId: string;

@@ -157,6 +157,7 @@ import "./cfg-disable-rule-autopost";
 import "./apply-writer-cash-effect";
 import "./intake-open-requests";
 import "./setup-add-bank-account";
+import "./setup-create-default-schedules";
 import "./setup-import-balances";
 import "./intake-pipeline";
 import "./intake-build-chart-backfill";

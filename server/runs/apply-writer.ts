@@ -104,6 +104,7 @@ import type {
   EntityGroupMemberRow,
   ConsolidatedPackageRow,
   ConsolidatedSectionRow,
+  SchedScheduleRow,
 } from "./tables";
 
 /**
@@ -972,6 +973,13 @@ async function insertRow(
       return;
     case "consolidated_sections":
       await tx.insert("consolidated_sections", [withId as unknown as ConsolidatedSectionRow]);
+      return;
+    // SETUP-CREATE-DEFAULT-SCHEDULES. Audit fix (problem 5): sched.schedules
+    // has never had a writer -- the scheduler only ever read and updated rows
+    // that already existed, and nothing, not a run, not a screen, not a
+    // migration, ever inserted the first one for a real client.
+    case "sched_schedules":
+      await tx.insert("sched_schedules", [withId as unknown as SchedScheduleRow]);
       return;
     /**
      * The two tenancy rows INTAKE-CREATE-CLIENT writes. Insert only, like the

@@ -99,6 +99,11 @@ export const RUN_POLICIES: Readonly<Record<string, RunPolicy>> = {
     reason:
       "names a bank or card account and which chart account it feeds, once, and a clock has no account of its own to discover",
   },
+  "SETUP-CREATE-DEFAULT-SCHEDULES": {
+    tier: "manual",
+    reason:
+      "decides a client's books should start running themselves, once, and a clock has no schedule of its own to invent",
+  },
   "SETUP-IMPORT-BALANCES": {
     tier: "manual",
     reason:

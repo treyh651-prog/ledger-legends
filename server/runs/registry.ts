@@ -106,6 +106,7 @@ import { docRecordUpload } from "./runs/doc-record-upload";
 import { intakeSeedTasks } from "./runs/intake-seed-tasks";
 import { intakeOpenRequests } from "./runs/intake-open-requests";
 import { setupAddBankAccount } from "./runs/setup-add-bank-account";
+import { setupCreateDefaultSchedules } from "./runs/setup-create-default-schedules";
 import { setupImportBalances } from "./runs/setup-import-balances";
 import { recClearMatched } from "./runs/rec-clear-matched";
 import { subRaiseRequests } from "./runs/sub-raise-requests";
@@ -178,6 +179,7 @@ export const registry: readonly RegistryEntry[] = [
   entry(docRecordUpload),
   entry(engSignLetter),
   entry(setupAddBankAccount),
+  entry(setupCreateDefaultSchedules),
   entry(setupImportBalances),
   entry(importParseFeed),
   entry(importCommitBatch),
