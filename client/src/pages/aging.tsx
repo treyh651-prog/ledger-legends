@@ -1,10 +1,63 @@
+import { useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { Bar, BarChart, CartesianGrid, Cell, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Button } from "@/components/ui/button";
 import { DataGrid, EmptyState, ErrorState, Kpi, Money, PageHeader, SectionCard } from "@/components/kit";
 import { useActiveClient } from "@/lib/active-client";
-import { useAging, errorMessage } from "@/api";
+import { useApp } from "@/store";
+import { useAging, useTriggerRun, errorMessage, periodStartOf, screenKeys } from "@/api";
 import { fmtCompactUsd, fmtShortDate, usd } from "@/lib/money";
 import type { AgingBuckets, AgingParty } from "@shared/api";
+
+/**
+ * AR-APPLY-PAYMENTS / AP-APPLY-PAYMENTS. Audit fix (problem 8): both
+ * existed and worked (the 4 tier allocation these run specs document), but
+ * nothing in the client ever called either one -- a payment recorded via
+ * transactions.tsx's own RecordCustomerPaymentDialog/RecordVendorPayment
+ * Dialog sat unapplied forever with no way to actually resolve it onto an
+ * open invoice or bill. Period scoped, same as the run's own scope, no per
+ * payment selection needed since the allocation itself is automatic.
+ */
+function ApplyPaymentsButton({ clientId, period, runCode, label, testId }: { clientId: string; period: string; runCode: "AR-APPLY-PAYMENTS" | "AP-APPLY-PAYMENTS"; label: string; testId: string }) {
+  const trigger = useTriggerRun(clientId);
+  const [status, setStatus] = useState<string | null>(null);
+  const qc = useQueryClient();
+
+  const submit = async () => {
+    setStatus(null);
+    const scope = { clientId, period: periodStartOf(period) };
+    try {
+      const preview = await trigger.mutateAsync({ runCode, body: { mode: "preview", scope } });
+      if (preview.status === "no_op") {
+        setStatus("Nothing to apply this period.");
+        return;
+      }
+      if (preview.status !== "completed" && preview.status !== "completed_with_skips") {
+        setStatus(preview.errors[0]?.message ?? `The run ended ${preview.status}.`);
+        return;
+      }
+      const applied = await trigger.mutateAsync({ runCode, body: { mode: "apply", scope, previewRunId: preview.executionId } });
+      if (applied.status !== "completed" && applied.status !== "completed_with_skips") {
+        setStatus(applied.errors[0]?.message ?? `The run ended ${applied.status}.`);
+        return;
+      }
+      setStatus(`Applied. ${applied.proposals.length} proposal(s), ${applied.skips.length} skipped.`);
+      void qc.invalidateQueries({ queryKey: screenKeys.aging(clientId) });
+    } catch (e) {
+      setStatus(errorMessage(e));
+    }
+  };
+
+  return (
+    <div className="flex flex-col items-end gap-1">
+      <Button size="sm" variant="outline" onClick={() => void submit()} disabled={trigger.isPending} data-testid={testId}>
+        {label}
+      </Button>
+      {status ? <p className="max-w-[16rem] break-words text-right text-xs text-muted-foreground">{status}</p> : null}
+    </div>
+  );
+}
 
 const BUCKETS: { key: keyof Omit<AgingBuckets, "totalCents">; label: string }[] = [
   { key: "currentCents", label: "Current" },
@@ -53,6 +106,7 @@ function AgingBucketChart({ totals }: { totals: AgingBuckets }) {
  */
 export default function Aging() {
   const { client, clientId } = useActiveClient();
+  const { period } = useApp();
   const q = useAging(clientId);
   const d = q.data;
   if (q.isError) return <ErrorState message={errorMessage(q.error)} onRetry={() => void q.refetch()} />;
@@ -116,7 +170,11 @@ export default function Aging() {
               <AgingBucketChart totals={d.receivableTotals} />
             </SectionCard>
           ) : null}
-          <SectionCard title="Accounts receivable" description="Open posted invoices by customer.">
+          <SectionCard
+            title="Accounts receivable"
+            description="Open posted invoices by customer."
+            actions={clientId ? <ApplyPaymentsButton clientId={clientId} period={period} runCode="AR-APPLY-PAYMENTS" label="Apply customer payments" testId="button-apply-ar-payments" /> : null}
+          >
             {grid(d?.receivable ?? [], d?.receivableTotals, "grid-ar", "No posted invoice carries an open balance.")}
           </SectionCard>
         </TabsContent>
@@ -126,7 +184,11 @@ export default function Aging() {
               <AgingBucketChart totals={d.payableTotals} />
             </SectionCard>
           ) : null}
-          <SectionCard title="Accounts payable" description="Open posted bills by vendor.">
+          <SectionCard
+            title="Accounts payable"
+            description="Open posted bills by vendor."
+            actions={clientId ? <ApplyPaymentsButton clientId={clientId} period={period} runCode="AP-APPLY-PAYMENTS" label="Apply vendor payments" testId="button-apply-ap-payments" /> : null}
+          >
             {grid(d?.payable ?? [], d?.payableTotals, "grid-ap", "No posted bill carries an open balance.")}
           </SectionCard>
         </TabsContent>

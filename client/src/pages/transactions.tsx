@@ -11,7 +11,7 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogT
 import { DataGrid, EmptyState, ErrorState, Kpi, Money, PageHeader, Pill, SectionCard } from "@/components/kit";
 import { useApp } from "@/store";
 import { useActiveClient } from "@/lib/active-client";
-import { useReconcile, useTransactions, useTriggerRun, useCategories, errorMessage } from "@/api";
+import { useReconcile, useTransactions, useTriggerRun, useCategories, useCustomers, useVendors, errorMessage } from "@/api";
 import { fmtPeriod, fmtShortDate } from "@/lib/money";
 import type { Transaction } from "@shared/api";
 
@@ -218,6 +218,216 @@ function ReissueDialog({ clientId, transaction }: { clientId: string; transactio
   );
 }
 
+/**
+ * AR-RECORD-PAYMENT. Audit fix (problem 8): existed and worked, but nothing
+ * in the client ever called it -- shown only for a coded, money-in
+ * transaction, the run's own two real preconditions (ar-record-payment.ts).
+ */
+function RecordCustomerPaymentDialog({
+  clientId,
+  transaction,
+  customers,
+}: {
+  clientId: string;
+  transaction: Transaction;
+  customers: { id: string; name: string }[];
+}) {
+  const [open, setOpen] = useState(false);
+  const [customerId, setCustomerId] = useState("");
+  const [matchHint, setMatchHint] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const trigger = useTriggerRun(clientId);
+  const qc = useQueryClient();
+
+  const reset = () => {
+    setCustomerId(customers[0]?.id ?? "");
+    setMatchHint("");
+    setError(null);
+  };
+
+  const submit = async () => {
+    setError(null);
+    if (!customerId) {
+      setError("Choose which customer this deposit belongs to.");
+      return;
+    }
+    const scope = {
+      clientId,
+      customerId,
+      transactionId: transaction.id,
+      matchHint: matchHint.trim() === "" ? null : matchHint.trim(),
+      onHold: false,
+    };
+    try {
+      const preview = await trigger.mutateAsync({ runCode: "AR-RECORD-PAYMENT", body: { mode: "preview", scope } });
+      if (preview.status !== "completed" && preview.status !== "completed_with_skips") {
+        setError(preview.errors[0]?.message ?? `The run ended ${preview.status}.`);
+        return;
+      }
+      const applied = await trigger.mutateAsync({
+        runCode: "AR-RECORD-PAYMENT",
+        body: { mode: "apply", scope, previewRunId: preview.executionId },
+      });
+      if (applied.status !== "completed" && applied.status !== "completed_with_skips") {
+        setError(applied.errors[0]?.message ?? `The run ended ${applied.status}.`);
+        return;
+      }
+      invalidateTransactions(qc, clientId);
+      setOpen(false);
+    } catch (e) {
+      setError(errorMessage(e));
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={(next) => { setOpen(next); if (next) reset(); }}>
+      <DialogTrigger asChild>
+        <Button size="sm" variant="outline" data-testid={`txn-record-ar-payment-${transaction.id}`} disabled={customers.length === 0}>
+          Record customer payment
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>Record a customer payment</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-3">
+          <p className="text-sm text-muted-foreground">
+            {transaction.description}, <Money cents={transaction.amountCents} signed /> on {fmtShortDate(transaction.postedDate)}.
+          </p>
+          <div className="space-y-1">
+            <label className="text-xs font-medium text-muted-foreground">Customer</label>
+            <select
+              className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
+              value={customerId}
+              onChange={(e) => setCustomerId(e.target.value)}
+              data-testid="ar-payment-customer"
+            >
+              <option value="" disabled>Choose one</option>
+              {customers.map((c) => (
+                <option key={c.id} value={c.id}>{c.name}</option>
+              ))}
+            </select>
+          </div>
+          <div className="space-y-1">
+            <label className="text-xs font-medium text-muted-foreground">Invoice number (optional)</label>
+            <Input value={matchHint} onChange={(e) => setMatchHint(e.target.value)} placeholder="INV-1001" data-testid="ar-payment-match-hint" />
+          </div>
+          {error ? <p className="break-words text-xs text-destructive">{error}</p> : null}
+        </div>
+        <DialogFooter>
+          <Button size="sm" variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
+          <Button size="sm" onClick={() => void submit()} disabled={trigger.isPending} data-testid="ar-payment-confirm">Record</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/**
+ * AP-RECORD-PAYMENT. Audit fix (problem 8): existed and worked, but nothing
+ * in the client ever called it -- shown only for a coded, money-out
+ * transaction, the run's own two real preconditions (ap-record-payment.ts).
+ */
+function RecordVendorPaymentDialog({
+  clientId,
+  transaction,
+  vendors,
+}: {
+  clientId: string;
+  transaction: Transaction;
+  vendors: { id: string; name: string }[];
+}) {
+  const [open, setOpen] = useState(false);
+  const [vendorId, setVendorId] = useState("");
+  const [matchHint, setMatchHint] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const trigger = useTriggerRun(clientId);
+  const qc = useQueryClient();
+
+  const reset = () => {
+    setVendorId(vendors[0]?.id ?? "");
+    setMatchHint("");
+    setError(null);
+  };
+
+  const submit = async () => {
+    setError(null);
+    if (!vendorId) {
+      setError("Choose which vendor this withdrawal belongs to.");
+      return;
+    }
+    const scope = {
+      clientId,
+      vendorId,
+      transactionId: transaction.id,
+      matchHint: matchHint.trim() === "" ? null : matchHint.trim(),
+      onHold: false,
+    };
+    try {
+      const preview = await trigger.mutateAsync({ runCode: "AP-RECORD-PAYMENT", body: { mode: "preview", scope } });
+      if (preview.status !== "completed" && preview.status !== "completed_with_skips") {
+        setError(preview.errors[0]?.message ?? `The run ended ${preview.status}.`);
+        return;
+      }
+      const applied = await trigger.mutateAsync({
+        runCode: "AP-RECORD-PAYMENT",
+        body: { mode: "apply", scope, previewRunId: preview.executionId },
+      });
+      if (applied.status !== "completed" && applied.status !== "completed_with_skips") {
+        setError(applied.errors[0]?.message ?? `The run ended ${applied.status}.`);
+        return;
+      }
+      invalidateTransactions(qc, clientId);
+      setOpen(false);
+    } catch (e) {
+      setError(errorMessage(e));
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={(next) => { setOpen(next); if (next) reset(); }}>
+      <DialogTrigger asChild>
+        <Button size="sm" variant="outline" data-testid={`txn-record-ap-payment-${transaction.id}`} disabled={vendors.length === 0}>
+          Record vendor payment
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>Record a vendor payment</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-3">
+          <p className="text-sm text-muted-foreground">
+            {transaction.description}, <Money cents={transaction.amountCents} signed /> on {fmtShortDate(transaction.postedDate)}.
+          </p>
+          <div className="space-y-1">
+            <label className="text-xs font-medium text-muted-foreground">Vendor</label>
+            <select
+              className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
+              value={vendorId}
+              onChange={(e) => setVendorId(e.target.value)}
+              data-testid="ap-payment-vendor"
+            >
+              <option value="" disabled>Choose one</option>
+              {vendors.map((v) => (
+                <option key={v.id} value={v.id}>{v.name}</option>
+              ))}
+            </select>
+          </div>
+          <div className="space-y-1">
+            <label className="text-xs font-medium text-muted-foreground">Bill number (optional)</label>
+            <Input value={matchHint} onChange={(e) => setMatchHint(e.target.value)} placeholder="BILL-5001" data-testid="ap-payment-match-hint" />
+          </div>
+          {error ? <p className="break-words text-xs text-destructive">{error}</p> : null}
+        </div>
+        <DialogFooter>
+          <Button size="sm" variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
+          <Button size="sm" onClick={() => void submit()} disabled={trigger.isPending} data-testid="ap-payment-confirm">Record</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 /** TXN-ACCEPT-CODING, preview then apply in one click. Bulk-capable: one call covers a whole selection. */
 function AcceptCodingButton({
   clientId,
@@ -405,6 +615,10 @@ export default function Transactions() {
   });
   const banksQ = useReconcile(clientId, period, null);
   const banks = banksQ.data?.bankAccounts ?? [];
+  const customersQ = useCustomers(clientId);
+  const customers = customersQ.data?.items.map((c) => ({ id: c.id, name: c.name })) ?? [];
+  const vendorsQ = useVendors(clientId);
+  const vendors = vendorsQ.data?.items.map((v) => ({ id: v.id, name: v.legalName })) ?? [];
   const d = q.data;
   if (q.isError) return <ErrorState message={errorMessage(q.error)} onRetry={() => void q.refetch()} />;
 
@@ -578,6 +792,12 @@ export default function Transactions() {
                         <AcceptCodingButton clientId={clientId} transactionIds={[t.id]} label="Accept" onDone={() => {}} />
                         <RejectCodingDialog clientId={clientId} transactionIds={[t.id]} label="Reject" onDone={() => {}} />
                       </>
+                    ) : null}
+                    {t.categoryId !== null && t.amountCents > 0 ? (
+                      <RecordCustomerPaymentDialog clientId={clientId} transaction={t} customers={customers} />
+                    ) : null}
+                    {t.categoryId !== null && t.amountCents < 0 ? (
+                      <RecordVendorPaymentDialog clientId={clientId} transaction={t} vendors={vendors} />
                     ) : null}
                     <VoidDialog clientId={clientId} transaction={t} />
                     <ReissueDialog clientId={clientId} transaction={t} />
