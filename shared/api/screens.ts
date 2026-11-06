@@ -396,6 +396,52 @@ export const categoriesSchema = z.object({
 });
 export type Categories = z.infer<typeof categoriesSchema>;
 
+/** Audit fix (problem 8): customers/vendors had no screen at all. */
+export const customerSchema = z.object({
+  id: z.string(),
+  version: z.number().int(),
+  name: z.string(),
+  isActive: z.boolean(),
+  lateFeeEnabled: z.boolean(),
+  annualizedRateBp: z.number().int().nullable(),
+  graceDays: z.number().int().nullable(),
+  doNotPursue: z.boolean(),
+});
+export type Customer = z.infer<typeof customerSchema>;
+
+export const customersSchema = z.object({
+  clientId: idSchema,
+  items: z.array(customerSchema),
+});
+export type Customers = z.infer<typeof customersSchema>;
+
+export const vendorSchema = z.object({
+  id: z.string(),
+  legalName: z.string(),
+  isActive: z.boolean(),
+  entityType: z.enum([
+    "individual",
+    "sole_proprietor",
+    "partnership",
+    "llc",
+    "c_corporation",
+    "s_corporation",
+    "government",
+    "tax_exempt",
+    "unknown",
+  ]),
+  w9OnFile: z.boolean(),
+  w9ExpiresOn: z.string().nullable(),
+  earlyDiscountRule: z.enum(["purchase_discount_income", "vendor_credit"]).nullable(),
+});
+export type Vendor = z.infer<typeof vendorSchema>;
+
+export const vendorsSchema = z.object({
+  clientId: idSchema,
+  items: z.array(vendorSchema),
+});
+export type Vendors = z.infer<typeof vendorsSchema>;
+
 export const recurringSplitSchema = z.object({
   id: z.string(),
   accountNumber: z.string(),

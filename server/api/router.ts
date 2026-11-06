@@ -28,7 +28,7 @@ const runSucceeded = (status: string) => status === "completed" || status === "c
 const taskParamsSchema = clientParamsSchema.extend({ taskId: z.string().min(1) });
 const batchParamsSchema = clientParamsSchema.extend({ batchId: z.string().min(1) });
 const setBillingStatusBodySchema = z.object({ billingStatus: z.enum(["current", "past_due"]) });
-import { aging, budget, categoriesForClient, clientSetup, closeChecklist, consolidatedPackages, entityGroups, firmRequests, firmTasks, forecast, journal, narratives, reconcile, recurringTemplates, reportPackages, rules, stagedBatches, substantiation, taxForms, trialBalance } from "./reads-screens";
+import { aging, budget, categoriesForClient, clientSetup, closeChecklist, consolidatedPackages, customersForClient, entityGroups, firmRequests, firmTasks, forecast, journal, narratives, reconcile, recurringTemplates, reportPackages, rules, stagedBatches, substantiation, taxForms, trialBalance, vendorsForClient } from "./reads-screens";
 import { rejectBatchBodySchema, updateTaskBodySchema, type FirmMember, type FirmTeam } from "../../shared/api/screens";
 import { CODING_CASCADE_ORDER, lookupRun } from "../runs/registry";
 import { executeSequence, step } from "../runs/sequence";
@@ -651,6 +651,26 @@ export function createApiRouter(deps: ApiDeps): Router {
       const { clientId } = parse(clientParamsSchema, req.params);
       const firmId = req.firm!.firmId;
       const body = await deps.db.tx(readSession(req.actor!, firmId, clientId), (tx) => categoriesForClient(tx, firmId, clientId));
+      return { body };
+    }),
+  );
+
+  firmClient.get(
+    "/customers",
+    route(async (req) => {
+      const { clientId } = parse(clientParamsSchema, req.params);
+      const firmId = req.firm!.firmId;
+      const body = await deps.db.tx(readSession(req.actor!, firmId, clientId), (tx) => customersForClient(tx, firmId, clientId));
+      return { body };
+    }),
+  );
+
+  firmClient.get(
+    "/vendors",
+    route(async (req) => {
+      const { clientId } = parse(clientParamsSchema, req.params);
+      const firmId = req.firm!.firmId;
+      const body = await deps.db.tx(readSession(req.actor!, firmId, clientId), (tx) => vendorsForClient(tx, firmId, clientId));
       return { body };
     }),
   );

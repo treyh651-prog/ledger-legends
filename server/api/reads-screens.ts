@@ -32,6 +32,8 @@ import type {
   StagedBatch,
   StagedBatches,
   TrialBalance,
+  Customers,
+  Vendors,
 } from "../../shared/api/screens";
 import type { Cents } from "../runs/contract";
 import type { RunTx } from "../runs/db";
@@ -585,6 +587,49 @@ export async function categoriesForClient(tx: RunTx, firmId: string, clientId: s
       restrictionRelevant: c.restrictionRelevant,
       isActive: c.isActive,
     })),
+  };
+}
+
+/**
+ * Audit fix (problem 8): customers/vendors have had no screen at all, read
+ * or written -- AR-CREATE-CUSTOMER/AP-CREATE-VENDOR existed and worked,
+ * but nothing in the client surfaced either a create action or the list
+ * of what already exists.
+ */
+export async function customersForClient(tx: RunTx, firmId: string, clientId: string): Promise<Customers> {
+  const rows = await tx.query("customers_for_client", { firmId, clientId });
+  return {
+    clientId,
+    items: rows
+      .map((c) => ({
+        id: c.id,
+        version: c.version,
+        name: c.name,
+        isActive: c.isActive,
+        lateFeeEnabled: c.lateFeeEnabled,
+        annualizedRateBp: c.annualizedRateBp,
+        graceDays: c.graceDays,
+        doNotPursue: c.doNotPursue,
+      }))
+      .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0)),
+  };
+}
+
+export async function vendorsForClient(tx: RunTx, firmId: string, clientId: string): Promise<Vendors> {
+  const rows = await tx.query("vendors_for_client", { firmId, clientId });
+  return {
+    clientId,
+    items: rows
+      .map((v) => ({
+        id: v.id,
+        legalName: v.legalName,
+        isActive: v.isActive,
+        entityType: v.entityType,
+        w9OnFile: v.w9OnFile,
+        w9ExpiresOn: v.w9ExpiresOn,
+        earlyDiscountRule: v.earlyDiscountRule,
+      }))
+      .sort((a, b) => (a.legalName < b.legalName ? -1 : a.legalName > b.legalName ? 1 : 0)),
   };
 }
 
