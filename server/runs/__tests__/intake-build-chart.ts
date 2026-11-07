@@ -207,11 +207,56 @@ test("build chart, an unknown template is an error and writes nothing", async ()
   assertEqual(outcome.result.proposals.length, 0, "and proposed nothing");
 });
 
-test("build chart, every one of the five wizard industries resolves to a template", () => {
+test("build chart, every wizard industry resolves to a template", () => {
   for (const industry of WIZARD_INDUSTRIES) {
     const plan = planFor(chartScope({ industry }));
     assert(plan.accounts.length > 30, `${industry} produces a real chart`);
     assert(plan.templateId.startsWith("TPL-"), `${industry} maps onto a published template`);
+  }
+});
+
+test("build chart, audit fix problem 10: services is a general chart, not a pottery studio's", async () => {
+  const db = intakeDb();
+  await applyIntake(db, intakeBuildChart, chartScope({ industry: "services" }));
+  const accounts = accountsOf(db);
+  const categories = categoriesOf(db);
+  const slugs = new Set(categories.map((c) => c.id));
+  for (const expected of [
+    "CAT-SOFTWARE",
+    "CAT-OFFICE-SUPPLIES",
+    "CAT-UTILITIES",
+    "CAT-PHONE-INTERNET",
+    "CAT-INSURANCE",
+    "CAT-ADVERTISING",
+    "CAT-VEHICLE",
+    "CAT-TRAVEL",
+    "CAT-ACCOUNTING-FEES",
+    "CAT-OWNER-DRAW",
+    "CAT-OWNER-CONTRIBUTION",
+  ]) {
+    assert(slugs.has(expected), `services carries ${expected}, the exact category the audit found missing`);
+  }
+  for (const potterySpecific of ["CAT-CLAY", "CAT-GLAZE-CHEMICALS", "CAT-KILN-ENERGY"]) {
+    assert(!slugs.has(potterySpecific), `services no longer carries ${potterySpecific}, a pottery studio category`);
+  }
+  // The real regression this file's own intake-build-chart.ts guards
+  // against silently: a category whose account never made it onto the
+  // chart is dropped with no error at all (planFor's own comment, "the
+  // only honest answer"). Checking every category lands on a real account
+  // is the only way to catch that class of bug in a test.
+  const accountNumbers = new Set(accounts.map((a) => a.accountNumber));
+  for (const c of categories) {
+    assert(accountNumbers.has(c.accountNumber), `${c.id} points at account ${c.accountNumber}, which is on the chart`);
+  }
+});
+
+test("build chart, audit fix problem 10: craft_studio carries the exact unchanged pottery chart", async () => {
+  const db = intakeDb();
+  await applyIntake(db, intakeBuildChart, chartScope({ industry: "craft_studio" }));
+  const categories = categoriesOf(db);
+  const slugs = new Set(categories.map((c) => c.id));
+  for (const potterySpecific of ["CAT-CLAY", "CAT-GLAZE-CHEMICALS", "CAT-KILN-ENERGY", "CAT-GALLERY-COMMISSION"]) {
+    assert(slugs.has(potterySpecific), `craft_studio still carries ${potterySpecific}, moved rather than deleted`);
   }
 });
 

@@ -18,6 +18,10 @@ export const INDUSTRIES = [
   "restaurant",
   "real_estate",
   "nonprofit",
+  // Audit fix, problem 10: carries TPL-SERVICE-STUDIO's exact unchanged
+  // content out from under the generic "services" word, which now means
+  // a real general-services chart (server/runs/runs/intake-shared.ts).
+  "craft_studio",
 ] as const;
 export const industrySchema = z.enum(INDUSTRIES);
 export type Industry = z.infer<typeof industrySchema>;

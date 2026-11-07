@@ -412,6 +412,81 @@ const SERVICE_CATEGORIES: readonly TemplateCategory[] = [
   cat("LEGAL-FEES", "Legal fees", "6110", "debit", { tax: "deductible", c1099: "attorney" }),
 ];
 
+/**
+ * Audit fix, 2026-11-07 (problem 10). The "services" slot has named
+ * TPL-SERVICE-STUDIO since this wizard was built, and that template is a
+ * pottery studio's chart -- raw material, clay, kiln, glaze, teaching and
+ * gallery categories, confirmed by reading SERVICE_ACCOUNTS/
+ * SERVICE_CATEGORIES above directly. A real consulting, cleaning, or
+ * agency client choosing "services" got a chart with no category for
+ * software, office supplies, utilities, phone, insurance, advertising,
+ * vehicle, travel, or accounting fees -- every one of those accounts
+ * already exists in SHARED_CORE_ACCOUNTS on every template, but nothing
+ * in SERVICE_CATEGORIES (or any other template's own categories, a wider
+ * gap this round does not touch) ever pointed a category at them, so a
+ * real transaction in any of those accounts had nowhere to code to and
+ * would suspense.
+ *
+ * This is the general chart the "services" word should have meant.
+ * TPL-SERVICE-STUDIO keeps its exact content, unchanged, under its own
+ * named industry choice ("craft_studio") rather than being deleted --
+ * a real pottery or craft studio client still needs it.
+ */
+const GENERAL_SERVICES_ACCOUNTS: readonly TemplateAccount[] = [
+  acct("3000", "Owner capital", "credit"),
+  acct("3100", "Owner contributions", "credit"),
+  acct("3200", "Owner draws", "debit"),
+  acct("4000", "Service revenue", "credit"),
+  acct("5000", "Subcontractor and outside labor cost", "debit"),
+  acct("6350", "Vehicle expense", "debit"),
+];
+
+const GENERAL_SERVICES_CATEGORIES: readonly TemplateCategory[] = [
+  cat("REV-SERVICES", "Service revenue", "4000", "credit"),
+  cat("REFUND-CUSTOMER", "Customer refund", "4910", "debit"),
+  cat("SUBCONTRACTOR", "Subcontractor and outside labor", "5000", "debit", {
+    tax: "deductible",
+    c1099: "nec",
+    receiptOver: 0,
+  }),
+  cat("ADVERTISING", "Advertising and marketing", "6000", "debit", { tax: "deductible" }),
+  cat("SOFTWARE", "Software and cloud subscriptions", "6040", "debit", { tax: "deductible" }),
+  cat("DUES-MEMBERSHIPS", "Dues and memberships", "6050", "debit", { tax: "deductible" }),
+  cat("INSURANCE", "Insurance, general business", "6060", "debit", { tax: "deductible" }),
+  cat("MEALS", "Client meals", "6070", "debit", { tax: "meals_50", receiptOver: 2500 }),
+  cat("OFFICE-SUPPLIES", "Office supplies", "6080", "debit", { tax: "deductible" }),
+  cat("ACCOUNTING-FEES", "Accounting and bookkeeping fees", "6100", "debit", { tax: "deductible" }),
+  cat("LEGAL-FEES", "Legal fees", "6110", "debit", { tax: "deductible", c1099: "attorney" }),
+  cat("CONSULTING-FEES-PAID", "Consulting and other professional fees paid", "6120", "debit", {
+    tax: "deductible",
+    c1099: "nec",
+    receiptOver: 0,
+  }),
+  cat("RENT", "Rent, facility", "6130", "debit", { tax: "deductible" }),
+  cat("REPAIRS-MAINTENANCE", "Repairs and maintenance", "6140", "debit", { tax: "deductible" }),
+  cat("EQUIPMENT-BELOW-THRESHOLD", "Tools and equipment below the capitalization threshold", "6150", "debit", {
+    tax: "deductible",
+    receiptOver: 7500,
+    capitalizeOver: 250000,
+  }),
+  cat("PHONE-INTERNET", "Telephone and internet", "6160", "debit", { tax: "deductible" }),
+  cat("TRAVEL", "Travel", "6170", "debit", { tax: "deductible" }),
+  cat("UTILITIES", "Utilities", "6180", "debit", { tax: "deductible" }),
+  cat("TRAINING", "Training and continuing education", "6190", "debit", { tax: "deductible" }),
+  cat("CONTRACT-LABOR", "Contract labor and outside services", "6340", "debit", {
+    tax: "deductible",
+    c1099: "nec",
+    receiptOver: 0,
+  }),
+  cat("VEHICLE", "Vehicle expense", "6350", "debit", { tax: "deductible" }),
+  cat("OWNER-DRAW", "Owner draw", "3200", "debit", { tax: "owner_draw" }),
+  cat("OWNER-CONTRIBUTION", "Owner contribution", "3100", "credit", { tax: "owner_contribution" }),
+  cat("OWNER-HEALTH-INSURANCE", "Owner health insurance", "3200", "debit", { tax: "owner_draw" }),
+  cat("OWNER-RETIREMENT", "Owner retirement contribution", "3200", "debit", { tax: "owner_draw" }),
+  cat("OWNER-SE-TAX-PAYMENT", "Owner self employment tax payment", "3200", "debit", { tax: "owner_draw" }),
+  cat("PERSONAL-EXPENSE", "Personal expense paid by the business", "3200", "debit", { tax: "personal" }),
+];
+
 /** Doc 01 Part 3. Product, retail, and wholesale. */
 const PRODUCT_ACCOUNTS: readonly TemplateAccount[] = [
   acct("1200", "Inventory, raw goods", "debit", "inventory"),
@@ -1121,10 +1196,18 @@ const NONPROFIT_CATEGORIES: readonly TemplateCategory[] = [
 ];
 
 export const TEMPLATES: Readonly<Record<string, ChartTemplate>> = {
+  "TPL-SERVICE-GENERAL": {
+    id: "TPL-SERVICE-GENERAL",
+    version: 1,
+    label: "Services, general",
+    replacesEquityBlock: false,
+    accounts: GENERAL_SERVICES_ACCOUNTS,
+    categories: GENERAL_SERVICES_CATEGORIES,
+  },
   "TPL-SERVICE-STUDIO": {
     id: "TPL-SERVICE-STUDIO",
     version: 1,
-    label: "Services and studio",
+    label: "Craft and pottery studio",
     replacesEquityBlock: false,
     accounts: SERVICE_ACCOUNTS,
     categories: SERVICE_CATEGORIES,
@@ -1172,17 +1255,23 @@ export const TEMPLATES: Readonly<Record<string, ChartTemplate>> = {
 };
 
 /**
- * The five industry words the wizard offers, mapped onto template ids. Doc 01
+ * The industry words the wizard offers, mapped onto template ids. Doc 01
  * publishes four templates under different names, so the mapping is explicit
- * rather than a rename of the doc. See NOTES.md entry 123.
+ * rather than a rename of the doc. See NOTES.md entry 123. "craft_studio"
+ * was added by the problem 10 audit fix, carrying TPL-SERVICE-STUDIO's
+ * exact unchanged content out from under the generic "services" word.
  */
 export const INDUSTRY_TEMPLATE_ID: Readonly<Record<string, string>> = {
-  services: "TPL-SERVICE-STUDIO",
+  services: "TPL-SERVICE-GENERAL",
   product: "TPL-RETAIL-WHOLESALE",
   restaurant: "TPL-RESTAURANT",
   real_estate: "TPL-REAL-ESTATE",
   nonprofit: "TPL-NONPROFIT",
   contractor: "TPL-CONTRACTOR",
+  // Audit fix, problem 10: TPL-SERVICE-STUDIO moved here, under its own
+  // named choice, from "services" -- see this file's own header comment
+  // on GENERAL_SERVICES_ACCOUNTS for why.
+  craft_studio: "TPL-SERVICE-STUDIO",
 };
 
 export function templateFor(industryOrId: string): ChartTemplate | null {

@@ -63,13 +63,22 @@ export const STANDARD_SUBJECT_KEYS: readonly string[] = [
   "w9-owner",
 ];
 
-/** The five industry words the wizard offers on step 2. */
+/**
+ * The industry words the wizard offers on step 2. Audit fix (problem 10):
+ * "craft_studio" added, carrying TPL-SERVICE-STUDIO's exact content out
+ * from under the generic "services" word, which now means
+ * TPL-SERVICE-GENERAL. "contractor" is a real sixth word the wizard
+ * offers (INDUSTRY_TEMPLATE_ID has it) that was already missing from
+ * this list before this round -- not touched here, flagged in the audit
+ * campaign's own plan file as a separate, pre-existing gap.
+ */
 export const WIZARD_INDUSTRIES: readonly string[] = [
   "services",
   "product",
   "restaurant",
   "real_estate",
   "nonprofit",
+  "craft_studio",
 ];
 
 /**
