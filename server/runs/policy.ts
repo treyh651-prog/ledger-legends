@@ -400,6 +400,16 @@ export const RUN_POLICIES: Readonly<Record<string, RunPolicy>> = {
     reason:
       "a person counted the inventory or pulled the payroll register, and writing down what they found and where it is filed is a decision a person makes once",
   },
+  "RPT-RELEASE-PACKAGE": {
+    tier: "manual",
+    reason:
+      "deciding a package is ready for the client to see is a judgment a person makes on purpose, and a clock did not review it",
+  },
+  "RPT-RELEASE-NARRATIVE": {
+    tier: "manual",
+    reason:
+      "deciding a narrative is ready for the client to see is a judgment a person makes on purpose, and a clock did not review it",
+  },
   "CLOSE-ROLL-FORWARD": {
     tier: "propose",
     reason:

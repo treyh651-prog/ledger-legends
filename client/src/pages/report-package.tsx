@@ -6,7 +6,7 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogT
 import { DataGrid, EmptyState, ErrorState, Kpi, LoadingRows, Money, PageHeader, Pill, SectionCard } from "@/components/kit";
 import { useApp } from "@/store";
 import { useActiveClient } from "@/lib/active-client";
-import { useReportPackages, useTriggerRun, errorMessage } from "@/api";
+import { useReportPackages, useTriggerRun, errorMessage, periodStartOf } from "@/api";
 import { fmtPeriod, fmtTimestamp } from "@/lib/money";
 import type { ReportSection } from "@shared/api";
 
@@ -32,7 +32,11 @@ function BuildPackageDialog({
 
   const build = async () => {
     setError(null);
-    const scope = { clientId, period, comparisonBasis, reportBasis };
+    // A plain "YYYY-MM" from the header, not the full day RPT-BUILD-PACKAGE's
+    // own scope schema requires (period: z.string().min(10)) -- every build
+    // request 400'd client side before this, confirmed live while
+    // browser-verifying problem 9's own release gate.
+    const scope = { clientId, period: periodStartOf(period), comparisonBasis, reportBasis };
     try {
       const preview = await trigger.mutateAsync({ runCode: "RPT-BUILD-PACKAGE", body: { mode: "preview", scope } });
       if (preview.status !== "completed" && preview.status !== "completed_with_skips") {
@@ -116,6 +120,51 @@ function BuildPackageDialog({
 }
 
 /**
+ * RPT-RELEASE-PACKAGE. Audit fix (problem 9): before this run existed, a
+ * built package reached the client portal the instant RPT-BUILD-PACKAGE
+ * finished, with no firm review gate at all -- including one flagged
+ * closed_with_exceptions. Shown only for a draft package; a released one
+ * needs no action here.
+ */
+function ReleasePackageButton({ clientId, packageId, onReleased }: { clientId: string; packageId: string; onReleased: () => void }) {
+  const trigger = useTriggerRun(clientId);
+  const qc = useQueryClient();
+  const [error, setError] = useState<string | null>(null);
+
+  const submit = async () => {
+    setError(null);
+    const scope = { clientId, packageId };
+    try {
+      const preview = await trigger.mutateAsync({ runCode: "RPT-RELEASE-PACKAGE", body: { mode: "preview", scope } });
+      if (preview.status !== "completed" && preview.status !== "no_op") {
+        setError(preview.errors[0]?.message ?? `The run ended ${preview.status}.`);
+        return;
+      }
+      if (preview.status !== "no_op") {
+        const applied = await trigger.mutateAsync({ runCode: "RPT-RELEASE-PACKAGE", body: { mode: "apply", scope, previewRunId: preview.executionId } });
+        if (applied.status !== "completed") {
+          setError(applied.errors[0]?.message ?? `The run ended ${applied.status}.`);
+          return;
+        }
+      }
+      void qc.invalidateQueries({ queryKey: ["api", "firm", "clients", clientId, "report-packages"] });
+      onReleased();
+    } catch (e) {
+      setError(errorMessage(e));
+    }
+  };
+
+  return (
+    <div className="flex flex-col items-end gap-1">
+      <Button size="sm" onClick={() => void submit()} disabled={trigger.isPending} data-testid="button-release-package">
+        Release to client
+      </Button>
+      {error ? <p className="max-w-[16rem] break-words text-right text-xs text-destructive">{error}</p> : null}
+    </div>
+  );
+}
+
+/**
  * The report package for one period, read from
  * GET /api/firm/clients/:id/report-packages. A package and its sections are
  * what RPT-BUILD-PACKAGE rendered; an omitted section says why it was left
@@ -151,6 +200,9 @@ export default function ReportPackage() {
                 </SelectContent>
               </Select>
             ) : null}
+            {clientId && pkg && pkg.state === "draft" ? (
+              <ReleasePackageButton clientId={clientId} packageId={pkg.id} onReleased={() => void q.refetch()} />
+            ) : null}
             {clientId ? (
               <BuildPackageDialog clientId={clientId} period={period} onBuilt={() => setPackageId(null)} />
             ) : null}
@@ -158,7 +210,7 @@ export default function ReportPackage() {
         }
       />
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <Kpi label="State" value={pkg ? <Pill tone={pkg.state === "draft" ? "info" : "neutral"}>{pkg.state}</Pill> : "None"} testId="kpi-package-state" />
+        <Kpi label="State" value={pkg ? <Pill tone={pkg.state === "draft" ? "info" : pkg.state === "released" ? "good" : "neutral"}>{pkg.state}</Pill> : "None"} testId="kpi-package-state" />
         <Kpi label="Sections" value={pkg ? `${pkg.sectionCount - pkg.omissionCount} of ${pkg.sectionCount} rendered` : "None"} />
         <Kpi label="Comparison" value={pkg ? (pkg.comparisonAvailable ? "Available" : "Not available") : "None"} hint={pkg?.comparisonNote} />
         <Kpi label="Exceptions" value={pkg ? (pkg.closedWithExceptions ? "Closed with exceptions" : "None") : "None"} tone={pkg?.closedWithExceptions ? "watch" : "neutral"} />

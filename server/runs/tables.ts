@@ -1976,7 +1976,12 @@ export interface ReportPackageRow {
   comparisonBasis: "prior_period" | "prior_year" | "budget" | "none";
   comparisonAvailable: boolean;
   comparisonNote: string;
-  state: "draft" | "superseded";
+  /**
+   * Audit fix, problem 9: "released" added by RPT-RELEASE-PACKAGE, the
+   * only writer of it. Until released, a package is firm-side only --
+   * portal-router.ts's reportsFor() filters to released rows only.
+   */
+  state: "draft" | "superseded" | "released";
   /** Doc 02 rule 1. Null once the period is locked. */
   watermark: string | null;
   closedWithExceptions: boolean;
@@ -2137,7 +2142,8 @@ export interface ReportNarrativeRow {
   periodEnd: string;
   audience: "owner" | "lender";
   comparisonBasis: "prior_period" | "prior_year" | "budget" | "none";
-  state: "draft";
+  /** Audit fix, problem 9: "released" added by RPT-RELEASE-NARRATIVE. */
+  state: "draft" | "released";
   sentenceCount: number;
   droppedCount: number;
   maxSentencesPerSection: number;

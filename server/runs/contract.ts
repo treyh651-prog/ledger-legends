@@ -216,7 +216,14 @@ export type RunTypeId =
   // problem 8's payroll approval UI, since PAY-APPROVE-RUN's own
   // precondition (a payroll register recorded for the period) could never
   // be satisfied without this.
-  | "CFG-CREATE-SUBSTANTIATION-RECORD";
+  | "CFG-CREATE-SUBSTANTIATION-RECORD"
+  // Audit fix, problem 9: report.report_packages.state and
+  // report.report_narratives.state had no "released" value and no writer
+  // for one -- portal-router.ts listed every draft, including a package
+  // closed_with_exceptions, with no firm review gate at all. These two
+  // are that gate.
+  | "RPT-RELEASE-PACKAGE"
+  | "RPT-RELEASE-NARRATIVE";
 
 /** Doc 03 Part 7 names the reversal of a run `<ORIGINAL>-UNDO`. */
 export type UndoRunTypeId = `${RunTypeId}-UNDO`;

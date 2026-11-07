@@ -1,10 +1,98 @@
 import { useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Button } from "@/components/ui/button";
 import { DataGrid, EmptyState, ErrorState, Kpi, LoadingRows, PageHeader, Pill, SectionCard } from "@/components/kit";
 import { useApp } from "@/store";
 import { useActiveClient } from "@/lib/active-client";
-import { useNarratives, errorMessage } from "@/api";
+import { useNarratives, useTriggerRun, errorMessage, periodStartOf } from "@/api";
 import { fmtPeriod, fmtTimestamp } from "@/lib/money";
+
+/**
+ * RPT-COMPOSE-NARRATIVE. Audit fix (problem 8, found while browser
+ * verifying problem 9's own release gate): this screen had no trigger for
+ * the run it reads at all, the exact "no UI button" pattern problem 8
+ * covers -- a narrative could only ever exist if something else composed
+ * it through the API directly.
+ */
+function ComposeNarrativeDialog({ clientId, period, audience, onComposed }: { clientId: string; period: string; audience: "owner" | "lender"; onComposed: () => void }) {
+  const trigger = useTriggerRun(clientId);
+  const [error, setError] = useState<string | null>(null);
+
+  const submit = async () => {
+    setError(null);
+    const scope = { clientId, period: periodStartOf(period), audience };
+    try {
+      const preview = await trigger.mutateAsync({ runCode: "RPT-COMPOSE-NARRATIVE", body: { mode: "preview", scope } });
+      if (preview.status !== "completed" && preview.status !== "completed_with_skips" && preview.status !== "no_op") {
+        setError(preview.errors[0]?.message ?? `The run ended ${preview.status}.`);
+        return;
+      }
+      if (preview.status !== "no_op") {
+        const applied = await trigger.mutateAsync({ runCode: "RPT-COMPOSE-NARRATIVE", body: { mode: "apply", scope, previewRunId: preview.executionId } });
+        if (applied.status !== "completed" && applied.status !== "completed_with_skips") {
+          setError(applied.errors[0]?.message ?? `The run ended ${applied.status}.`);
+          return;
+        }
+      }
+      onComposed();
+    } catch (e) {
+      setError(errorMessage(e));
+    }
+  };
+
+  return (
+    <div className="flex flex-col items-end gap-1">
+      <Button size="sm" variant="outline" onClick={() => void submit()} disabled={trigger.isPending} data-testid="button-compose-narrative">
+        Compose narrative
+      </Button>
+      {error ? <p className="max-w-[16rem] break-words text-right text-xs text-destructive">{error}</p> : null}
+    </div>
+  );
+}
+
+/**
+ * RPT-RELEASE-NARRATIVE. Audit fix (problem 9): before this run existed, a
+ * composed narrative reached the client portal with no firm review gate
+ * at all. Shown only for a draft narrative.
+ */
+function ReleaseNarrativeButton({ clientId, narrativeId, onReleased }: { clientId: string; narrativeId: string; onReleased: () => void }) {
+  const trigger = useTriggerRun(clientId);
+  const qc = useQueryClient();
+  const [error, setError] = useState<string | null>(null);
+
+  const submit = async () => {
+    setError(null);
+    const scope = { clientId, narrativeId };
+    try {
+      const preview = await trigger.mutateAsync({ runCode: "RPT-RELEASE-NARRATIVE", body: { mode: "preview", scope } });
+      if (preview.status !== "completed" && preview.status !== "no_op") {
+        setError(preview.errors[0]?.message ?? `The run ended ${preview.status}.`);
+        return;
+      }
+      if (preview.status !== "no_op") {
+        const applied = await trigger.mutateAsync({ runCode: "RPT-RELEASE-NARRATIVE", body: { mode: "apply", scope, previewRunId: preview.executionId } });
+        if (applied.status !== "completed") {
+          setError(applied.errors[0]?.message ?? `The run ended ${applied.status}.`);
+          return;
+        }
+      }
+      void qc.invalidateQueries({ queryKey: ["api", "firm", "clients", clientId, "narratives"] });
+      onReleased();
+    } catch (e) {
+      setError(errorMessage(e));
+    }
+  };
+
+  return (
+    <div className="flex flex-col items-end gap-1">
+      <Button size="sm" onClick={() => void submit()} disabled={trigger.isPending} data-testid="button-release-narrative">
+        Release to client
+      </Button>
+      {error ? <p className="max-w-[16rem] break-words text-right text-xs text-destructive">{error}</p> : null}
+    </div>
+  );
+}
 
 /**
  * The composed narrative for one period, read from
@@ -23,8 +111,20 @@ export default function Narrative() {
 
   return (
     <div className="space-y-4" data-testid="page-narrative">
-      <PageHeader title="Narrative" subtitle={`${client?.name ?? ""}, ${fmtPeriod(period)}. ${n ? `Composed ${fmtTimestamp(n.composedAt)}${n.manualEdit ? ", edited by hand" : ""}.` : d ? "No narrative composed for this period." : ""}`} />
-      <div className="grid gap-3 sm:grid-cols-3">
+      <PageHeader
+        title="Narrative"
+        subtitle={`${client?.name ?? ""}, ${fmtPeriod(period)}. ${n ? `Composed ${fmtTimestamp(n.composedAt)}${n.manualEdit ? ", edited by hand" : ""}.` : d ? "No narrative composed for this period." : ""}`}
+        actions={
+          clientId ? (
+            <div className="flex flex-wrap gap-2">
+              {n && n.state === "draft" ? <ReleaseNarrativeButton clientId={clientId} narrativeId={n.id} onReleased={() => void q.refetch()} /> : null}
+              <ComposeNarrativeDialog clientId={clientId} period={period} audience={audience} onComposed={() => void q.refetch()} />
+            </div>
+          ) : null
+        }
+      />
+      <div className="grid gap-3 sm:grid-cols-4">
+        <Kpi label="State" value={n ? <Pill tone={n.state === "released" ? "good" : "info"}>{n.state}</Pill> : "None"} testId="kpi-narrative-state" />
         <Kpi label="Sentences" value={n ? n.sentenceCount : "None"} testId="kpi-sentences" />
         <Kpi label="Dropped to fit" value={n ? n.droppedCount : "None"} />
         <Kpi label="Comparison basis" value={n ? n.comparisonBasis.replace(/_/g, " ") : "None"} />

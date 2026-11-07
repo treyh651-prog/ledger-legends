@@ -308,7 +308,7 @@ export const portalReportsSchema = z.object({
       id: idSchema,
       periodStart: daySchema,
       basis: z.enum(["accrual", "cash"]),
-      state: z.enum(["draft", "superseded"]),
+      state: z.enum(["draft", "superseded", "released"]),
       sectionCount: z.number().int(),
       closedWithExceptions: z.boolean(),
       builtAt: z.string(),

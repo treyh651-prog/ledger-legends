@@ -376,6 +376,9 @@ async function narrativeFor(tx: RunTx, firmId: string, clientId: string): Promis
   const rows = await tx.query("report_narratives_for_client", { firmId, clientId });
   return {
     items: rows
+      // Audit fix, problem 9: RPT-RELEASE-NARRATIVE is the only writer of
+      // "released" -- a client never sees an unreviewed narrative again.
+      .filter((n) => n.state === "released")
       .slice()
       .sort((a, b) => (a.periodStart !== b.periodStart ? (a.periodStart > b.periodStart ? -1 : 1) : a.id < b.id ? -1 : 1))
       .map((n) => ({
@@ -393,6 +396,10 @@ async function reportsFor(tx: RunTx, firmId: string, clientId: string): Promise<
   const rows = await tx.query("report_packages_for_client", { firmId, clientId });
   return {
     items: rows
+      // Audit fix, problem 9: RPT-RELEASE-PACKAGE is the only writer of
+      // "released" -- a client never saw a firm review gate before this,
+      // including a package flagged closed_with_exceptions.
+      .filter((p) => p.state === "released")
       .slice()
       .sort((a, b) => (a.builtAt !== b.builtAt ? (a.builtAt > b.builtAt ? -1 : 1) : a.id < b.id ? -1 : 1))
       .map((p) => ({

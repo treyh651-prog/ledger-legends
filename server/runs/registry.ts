@@ -89,6 +89,8 @@ import { cfgCreateBankcodeMapping } from "./runs/cfg-create-bankcode-mapping";
 import { cfgCreateBudgetLines } from "./runs/cfg-create-budget-lines";
 import { cfgCreateBudgetThreshold } from "./runs/cfg-create-budget-threshold";
 import { cfgCreateSubstantiationRecord } from "./runs/cfg-create-substantiation-record";
+import { rptReleasePackage } from "./runs/rpt-release-package";
+import { rptReleaseNarrative } from "./runs/rpt-release-narrative";
 import { clsLockPeriod } from "./runs/cls-lock-period";
 import { clsPostYearEnd } from "./runs/cls-post-yearend";
 import { rptBuildPackage } from "./runs/rpt-build-package";
@@ -262,6 +264,8 @@ export const registry: readonly RegistryEntry[] = [
   entry(cfgCreateBudgetLines),
   entry(cfgCreateBudgetThreshold),
   entry(cfgCreateSubstantiationRecord),
+  entry(rptReleasePackage),
+  entry(rptReleaseNarrative),
   entry(clsLockPeriod),
   entry(clsRollForward),
   entry(clsPostYearEnd),

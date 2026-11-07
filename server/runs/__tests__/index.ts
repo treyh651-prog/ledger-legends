@@ -167,6 +167,8 @@ import "./cfg-create-bankcode-mapping";
 import "./cfg-create-budget-lines";
 import "./cfg-create-budget-threshold";
 import "./cfg-create-substantiation-record";
+import "./rpt-release-package";
+import "./rpt-release-narrative";
 import "./setup-import-balances";
 import "./intake-pipeline";
 import "./intake-build-chart-backfill";

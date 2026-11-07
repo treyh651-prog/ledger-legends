@@ -1103,6 +1103,7 @@ export async function narratives(tx: RunTx, firmId: string, clientId: string, pe
         period: n.periodStart,
         audience: n.audience,
         comparisonBasis: n.comparisonBasis,
+        state: n.state,
         sentenceCount: n.sentenceCount,
         droppedCount: n.droppedCount,
         bodyText: n.bodyText,
