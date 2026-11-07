@@ -8,9 +8,14 @@
  *   SUPABASE_SERVICE_ROLE_KEY  admin key for invitations, server only
  *   APP_ORIGIN                 where the browser loads the app from, used for
  *                              CORS and for the redirect in invitation emails
- * Optional:
- *   APP_DB_ROLE                role for `set local role` inside actor
- *                              transactions, app_web once 0023 is applied
+ *   APP_DB_ROLE                required in production specifically: role for
+ *                              `set local role` inside actor transactions,
+ *                              app_web once 0023 is applied. Supabase's own
+ *                              connection role bypasses row level security,
+ *                              so with no role switch every tenant isolation
+ *                              policy is a no op. Optional outside
+ *                              production, where that tradeoff is a
+ *                              developer's own visible choice.
  *
  * Nothing here reads a value and prints it. Missing values are reported by
  * name only.
@@ -63,8 +68,25 @@ export function buildAuthRuntime(env: NodeJS.ProcessEnv = process.env): AuthRunt
     throw new Error(`auth is not configured, set ${Array.from(new Set(missing)).join(", ")}`);
   }
 
-  const pool = getPool();
+  const pool = getPool(env);
   const dbRole = resolveDbRole(env);
+  // Earlier security audit: on Supabase the connection role carries
+  // BYPASSRLS, so with no role switch every row level security policy on
+  // every tenant table runs as a no op and the API's own membership checks
+  // become the only isolation between firms. That degradation was silent --
+  // a note in the startup log, nothing more -- so a forgotten or dropped
+  // APP_DB_ROLE in a real deployment's environment would fail open with
+  // nothing to notice it. In production this refuses to start instead, the
+  // same "refusing is loud, wrong data is quiet" rule resolveRunDb already
+  // applies to a missing DATABASE_URL. Outside production the warning note
+  // below still fires, because a developer pointed at a personal database
+  // with relaxed isolation is a real and visible choice, not a silent one.
+  if (env.NODE_ENV === "production" && dbRole === null) {
+    throw new Error(
+      "APP_DB_ROLE is not set in production. Supabase's connection role bypasses row level security, " +
+        "so without it every tenant table's isolation policy is a no op. Set APP_DB_ROLE=app_web (migration 0023).",
+    );
+  }
   const actorOpts: WithActorOptions = { dbRole };
   const verifier = createTokenVerifier({ supabaseUrl: sb.supabaseUrl, anonKey: sb.anonKey });
   const store = createPgActorStore(pool);

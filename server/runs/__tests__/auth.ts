@@ -26,6 +26,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import type { PgClientLike, PgPoolLike, PgQueryResultLike } from "../db-postgres";
 import { resolveDbRole, withActor, type Actor, type ActorMembership, type WithActorOptions } from "../../db/with-actor";
+import { buildAuthRuntime } from "../../auth/setup";
 import { createPgActorStore, DisabledUserError, type ActorStore } from "../../auth/actor-store";
 import { createActorMiddleware, type ActorMiddleware } from "../../auth/middleware";
 import { bearerToken, TokenError, type TokenVerifier, type VerifiedToken } from "../../auth/jwt";
@@ -127,6 +128,50 @@ test("resolveDbRole accepts identifiers and refuses anything else", () => {
   assertEqual(resolveDbRole({ APP_DB_ROLE: "app_web" }), "app_web", "plain identifier");
   assertThrows(() => resolveDbRole({ APP_DB_ROLE: "app_web; drop table x" }), "plain lowercase identifier", "injection shaped");
   assertThrows(() => resolveDbRole({ APP_DB_ROLE: "App" }), "plain lowercase identifier", "uppercase");
+});
+
+/**
+ * Earlier security audit: an unset APP_DB_ROLE means the connection runs as
+ * Supabase's own postgres role, which carries BYPASSRLS -- every isolation
+ * policy on every tenant table becomes a no op, and this used to only log a
+ * line at startup rather than refuse. buildAuthRuntime now refuses outright
+ * in production, the same "refusing is loud" rule resolveRunDb already
+ * applies to a missing DATABASE_URL. A dummy DATABASE_URL is enough here:
+ * getPool only builds a lazy Pool object, it never opens a connection.
+ */
+function validAuthEnv(extra: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
+  return {
+    SUPABASE_URL: "https://example.supabase.co",
+    SUPABASE_ANON_KEY: "anon-key",
+    SUPABASE_SERVICE_ROLE_KEY: "service-role-key",
+    APP_ORIGIN: "https://app.example.com",
+    DATABASE_URL: "postgres://user:pass@localhost:5432/unused",
+    ...extra,
+  };
+}
+
+test("buildAuthRuntime: production with no APP_DB_ROLE refuses to start, the audit fix", () => {
+  assertThrows(
+    () => buildAuthRuntime(validAuthEnv({ NODE_ENV: "production" })),
+    "APP_DB_ROLE is not set in production",
+    "a BYPASSRLS production deploy must not start silently",
+  );
+});
+
+test("buildAuthRuntime: production with APP_DB_ROLE set starts and confirms row level security applies", () => {
+  const runtime = buildAuthRuntime(validAuthEnv({ NODE_ENV: "production", APP_DB_ROLE: "app_web" }));
+  assert(
+    runtime.notes.some((n) => n.includes("row level security applies")),
+    "the startup note confirms the role switch is in effect",
+  );
+});
+
+test("buildAuthRuntime: outside production, no APP_DB_ROLE is still allowed but still visible", () => {
+  const runtime = buildAuthRuntime(validAuthEnv({ NODE_ENV: "development" }));
+  assert(
+    runtime.notes.some((n) => n.includes("APP_DB_ROLE is not set")),
+    "a developer's relaxed isolation choice is logged, not silent, even though it is not refused",
+  );
 });
 
 // ---------------------------------------------------------------------------

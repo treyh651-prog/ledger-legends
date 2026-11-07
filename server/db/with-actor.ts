@@ -19,9 +19,13 @@
  *    postgres runs every policy as a no op. When APP_DB_ROLE is set, the
  *    transaction switches to that role first (`set local role`, also
  *    transaction local), and the policies become real. Migration 0023 makes
- *    app_web usable for this. When APP_DB_ROLE is unset the server logs that
- *    fact once at startup and the API's own membership checks are the only
- *    enforcement.
+ *    app_web usable for this. Earlier security audit: an unset APP_DB_ROLE
+ *    used to only log that fact once at startup, leaving the API's own
+ *    membership checks as the sole enforcement with nothing to notice it had
+ *    happened. server/auth/setup.ts's buildAuthRuntime now refuses to start
+ *    in production when APP_DB_ROLE is unset, so this degradation can no
+ *    longer be silent there; outside production it is still allowed and
+ *    still logged, a developer's own visible choice.
  */
 
 import type { PgClientLike, PgPoolLike } from "../runs/db-postgres";
