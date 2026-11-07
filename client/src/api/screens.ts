@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { Aging, Bills, Budget, Categories, ClientSetup, CloseChecklist, ConsolidatedPackages, CpaHandoffs, Customers, EntityGroups, FirmRequests, FirmTasks, FirmTeam, RunOutcomeDto, UpdateTaskBody, Forecast, Invoices, Journal, Narratives, OffboardExports, PayRuns, PortalStatements, Reconcile, RecurringTemplates, ReportPackages, Rules, StagedBatches, Substantiation, TaxForms, TrialBalance, Vendors } from "@shared/api";
+import type { Aging, Bills, Budget, Categories, ClientSetup, CloseChecklist, ConsolidatedPackages, CpaHandoffs, Customers, EntityGroups, FirmRequests, FirmTasks, FirmTeam, RunOutcomeDto, UpdateTaskBody, Forecast, Invoices, Journal, Narratives, OffboardExports, PayRuns, PortalStatements, Reconcile, RecurringTemplates, ReportPackages, Rules, StagedBatches, StagedRows, Substantiation, TaxForms, TrialBalance, Vendors } from "@shared/api";
 import { api, toQuery } from "./http";
 
 /** Reads for the firm screens. Keys live under the client so run mutations invalidate them. */
@@ -8,6 +8,7 @@ export const screenKeys = {
   reconcile: (clientId: string, period: string, batchId: string | null) =>
     ["api", "firm", "clients", clientId, "reconcile", period, batchId ?? "first"] as const,
   stagedBatches: (clientId: string) => ["api", "firm", "clients", clientId, "staged-batches"] as const,
+  stagedRows: (clientId: string, batchId: string) => ["api", "firm", "clients", clientId, "staged-batches", batchId, "rows"] as const,
   requests: (clientId: string) => ["api", "firm", "clients", clientId, "requests"] as const,
   statements: (clientId: string, period: string) => ["api", "firm", "clients", clientId, "statements", period] as const,
   trialBalance: (clientId: string, period: string) => ["api", "firm", "clients", clientId, "trial-balance", period] as const,
@@ -91,6 +92,34 @@ export function useRejectStagedBatch() {
     mutationFn: ({ clientId, batchId, reason }: { clientId: string; batchId: string; reason: string }) =>
       api<RejectBatchResult>("POST", `/api/firm/clients/${clientId}/staged-batches/${batchId}/reject`, { reason }),
     onSuccess: (_r, { clientId }) => void qc.invalidateQueries({ queryKey: screenKeys.stagedBatches(clientId) }),
+  });
+}
+
+/** Every row in one batch, so a firm member can decide the ones held for review. */
+export function useStagedRows(clientId: string | null, batchId: string | null) {
+  return useQuery({
+    queryKey: screenKeys.stagedRows(clientId ?? "none", batchId ?? "none"),
+    queryFn: () => api<StagedRows>("GET", `/api/firm/clients/${clientId}/staged-batches/${batchId}/rows`),
+    enabled: !!clientId && !!batchId,
+  });
+}
+
+export interface ReviewStagedRowResult {
+  preview: RunOutcomeDto;
+  applied: RunOutcomeDto | null;
+  done: boolean;
+}
+
+/** IMPORT-REVIEW-STAGED-ROW. Accept lets a real repeat charge through; reject throws the duplicate out. */
+export function useReviewStagedRow() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ clientId, batchId, stagedRowId, decision }: { clientId: string; batchId: string; stagedRowId: string; decision: "accept" | "reject" }) =>
+      api<ReviewStagedRowResult>("POST", `/api/firm/clients/${clientId}/staged-batches/${batchId}/rows/${stagedRowId}/review`, { decision }),
+    onSuccess: (_r, { clientId, batchId }) => {
+      void qc.invalidateQueries({ queryKey: screenKeys.stagedRows(clientId, batchId) });
+      void qc.invalidateQueries({ queryKey: screenKeys.stagedBatches(clientId) });
+    },
   });
 }
 

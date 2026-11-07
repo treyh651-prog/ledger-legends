@@ -149,6 +149,36 @@ export const rejectBatchBodySchema = z.object({
 });
 export type RejectBatchBody = z.infer<typeof rejectBatchBodySchema>;
 
+/**
+ * One row inside a staged batch, held for a person to say whether it is a
+ * real repeat charge or an actual duplicate. IMPORT-PARSE-FEED holds a row
+ * this way whenever a bank feed gives no transaction id and the row looks
+ * like a probable repeat of one already posted; IMPORT-REVIEW-STAGED-ROW is
+ * the only thing that ever moves it off held_for_review/pending.
+ */
+export const stagedRowSchema = z.object({
+  id: idSchema,
+  batchId: idSchema,
+  postedOn: daySchema.nullable(),
+  description: z.string().nullable(),
+  amountCents: centsSchema.nullable(),
+  dedupState: z.enum(["unique", "rejected_duplicate", "held_for_review", "confirmed_repeat", "committed"]),
+  reviewState: z.enum(["none", "pending", "accepted", "rejected"]),
+  reviewedAt: instantSchema.nullable(),
+});
+export type StagedRow = z.infer<typeof stagedRowSchema>;
+
+export const stagedRowsSchema = z.object({
+  batchId: idSchema,
+  items: z.array(stagedRowSchema),
+});
+export type StagedRows = z.infer<typeof stagedRowsSchema>;
+
+export const reviewStagedRowBodySchema = z.object({
+  decision: z.enum(["accept", "reject"]),
+});
+export type ReviewStagedRowBody = z.infer<typeof reviewStagedRowBodySchema>;
+
 /* ------------------------------------------------------------------------ */
 /* Open items, the firm view of the client's requests                       */
 /* ------------------------------------------------------------------------ */

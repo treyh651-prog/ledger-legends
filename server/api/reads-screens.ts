@@ -31,6 +31,8 @@ import type {
   RecurringTemplates,
   StagedBatch,
   StagedBatches,
+  StagedRow,
+  StagedRows,
   TrialBalance,
   Customers,
   Vendors,
@@ -225,6 +227,25 @@ export async function stagedBatches(tx: RunTx, firmId: string, clientId: string)
     }),
   );
   return { clientId, items: items.sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1)) };
+}
+
+/** Every row in one staged batch, so a firm member can decide the ones IMPORT-PARSE-FEED held for review. */
+export async function stagedRowsForBatch(tx: RunTx, firmId: string, clientId: string, batchId: string): Promise<StagedRows> {
+  const rows = await tx.query("staged_rows_by_batch", { firmId, clientId, batchId });
+  const items: StagedRow[] = rows
+    .slice()
+    .sort((a, b) => a.rowNumber - b.rowNumber)
+    .map((r) => ({
+      id: r.id,
+      batchId: r.batchId,
+      postedOn: r.postedOn,
+      description: r.description,
+      amountCents: r.amountCents === null ? null : cents(r.amountCents),
+      dedupState: r.dedupState,
+      reviewState: r.reviewState,
+      reviewedAt: r.reviewedAt,
+    }));
+  return { batchId, items };
 }
 
 /* ---------------- Open items ---------------- */

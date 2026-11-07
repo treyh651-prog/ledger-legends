@@ -678,6 +678,63 @@ test("api: reject throws out a staged batch and never touches the register", asy
   assertEqual(rejected.body.applied.entriesCreated, 0, "nothing posted");
 });
 
+test("api: a probable repeat with no bank id is held for review, and the review routes let a person decide it", async () => {
+  // Reuses BA-ROUTE-0001 and its mapping profile from the approve test above,
+  // which already committed a real "01/12/2026,COFFEE HOUSE,-14.75" row into
+  // the register. CSV rows never carry a bank transaction id, so importing
+  // the exact same date/amount/descriptor again is Rule 3's probable repeat:
+  // held for review rather than committed outright.
+  const bankAccountId = "BA-ROUTE-0001";
+  const parseScope = {
+    clientId: createdClientId,
+    bankAccountId,
+    batchName: "held for review route test feed",
+    institutionName: "First Bank",
+    sourceFormat: "csv",
+    fileText: "Date,Description,Amount\n01/12/2026,COFFEE HOUSE,-14.75\n",
+    grid: null,
+    sourceDocumentId: null,
+  };
+  const parsePath = `/api/firm/clients/${createdClientId}/runs/IMPORT-PARSE-FEED`;
+  const preview = await call(world, "POST", parsePath, { body: { mode: "preview", scope: parseScope } });
+  const applied = await call(world, "POST", parsePath, { body: { mode: "apply", scope: parseScope, previewRunId: preview.body.executionId } });
+  const batchId = applied.body.proposals.find((p: any) => p.table === "import_batches")?.rowId;
+  assert(typeof batchId === "string", "staged");
+
+  const staged = await call(world, "GET", `/api/firm/clients/${createdClientId}/staged-batches`);
+  const batch = staged.body.items.find((b: any) => b.id === batchId);
+  assert(batch !== undefined, "the new batch is listed");
+  assertEqual(batch.duplicatesHeld, 1, "one row is held for review");
+
+  const rows = await call(world, "GET", `/api/firm/clients/${createdClientId}/staged-batches/${batchId}/rows`);
+  assertEqual(rows.status, 200, `rows status: ${JSON.stringify(rows.body)}`);
+  assertEqual(rows.body.items.length, 1, "the batch has exactly the one row");
+  const row = rows.body.items[0];
+  assertEqual(row.dedupState, "held_for_review", "held, not committed");
+  assertEqual(row.reviewState, "pending", "waiting on a person");
+  assertEqual(row.amountCents, -1475, "the parsed amount is on the wire as a real number");
+
+  const reviewed = await call(world, "POST", `/api/firm/clients/${createdClientId}/staged-batches/${batchId}/rows/${row.id}/review`, {
+    body: { decision: "accept" },
+  });
+  assertEqual(reviewed.status, 200, `review status: ${JSON.stringify(reviewed.body)}`);
+  assertEqual(reviewed.body.done, true, "the review went through");
+
+  const rowsAfter = await call(world, "GET", `/api/firm/clients/${createdClientId}/staged-batches/${batchId}/rows`);
+  const rowAfter = rowsAfter.body.items[0];
+  assertEqual(rowAfter.reviewState, "accepted", "accepted");
+  assertEqual(rowAfter.dedupState, "confirmed_repeat", "and the dedup state moved so IMPORT-COMMIT-BATCH can let it through");
+
+  // A client scoped actor cannot reach either new route.
+  const rowsRefused = await call(world, "GET", `/api/firm/clients/${createdClientId}/staged-batches/${batchId}/rows`, { token: "client" });
+  assert(rowsRefused.status === 403 || rowsRefused.status === 404, `rows refused: ${rowsRefused.status}`);
+  const reviewRefused = await call(world, "POST", `/api/firm/clients/${createdClientId}/staged-batches/${batchId}/rows/${row.id}/review`, {
+    token: "client",
+    body: { decision: "accept" },
+  });
+  assert(reviewRefused.status === 403 || reviewRefused.status === 404, `review refused: ${reviewRefused.status}`);
+});
+
 test("api: a client scoped actor cannot reach the staged statements routes at all", async () => {
   const list = await call(world, "GET", `/api/firm/clients/${createdClientId}/staged-batches`, { token: "client" });
   assert(list.status === 403 || list.status === 404, `list refused: ${list.status}`);

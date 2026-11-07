@@ -27,9 +27,10 @@ import { z } from "zod";
 const runSucceeded = (status: string) => status === "completed" || status === "completed_with_skips" || status === "deduplicated";
 const taskParamsSchema = clientParamsSchema.extend({ taskId: z.string().min(1) });
 const batchParamsSchema = clientParamsSchema.extend({ batchId: z.string().min(1) });
+const stagedRowParamsSchema = batchParamsSchema.extend({ stagedRowId: z.string().min(1) });
 const setBillingStatusBodySchema = z.object({ billingStatus: z.enum(["current", "past_due"]) });
-import { aging, billsForClient, budget, categoriesForClient, clientSetup, closeChecklist, consolidatedPackages, cpaHandoffsForClient, customersForClient, entityGroups, firmRequests, firmTasks, forecast, invoicesForClient, journal, narratives, offboardExportsForClient, payRunsForClient, reconcile, recurringTemplates, reportPackages, rules, stagedBatches, substantiation, taxForms, trialBalance, vendorsForClient } from "./reads-screens";
-import { rejectBatchBodySchema, updateTaskBodySchema, type FirmMember, type FirmTeam } from "../../shared/api/screens";
+import { aging, billsForClient, budget, categoriesForClient, clientSetup, closeChecklist, consolidatedPackages, cpaHandoffsForClient, customersForClient, entityGroups, firmRequests, firmTasks, forecast, invoicesForClient, journal, narratives, offboardExportsForClient, payRunsForClient, reconcile, recurringTemplates, reportPackages, rules, stagedBatches, stagedRowsForBatch, substantiation, taxForms, trialBalance, vendorsForClient } from "./reads-screens";
+import { rejectBatchBodySchema, reviewStagedRowBodySchema, updateTaskBodySchema, type FirmMember, type FirmTeam } from "../../shared/api/screens";
 import { CODING_CASCADE_ORDER, lookupRun } from "../runs/registry";
 import { executeSequence, step } from "../runs/sequence";
 import type { ActorMiddleware } from "../auth/middleware";
@@ -547,6 +548,45 @@ export function createApiRouter(deps: ApiDeps): Router {
         via: "firm" as const,
         runCode: "IMPORT-REJECT-BATCH",
         scope: { clientId, batchId, reason: body.reason },
+        now: now(),
+      };
+      const preview = await triggerRun({ ...common, mode: "preview" });
+      if (preview.status === "no_op") return { body: { preview, applied: null, done: true } };
+      if (!runSucceeded(preview.status)) return { body: { preview, applied: null, done: false } };
+      const applied = await triggerRun({ ...common, mode: "apply", previewRunId: preview.executionId });
+      return { body: { preview, applied, done: runSucceeded(applied.status) } };
+    }),
+  );
+
+  firmClient.get(
+    "/staged-batches/:batchId/rows",
+    route(async (req) => {
+      const { clientId, batchId } = parse(batchParamsSchema, req.params);
+      const firmId = req.firm!.firmId;
+      const body = await deps.db.tx(readSession(req.actor!, firmId, clientId), (tx) => stagedRowsForBatch(tx, firmId, clientId, batchId));
+      return { body };
+    }),
+  );
+
+  /**
+   * IMPORT-REVIEW-STAGED-ROW. Accept: a real repeat charge, let it through.
+   * Reject: a true duplicate, leave it out. Either way this is the only
+   * thing that ever moves a row off held_for_review/pending -- without it a
+   * bank feed without transaction ids held every genuine repeat forever.
+   */
+  firmClient.post(
+    "/staged-batches/:batchId/rows/:stagedRowId/review",
+    route(async (req) => {
+      const { clientId, batchId, stagedRowId } = parse(stagedRowParamsSchema, req.params);
+      const body = parse(reviewStagedRowBodySchema, req.body ?? {});
+      const common = {
+        db: deps.db,
+        actor: req.actor!,
+        firmId: req.firm!.firmId,
+        clientId,
+        via: "firm" as const,
+        runCode: "IMPORT-REVIEW-STAGED-ROW",
+        scope: { clientId, batchId, stagedRowId, decision: body.decision },
         now: now(),
       };
       const preview = await triggerRun({ ...common, mode: "preview" });

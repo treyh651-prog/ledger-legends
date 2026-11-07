@@ -2,9 +2,10 @@ import { useState } from "react";
 import { Check, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { DataGrid, EmptyState, ErrorState, Kpi, Money, PageHeader, Pill, SectionCard } from "@/components/kit";
 import { useActiveClient } from "@/lib/active-client";
-import { useApproveStagedBatch, useRejectStagedBatch, useStagedBatches, errorMessage } from "@/api";
+import { useApproveStagedBatch, useRejectStagedBatch, useReviewStagedRow, useStagedBatches, useStagedRows, errorMessage } from "@/api";
 import { fmtShortDate, fmtTimestamp } from "@/lib/money";
 import type { StagedBatch } from "@shared/api";
 
@@ -123,6 +124,7 @@ export default function StagedStatements() {
               render: (b) => (
                 <div className="flex flex-col items-end gap-1.5" data-testid={`staged-batch-actions-${b.id}`}>
                   <div className="flex items-center gap-1.5">
+                    {b.duplicatesHeld > 0 ? <ReviewHeldRowsDialog clientId={clientId ?? ""} batch={b} /> : null}
                     <Button
                       size="sm"
                       disabled={approve.isPending || !!b.mappingError}
@@ -155,5 +157,81 @@ export default function StagedStatements() {
         />
       </SectionCard>
     </div>
+  );
+}
+
+/**
+ * IMPORT-REVIEW-STAGED-ROW, one row at a time. IMPORT-PARSE-FEED holds a row
+ * this way whenever a bank feed gives no transaction id and the row looks
+ * like a probable repeat of one already posted -- accept says it is a real
+ * repeat charge, reject says it is an actual duplicate. Until a decision is
+ * recorded here, IMPORT-COMMIT-BATCH refuses to commit the whole batch.
+ */
+function ReviewHeldRowsDialog({ clientId, batch }: { clientId: string; batch: StagedBatch }) {
+  const [open, setOpen] = useState(false);
+  const q = useStagedRows(open ? clientId : null, open ? batch.id : null);
+  const review = useReviewStagedRow();
+  const [error, setError] = useState<string | null>(null);
+  const rows = (q.data?.items ?? []).filter((r) => r.dedupState === "held_for_review" && r.reviewState === "pending");
+
+  const decide = async (stagedRowId: string, decision: "accept" | "reject") => {
+    setError(null);
+    try {
+      const r = await review.mutateAsync({ clientId, batchId: batch.id, stagedRowId, decision });
+      if (!r.done) setError("The decision did not go through.");
+    } catch (e) {
+      setError(errorMessage(e));
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button size="sm" variant="outline" data-testid={`review-held-${batch.id}`}>
+          Review held ({batch.duplicatesHeld})
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Held rows for {batch.bankAccountName}</DialogTitle>
+        </DialogHeader>
+        <p className="text-xs text-muted-foreground">
+          Each row looked like a repeat of a transaction already posted. Accept if it is a real repeat charge; reject if it is an actual duplicate of another row.
+        </p>
+        <div className="max-h-80 space-y-2 overflow-y-auto">
+          {q.isPending ? (
+            <p className="text-sm text-muted-foreground">Loading</p>
+          ) : rows.length === 0 ? (
+            <p className="text-sm text-muted-foreground">Nothing left waiting on a decision.</p>
+          ) : (
+            rows.map((r) => (
+              <div key={r.id} className="flex items-center justify-between gap-3 rounded-md border border-border p-2" data-testid={`held-row-${r.id}`}>
+                <div className="text-sm">
+                  <div>{r.description ?? "No description"}</div>
+                  <div className="text-xs text-muted-foreground tnum">
+                    {r.postedOn ? fmtShortDate(r.postedOn) : "?"} &middot;{" "}
+                    {r.amountCents === null ? "?" : <Money cents={r.amountCents} signed dim />}
+                  </div>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <Button size="sm" disabled={review.isPending} onClick={() => void decide(r.id, "accept")} data-testid={`accept-held-${r.id}`}>
+                    Accept
+                  </Button>
+                  <Button size="sm" variant="outline" disabled={review.isPending} onClick={() => void decide(r.id, "reject")} data-testid={`reject-held-${r.id}`}>
+                    Reject
+                  </Button>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+        {error ? <p className="text-xs text-destructive">{error}</p> : null}
+        <DialogFooter>
+          <Button size="sm" variant="outline" onClick={() => setOpen(false)}>
+            Close
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
