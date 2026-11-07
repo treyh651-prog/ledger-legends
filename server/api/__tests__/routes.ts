@@ -55,6 +55,13 @@ function buildActors(): { actors: Map<string, Actor>; setClientFor: (id: string)
     displayName: "Other Firm Owner",
     memberships: [{ firmId: OTHER_FIRM_ID, firmSlug: "other", firmName: "Other Firm", clientId: null, scope: "firm", role: "owner" }],
   });
+  actors.set("read-only-firm", {
+    userId: "00000000-0000-4000-8000-0000000000f1",
+    authSubject: "dev|readonly",
+    email: "readonly@firm.local",
+    displayName: "Read Only Staff",
+    memberships: [{ firmId: DEV_FIRM_ID, firmSlug: "dev-firm", firmName: "Development Firm", clientId: null, scope: "firm", role: "read_only" }],
+  });
   const setClientFor = (clientId: string) => {
     actors.set("client", {
       userId: CLIENT_USER_ID,
@@ -193,6 +200,17 @@ test("api: client list on an empty firm is an empty page", async () => {
   const r = await call(world, "GET", "/api/firm/clients");
   assertEqual(r.status, 200, "status");
   assertEqual(r.body.items.length, 0, "items");
+});
+
+test("api: audit fix, a read only membership reads the firm plane fine", async () => {
+  const r = await call(world, "GET", "/api/firm/overview", { token: "read-only-firm" });
+  assertEqual(r.status, 200, "a read is still a read");
+});
+
+test("api: audit fix, a read only membership cannot create a client", async () => {
+  const r = await call(world, "POST", "/api/firm/clients", { token: "read-only-firm", body: NEW_CLIENT });
+  assertEqual(r.status, 403, "a read only role cannot write, the exact gap the audit found");
+  assertEqual(r.body.error.code, "auth.forbidden", "code");
 });
 
 test("api: a bad create body is 400 validation_failed with field details", async () => {

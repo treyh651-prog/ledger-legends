@@ -13,6 +13,12 @@
  *                  403 otherwise, and 404 when the client does not exist for
  *                  this actor, which to the caller looks the same as a client
  *                  they may not see.
+ *   requireWriteAccess  a fourth guard, standalone rather than part of the
+ *                  three above: refuses any mutating request (anything but
+ *                  GET/HEAD/OPTIONS) when the role requireFirm or
+ *                  requireClient just set is read_only. Mount it right after
+ *                  whichever of those two ran, since it only reads what they
+ *                  set.
  *
  * Firm selection: a user with memberships in more than one firm names the
  * one they mean with an X-Firm header carrying the firm id or slug. With one
@@ -60,6 +66,38 @@ export type AuthErrorCode =
 export function refuse(res: Response, status: number, code: AuthErrorCode, message: string): void {
   if (status === 401) res.setHeader("WWW-Authenticate", 'Bearer realm="ledger-legends"');
   res.status(status).json({ error: { code, message } });
+}
+
+const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
+
+/**
+ * Earlier security audit: role is stored (tenancy.memberships.role,
+ * ACTOR_ROLES) and even named for what it means, but nothing enforced it --
+ * requireFirm and requireClient only ever checked that a membership
+ * existed, never which role it carried, confirmed by grepping every route
+ * file for a role check and finding exactly one (assertCanInvite, gating
+ * invitations specifically). A read_only member could trigger a run,
+ * create a client, or write anything else any other role could.
+ *
+ * This is the narrow, unambiguous fix: read_only can never survive a
+ * mutating request, full stop. It is deliberately not a full permission
+ * matrix across every role and every route -- whether manager, preparer,
+ * and reviewer should each be allowed to lock a period or release a
+ * report to the client portal is a real product decision, not something
+ * an audit fix guesses at. Checks req.client first, because a client
+ * route's role is the more specific of the two when both are set.
+ */
+export function requireWriteAccess(req: Request, res: Response, next: NextFunction): void {
+  if (SAFE_METHODS.has(req.method)) {
+    next();
+    return;
+  }
+  const role = req.client?.role ?? req.firm?.role;
+  if (role === "read_only") {
+    refuse(res, 403, "auth.forbidden", "This membership is read only and cannot make changes.");
+    return;
+  }
+  next();
 }
 
 export interface ActorMiddlewareDeps {

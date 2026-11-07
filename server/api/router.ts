@@ -33,6 +33,7 @@ import { rejectBatchBodySchema, updateTaskBodySchema, type FirmMember, type Firm
 import { CODING_CASCADE_ORDER, lookupRun } from "../runs/registry";
 import { executeSequence, step } from "../runs/sequence";
 import type { ActorMiddleware } from "../auth/middleware";
+import { requireWriteAccess } from "../auth/middleware";
 import {
   featuresForTier,
   isTierId,
@@ -186,6 +187,7 @@ export function createApiRouter(deps: ApiDeps): Router {
 
   const firm = Router();
   firm.use(requireFirm);
+  firm.use(requireWriteAccess);
 
   firm.get(
     "/overview",
@@ -340,6 +342,7 @@ export function createApiRouter(deps: ApiDeps): Router {
   // another firm is indistinguishable from a missing one.
   const firmClient = Router({ mergeParams: true });
   firmClient.use(requireClient("clientId"));
+  firmClient.use(requireWriteAccess);
 
   firmClient.get(
     "/",
@@ -841,6 +844,7 @@ export function createApiRouter(deps: ApiDeps): Router {
 
   const portal = Router({ mergeParams: true });
   portal.use(requireClient("clientId"));
+  portal.use(requireWriteAccess);
 
   portal.get(
     "/home",

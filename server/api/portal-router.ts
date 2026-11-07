@@ -16,6 +16,7 @@ import { Router, type Request, type RequestHandler } from "express";
 import type { ZodType } from "zod";
 import type { RunTx } from "../runs/db";
 import type { Actor } from "../db/with-actor";
+import { requireWriteAccess } from "../auth/middleware";
 import { FEATURE_KEYS, TIERS, type TierId } from "../../shared/tiers";
 import type { FeatureKey } from "../../shared/tiers";
 import {
@@ -445,6 +446,7 @@ function featureOrThrow(key: string): FeatureKey {
 export function createPortalScreensRouter({ deps, entitlementFor }: PortalRouterDeps): Router {
   const portal = Router({ mergeParams: true });
   portal.use(deps.guards.requireClient("clientId"));
+  portal.use(requireWriteAccess);
   const gate = (key: string) => requireFeature(featureOrThrow(key), entitlementFor);
 
   const read = <T>(fn: (tx: RunTx, firmId: string, clientId: string, req: Request) => Promise<T>) =>
@@ -556,6 +558,7 @@ export function createPortalScreensRouter({ deps, entitlementFor }: PortalRouter
 export function createFirmMessagesRouter({ deps }: PortalRouterDeps): Router {
   const firm = Router({ mergeParams: true });
   firm.use(deps.guards.requireClient("clientId"));
+  firm.use(requireWriteAccess);
   firm.get(
     "/messages",
     route(async (req) => {

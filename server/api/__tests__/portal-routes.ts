@@ -35,6 +35,20 @@ test("portal api: the world starts and a client exists", async () => {
   engagementId = engagements[0]!.id;
 });
 
+test("portal api: audit fix, a firm's read only staff reads a client's messages fine", async () => {
+  const r = await call(world, "GET", `/api/firm/clients/${clientId}/messages`, { token: "read-only-firm" });
+  assertEqual(r.status, 200, "a read is still a read, via firm membership on the client plane");
+});
+
+test("portal api: audit fix, a firm's read only staff cannot post a client message", async () => {
+  const r = await call(world, "POST", `/api/firm/clients/${clientId}/messages`, {
+    token: "read-only-firm",
+    body: { body: "should not be allowed" },
+  });
+  assertEqual(r.status, 403, "read only via firm membership still cannot write on the client plane");
+  assertEqual(r.body.error.code, "auth.forbidden", "code");
+});
+
 test("portal api: sign reports no_letter on a draft engagement without a letter on file", async () => {
   const r = await call(world, "GET", `/api/portal/${clientId}/sign`, { token: "client" });
   assertEqual(r.status, 200, "status");
