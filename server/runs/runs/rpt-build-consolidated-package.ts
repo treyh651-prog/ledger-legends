@@ -67,6 +67,7 @@ import {
   blockOf,
   isBalanceSheet,
   isIncomeStatement,
+  normalSideOf,
   priorDayOf,
 } from "./close-shared";
 import { statementLineOf } from "./statement-taxonomy";
@@ -570,6 +571,9 @@ function balanceSheetSection(data: ConsolidationData, reportBasis: BuildConsolid
   return { lines, reason: null };
 }
 
+// Same normal-side display flip as the single-entity incomeStatementSection
+// in rpt-build-package.ts -- revenue reads positive, expense reads positive,
+// only the rendered amount changes, `total` stays raw ledger-signed.
 function incomeStatementSection(data: ConsolidationData, reportBasis: BuildConsolidatedPackageScope["reportBasis"]): BuiltSection {
   const lines: ReportSectionLine[] = [];
   let total = ZERO;
@@ -584,7 +588,8 @@ function incomeStatementSection(data: ConsolidationData, reportBasis: BuildConso
         ? combinedCashBetween(data.members, priorWindowStart(data.periodStart), priorDayOf(data.periodStart), number)
         : combinedPriorInPeriod(data.members, number);
     if (amount === ZERO && prior === ZERO) continue;
-    lines.push(line(accountNameAcross(data, number), number, amount, data.members.every((m) => m.comparisonAvailable) ? prior : null, null, statementLineOf(number)));
+    const flip = normalSideOf(number) === "credit";
+    lines.push(line(accountNameAcross(data, number), number, flip ? -amount : amount, data.members.every((m) => m.comparisonAvailable) ? (flip ? -prior : prior) : null, null, statementLineOf(number)));
     total += amount;
   }
   if (lines.length === 0) return { lines: [], reason: "no_income_statement_activity" };

@@ -400,8 +400,8 @@ test("a cash income statement excludes an invoice's accrual_only lines and re-at
   assert(revenueLine !== undefined, "revenue shows on the cash income statement");
   assertEqual(
     revenueLine?.amountCents,
-    "-50000",
-    "dated and sized by the payment, not the invoice -- the control line's own amount, attributed to the revenue account",
+    "50000",
+    "dated and sized by the payment, not the invoice -- the control line's own amount, attributed to the revenue account, shown in revenue's own normal-balance direction",
   );
   const receivableLine = (incomeStatement?.lines ?? []).find((l) => l.accountNumber === "1100");
   assertEqual(receivableLine, undefined, "the receivable control account itself never appears on the income statement");

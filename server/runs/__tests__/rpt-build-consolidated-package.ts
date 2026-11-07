@@ -97,7 +97,7 @@ test("consolidated package: offsetting intercompany balances build cleanly, excl
 
   const incomeStatement = sections.find((s) => s.sectionCode === "INCOME_STATEMENT")!;
   const revenueLine = incomeStatement.lines.find((l) => l.accountNumber === "4100");
-  assertEqual(revenueLine?.amountCents, "-100000", "A1's revenue carried through combined");
+  assertEqual(revenueLine?.amountCents, "100000", "A1's revenue carried through combined, shown in revenue's own normal-balance direction");
   const expenseLine = incomeStatement.lines.find((l) => l.accountNumber === "6100");
   assertEqual(expenseLine?.amountCents, "40000", "A2's expense carried through combined");
 

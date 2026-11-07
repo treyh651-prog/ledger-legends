@@ -68,6 +68,7 @@ import {
   cashBalancesBetween,
   isBalanceSheet,
   isIncomeStatement,
+  normalSideOf,
   priorDayOf,
 } from "./close-shared";
 import { statementLineOf } from "./statement-taxonomy";
@@ -608,9 +609,15 @@ function balanceSheetSection(data: ReportData): BuiltSection {
 /**
  * The income statement. Activity inside the period only.
  *
- * The net result line is the negated sum of the income statement deltas, which
- * turns the ledger sign into the figure a reader calls net income: revenue is a
- * credit, expense is a debit, and a profitable period sums to a credit.
+ * Every line, detail and total, is shown in its own normal-balance direction
+ * (normalSideOf) rather than the ledger's raw debit-positive storage: revenue
+ * reads positive, expense reads positive, and a profitable period's net result
+ * is their positive difference -- the shape a reader expects, and the same
+ * flip cashFlowSection already applies to its own "Change in X" lines. Only
+ * the rendered amount flips; `total`, and the stored amountCents this function
+ * ultimately writes, keep going through the same ledger-signed arithmetic, so
+ * nothing downstream that re-derives figures from the ledger itself needs to
+ * change (confirmed no other run reads these stored lines back as input).
  */
 function incomeStatementSection(data: ReportData): BuiltSection {
   const lines: ReportSectionLine[] = [];
@@ -621,12 +628,13 @@ function incomeStatementSection(data: ReportData): BuiltSection {
     const amount = balanceOf(data.close.inPeriod, number);
     const prior = balanceOf(data.priorInPeriod, number);
     if (amount === ZERO && prior === ZERO) continue;
+    const flip = normalSideOf(number) === "credit";
     lines.push(
       line(
         account.name,
         number,
-        amount,
-        data.comparisonAvailable ? prior : null,
+        flip ? -amount : amount,
+        data.comparisonAvailable ? (flip ? -prior : prior) : null,
         null,
         statementLineOf(number),
       ),
@@ -722,12 +730,13 @@ function cashIncomeStatementSection(data: ReportData): BuiltSection {
     const amount = balanceOf(inPeriodCash, number);
     const prior = balanceOf(priorInPeriodCash, number);
     if (amount === ZERO && prior === ZERO) continue;
+    const flip = normalSideOf(number) === "credit";
     lines.push(
       line(
         account.name,
         number,
-        amount,
-        data.comparisonAvailable ? prior : null,
+        flip ? -amount : amount,
+        data.comparisonAvailable ? (flip ? -prior : prior) : null,
         null,
         statementLineOf(number),
       ),
