@@ -7,10 +7,12 @@ import type { AuthRuntime } from "./auth/setup";
 import { authErrorHandler, refuse } from "./auth/middleware";
 import {
   InvitationError,
+  changeMembershipRole,
   createInvitation,
   listInvitations,
   revokeInvitation,
   validateInvitation,
+  validateRoleChange,
   type InvitationDeps,
 } from "./auth/invitations";
 import {
@@ -230,6 +232,18 @@ export async function registerRoutes(httpServer: Server, app: Express, deps?: Ro
   app.delete("/api/invitations/:membershipId", requireFirm, async (req, res, next) => {
     try {
       res.json(await revokeInvitation(inv, req.actor!, req.firm!, String(req.params.membershipId)));
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // Change a membership's role in place, same owner/manager gate as inviting.
+  // No UI previously let a firm fix a wrong role picked while approving an
+  // access request without revoking and re-inviting from scratch.
+  app.patch("/api/invitations/:membershipId", requireFirm, async (req, res, next) => {
+    try {
+      const role = validateRoleChange(req.body);
+      res.json(await changeMembershipRole(inv, req.actor!, req.firm!, String(req.params.membershipId), role));
     } catch (err) {
       next(err);
     }

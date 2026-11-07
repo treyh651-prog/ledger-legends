@@ -288,3 +288,66 @@ export async function revokeInvitation(
   }
   return { membershipId: out.membershipId, userId: out.userId, loginDisabled: out.last };
 }
+
+export function validateRoleChange(input: unknown): ActorRole {
+  if (!input || typeof input !== "object") throw new InvitationError(400, "invitations.bad_request", "Body must be an object.");
+  const b = input as Record<string, unknown>;
+  const allowed: readonly ActorRole[] = [...FIRM_ROLES, ...CLIENT_ROLES];
+  if (typeof b.role !== "string" || !allowed.includes(b.role as ActorRole)) {
+    throw new InvitationError(400, "invitations.bad_role", `role must be one of ${allowed.join(", ")}.`);
+  }
+  return b.role as ActorRole;
+}
+
+/**
+ * Changes a membership's role in place. Same "a firm must keep at least one
+ * owner" guard revokeInvitation already enforces, checked symmetrically:
+ * revoking removes a role, demoting replaces it with a different one, and
+ * either way the firm cannot end up with zero owners.
+ */
+export async function changeMembershipRole(
+  deps: InvitationDeps,
+  actor: Actor,
+  firm: ActorMembership,
+  membershipId: string,
+  role: ActorRole,
+): Promise<{ membershipId: string; role: ActorRole }> {
+  assertCanInvite(firm);
+  if (!UUID.test(membershipId)) throw new InvitationError(404, "invitations.not_found", "No such membership.");
+
+  return withActor(
+    deps.pool,
+    actor,
+    async (tx) => {
+      const rows = await tx.query<{ id: string; user_id: string; role: ActorRole; scope: ActorScope; revoked_at: string | null }>(
+        `select id, user_id, role, scope, revoked_at from tenancy.memberships where id = $1 and firm_id = $2`,
+        [membershipId, firm.firmId],
+      );
+      const m = rows[0];
+      if (!m) throw new InvitationError(404, "invitations.not_found", "No such membership.");
+      if (m.revoked_at) throw new InvitationError(409, "invitations.already_revoked", "That access was already revoked.");
+      if (m.user_id === actor.userId) throw new InvitationError(409, "invitations.self", "You cannot change your own role.");
+
+      const allowed = m.scope === "firm" ? FIRM_ROLES : CLIENT_ROLES;
+      if (!allowed.includes(role)) {
+        throw new InvitationError(400, "invitations.bad_role", `role must be one of ${allowed.join(", ")} for a ${m.scope} membership.`);
+      }
+      if (role === m.role) {
+        return { membershipId, role };
+      }
+      if (m.scope === "firm" && m.role === "owner" && role !== "owner") {
+        const owners = await tx.query<{ n: string }>(
+          `select count(*)::text as n from tenancy.memberships
+            where firm_id = $1 and scope = 'firm' and role = 'owner' and revoked_at is null`,
+          [firm.firmId],
+        );
+        if (Number(owners[0]?.n ?? "0") <= 1) {
+          throw new InvitationError(409, "invitations.last_owner", "A firm must keep at least one owner.");
+        }
+      }
+      await tx.query(`update tenancy.memberships set role = $2 where id = $1`, [membershipId, role]);
+      return { membershipId, role };
+    },
+    deps.actorOpts,
+  );
+}

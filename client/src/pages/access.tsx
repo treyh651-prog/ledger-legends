@@ -127,6 +127,28 @@ export default function Access() {
     void load();
   }
 
+  const [changingRole, setChangingRole] = useState<string | null>(null);
+
+  async function changeRole(row: InvitationRow, role: MembershipRole) {
+    if (role === row.role) return;
+    setChangingRole(row.membershipId);
+    try {
+      const res = await auth.authFetch(`/api/invitations/${row.membershipId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ role }),
+      });
+      const body = (await res.json()) as { error?: { message?: string } };
+      if (!res.ok) {
+        toast({ title: "Could not change role", description: body.error?.message ?? `The server answered ${res.status}.`, variant: "destructive" });
+        return;
+      }
+      void load();
+    } finally {
+      setChangingRole(null);
+    }
+  }
+
   const cols = useMemo<Col<InvitationRow>[]>(
     () => [
       {
@@ -146,7 +168,28 @@ export default function Access() {
         mobile: "sub",
         render: (r) => (r.scope === "firm" ? "Whole firm" : r.clientName ?? "One client"),
       },
-      { key: "role", label: "Role", mobile: "sub", render: (r) => roleLabel(r.role) },
+      {
+        key: "role",
+        label: "Role",
+        mobile: "sub",
+        render: (r) =>
+          auth.canManageAccess && !r.revokedAt && r.userId !== auth.me?.userId ? (
+            <Select value={r.role} onValueChange={(v) => void changeRole(r, v as MembershipRole)} disabled={changingRole === r.membershipId}>
+              <SelectTrigger className="h-8 w-36 text-xs" data-testid={`select-role-${r.membershipId}`}>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {(r.scope === "firm" ? FIRM_ROLES : CLIENT_ROLES).map((role) => (
+                  <SelectItem key={role.id} value={role.id}>
+                    {role.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          ) : (
+            roleLabel(r.role)
+          ),
+      },
       {
         key: "state",
         label: "State",
@@ -176,7 +219,7 @@ export default function Access() {
       },
     ],
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [auth.canManageAccess, auth.me?.userId],
+    [auth.canManageAccess, auth.me?.userId, changingRole],
   );
 
   if (auth.status === "off") {

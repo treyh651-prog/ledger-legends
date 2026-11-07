@@ -34,10 +34,12 @@ import type { AuthAdmin } from "../../auth/auth-admin";
 import {
   InvitationError,
   assertCanInvite,
+  changeMembershipRole,
   createInvitation,
   listInvitations,
   revokeInvitation,
   validateInvitation,
+  validateRoleChange,
   type InvitationDeps,
 } from "../../auth/invitations";
 import {
@@ -800,6 +802,74 @@ test("invitations: revoke sets revoked_at, disables the login when it was the la
   );
 });
 
+test("validateRoleChange: refuses a bad body shape or an unknown role", () => {
+  assertThrows(() => validateRoleChange(null), "invitations.bad_request", "not an object");
+  assertThrows(() => validateRoleChange({}), "invitations.bad_role", "missing role");
+  assertThrows(() => validateRoleChange({ role: "superuser" }), "invitations.bad_role", "unknown role");
+  assertEqual(validateRoleChange({ role: "manager" }), "manager", "a real role passes through");
+});
+
+test("changeMembershipRole: a manager fixes a wrong role, keeps at least one owner, and cannot touch themselves", async () => {
+  const s = await seeded();
+  const admin = scriptedAuthAdmin();
+  const deps: InvitationDeps = { pool: s.pool, authAdmin: admin, appOrigin: "https://app.test", actorOpts: AS_APP_WEB };
+  const firm = s.owner.memberships[0];
+
+  const invited = await createInvitation(deps, s.owner, firm, { email: "wrong-role@a.test", scope: "firm", role: "preparer" });
+  const out = await changeMembershipRole(deps, s.owner, firm, invited.membershipId, "manager");
+  assertEqual(out.role, "manager", "the role is now manager");
+  const row = await s.db.query<{ role: string }>("select role from tenancy.memberships where id = $1", [invited.membershipId]);
+  assertEqual(row.rows[0].role, "manager", "and it is on record");
+
+  const sameAgain = await changeMembershipRole(deps, s.owner, firm, invited.membershipId, "manager");
+  assertEqual(sameAgain.role, "manager", "setting it to what it already is is a no op, not an error");
+
+  await assertRejects(
+    () => changeMembershipRole(deps, s.owner, firm, invited.membershipId, "client_user"),
+    "invitations.bad_role",
+    "a client only role is refused for a firm membership",
+  );
+
+  const clientInvited = await createInvitation(deps, s.owner, firm, { email: "client-role@one.test", scope: "client", role: "client_user", clientId: s.client2 });
+  await assertRejects(
+    () => changeMembershipRole(deps, s.owner, firm, clientInvited.membershipId, "manager"),
+    "invitations.bad_role",
+    "a firm only role is refused for a client membership",
+  );
+
+  const ownerMembership = await s.db.query<{ id: string }>("select id from tenancy.memberships where user_id = $1 and role = 'owner'", [s.owner.userId]);
+  await assertRejects(
+    () => changeMembershipRole(deps, s.owner, firm, ownerMembership.rows[0].id, "manager"),
+    "invitations.self",
+    "cannot change your own role",
+  );
+  await assertRejects(
+    () => changeMembershipRole(deps, s.manager, s.manager.memberships[0], ownerMembership.rows[0].id, "manager"),
+    "invitations.last_owner",
+    "a manager cannot demote the only owner",
+  );
+  await assertRejects(
+    () => changeMembershipRole(deps, s.preparer, s.preparer.memberships[0], invited.membershipId, "owner"),
+    "invitations.forbidden",
+    "a preparer cannot change anyone's role",
+  );
+
+  const revoked = await revokeInvitation(deps, s.owner, firm, invited.membershipId);
+  assert(revoked.loginDisabled, "that was this person's only membership, so revoking it disables the login");
+  await assertRejects(
+    () => changeMembershipRole(deps, s.owner, firm, invited.membershipId, "owner"),
+    "invitations.already_revoked",
+    "a revoked membership cannot have its role changed",
+  );
+
+  const outsiderView = await s.db.query<{ id: string }>("select id from tenancy.memberships where user_id = $1 limit 1", [s.manager.userId]);
+  await assertRejects(
+    () => changeMembershipRole(deps, s.outsider, s.outsider.memberships[0], outsiderView.rows[0].id, "owner"),
+    "invitations.not_found",
+    "another firm's membership is not found",
+  );
+});
+
 // ---------------------------------------------------------------------------
 // The routes, over HTTP, with the real middleware and the PGlite database
 // ---------------------------------------------------------------------------
@@ -886,6 +956,7 @@ test("http: public config, then every guarded route refuses without a token", as
       ["GET", "/api/invitations"],
       ["POST", "/api/invitations"],
       ["DELETE", `/api/invitations/${ACTOR_ID}`],
+      ["PATCH", `/api/invitations/${ACTOR_ID}`],
     ] as const) {
       const r = await call(srv.base, path, { method });
       assertEqual(r.status, 401, `${method} ${path} without a token`);
@@ -951,6 +1022,24 @@ test("http: invitations end to end, with the roles the routes enforce", async ()
 
     const outsiderList = await call(srv.base, "/api/invitations", { token: "t-outsider" });
     assert(!(outsiderList.body.invitations as { email: string }[]).some((r) => r.email === "http-new@a.test"), "other firm does not see it");
+
+    const membershipId = made.body.membershipId as string;
+    const preparerPatch = await call(srv.base, `/api/invitations/${membershipId}`, { method: "PATCH", token: "t-preparer", body: JSON.stringify({ role: "read_only" }) });
+    assertEqual(preparerPatch.status, 403, "a preparer may not change a role either");
+
+    const outsiderPatch = await call(srv.base, `/api/invitations/${membershipId}`, { method: "PATCH", token: "t-outsider", body: JSON.stringify({ role: "read_only" }) });
+    assertEqual(outsiderPatch.status, 404, "other firm cannot patch it");
+
+    const badRolePatch = await call(srv.base, `/api/invitations/${membershipId}`, { method: "PATCH", token: "t-owner", body: JSON.stringify({ role: "manager" }) });
+    assertEqual(badRolePatch.status, 400, "a firm only role is refused for this client membership");
+    assertEqual(badRolePatch.body.error?.code, "invitations.bad_role", "named");
+
+    const patched = await call(srv.base, `/api/invitations/${membershipId}`, { method: "PATCH", token: "t-owner", body: JSON.stringify({ role: "read_only" }) });
+    assertEqual(patched.status, 200, "owner changes the role");
+    assertEqual(patched.body.role, "read_only", "to read_only");
+    const listAfterPatch = await call(srv.base, "/api/invitations", { token: "t-owner" });
+    const rowAfterPatch = (listAfterPatch.body.invitations as { membershipId: string; role: string }[]).find((r) => r.membershipId === membershipId);
+    assertEqual(rowAfterPatch?.role, "read_only", "and it is on the list");
 
     const outsiderRevoke = await call(srv.base, `/api/invitations/${made.body.membershipId as string}`, { method: "DELETE", token: "t-outsider" });
     assertEqual(outsiderRevoke.status, 404, "other firm cannot revoke it");
