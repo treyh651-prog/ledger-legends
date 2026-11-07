@@ -158,6 +158,7 @@ import "./apply-writer-cash-effect";
 import "./intake-open-requests";
 import "./setup-add-bank-account";
 import "./setup-create-default-schedules";
+import "./sched-period-fix";
 import "./cfg-create-fixed-asset";
 import "./cfg-create-loan";
 import "./cfg-create-deferral-schedule";

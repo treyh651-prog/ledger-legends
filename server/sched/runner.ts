@@ -42,7 +42,7 @@ import {
   type PlannedWindow,
   type SkipReason,
 } from "./plan";
-import { cadenceFireInstants } from "../runs/dates";
+import { cadenceFireInstants, priorPeriodStartOf } from "../runs/dates";
 
 const DAY_MS = 86_400_000;
 
@@ -373,6 +373,13 @@ async function runWindow(
     from: window.localDay,
     to: window.localDay,
     asOf: window.localDay,
+    // A run whose own scope has no `period` field ignores this; zod drops an
+    // unknown key by default and nothing here is `.strict()`. For a run that
+    // does need one, "the month that just closed" is the only reading that
+    // matches how these runs are actually used by hand: a close-gate check,
+    // a report build, or an aging/W9 refresh happens after a month ends, not
+    // mid-month against a period still open.
+    period: priorPeriodStartOf(window.localDay),
   };
 
   try {

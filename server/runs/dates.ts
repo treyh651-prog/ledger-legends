@@ -33,6 +33,17 @@ export function dayGap(a: string, b: string): number {
   return Math.abs(dayToUtcMs(a) - dayToUtcMs(b)) / DAY_MS;
 }
 
+/**
+ * The first day of the month before whatever month `day` falls in.
+ *
+ * `Date.UTC` normalizes a negative month index itself, so a January day
+ * rolls back to the prior December without a special case.
+ */
+export function priorPeriodStartOf(day: string): string {
+  const [y, m] = day.split("-").map((p) => Number(p));
+  return utcMsToDay(Date.UTC(y, m - 2, 1));
+}
+
 export function isoDayOf(value: Date): string {
   return utcMsToDay(
     Date.UTC(value.getUTCFullYear(), value.getUTCMonth(), value.getUTCDate()),
