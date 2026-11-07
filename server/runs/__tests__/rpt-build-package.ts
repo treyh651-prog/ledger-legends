@@ -9,8 +9,9 @@
  */
 
 import { assert, assertEqual, test } from "./harness";
-import { CLIENT_A1 } from "./fixtures";
+import { CLIENT_A1, FIRM_A } from "./fixtures";
 import { PERIOD, PERIOD_END, addAccount, closeEntry, closeLine, seedEntry } from "./close-fixtures";
+import type { RunLogRow } from "../tables";
 import {
   applyReport,
   lockPeriod,
@@ -331,6 +332,59 @@ test("the change log lists applied runs and never the reporting run itself", asy
   assert(
     !(changeLog?.lines ?? []).some((l) => l.label.startsWith("RPT-")),
     "a package does not describe the run that built it",
+  );
+});
+
+function runLogRow(id: string, runType: string, periodStart: string, periodEnd: string): RunLogRow {
+  return {
+    id,
+    firmId: FIRM_A,
+    clientId: CLIENT_A1,
+    runType,
+    runVersion: 1,
+    mode: "apply",
+    status: "completed",
+    idempotencyKey: `IK-${id}`,
+    scopeHash: `HASH-${id}`,
+    actorId: "USR-1",
+    actorKind: "human",
+    source: "button",
+    parentSequenceId: null,
+    sequenceStep: null,
+    previewRunId: null,
+    originalRunId: null,
+    periodStart,
+    periodEnd,
+    candidateCount: 1,
+    candidateIds: [],
+    scopeInput: null,
+    versions: null,
+    startedAt: `${periodStart}T10:00:00.000Z`,
+    gitSha: "sha",
+    releaseId: "rel",
+  };
+}
+
+test("the change log includes a run whose own window overlaps the period but does not start on the 1st", async () => {
+  // Audit finding: a coding run (TXN-POST-CODED and siblings) is stamped with
+  // whatever from/to window the caller picked, and a run with no period
+  // concept at all is stamped with the day it executed -- neither one's own
+  // periodStart is ever the month's first day, so the old exact-equality
+  // filter silently dropped both, even squarely inside the reported month.
+  const db = reportDb();
+  db.seed("run_log", [
+    runLogRow("RUNX-CODING", "TXN-POST-CODED", "2026-01-08", "2026-01-15"),
+    runLogRow("RUNX-SETUP", "CFG-CREATE-CATEGORY", "2026-01-20", "2026-01-20"),
+    runLogRow("RUNX-OUTSIDE", "TXN-POST-CODED", "2025-12-01", "2025-12-20"),
+  ]);
+  await applyReport(db, rptBuildPackage, scope);
+  const changeLog = sectionsOf(db).find((s) => s.sectionCode === "CHANGE_LOG");
+  const labels = (changeLog?.lines ?? []).map((l) => l.label);
+  assert(labels.includes("TXN-POST-CODED") && labels.includes("CFG-CREATE-CATEGORY"), "both real-activity runs inside the month are listed");
+  assertEqual(
+    labels.filter((l) => l === "TXN-POST-CODED").length,
+    1,
+    "the outside-the-period TXN-POST-CODED row from December does not also match",
   );
 });
 

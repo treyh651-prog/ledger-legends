@@ -1630,7 +1630,8 @@ class MemoryTx implements RunTx {
             (r) =>
               r.firmId === p.firmId &&
               r.clientId === p.clientId &&
-              r.periodStart === p.periodStart,
+              r.periodStart <= p.periodEnd &&
+              r.periodEnd >= p.periodStart,
           )
           .sort((a, b) => (a.startedAt < b.startedAt ? -1 : a.startedAt > b.startedAt ? 1 : byId(a, b)))
           .map((r) => clone(r as unknown as AnyRow));

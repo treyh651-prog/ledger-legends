@@ -680,12 +680,18 @@ export interface QueryCatalog {
     row: JournalEntryRow;
   };
   /**
-   * Run log rows whose period start matches, ordered by start time. Gate G18
+   * Run log rows whose own window overlaps the given period at all, ordered by
+   * start time. Not an exact match on periodStart: a coding run is stamped with
+   * whatever from/to window its caller picked, and a run with no period concept
+   * at all is stamped with the day it executed, so neither one's own periodStart
+   * is ever the period's first day even when it ran squarely inside it. Gate G18
    * compares the actor who previewed a run against the actor who applied it, so
-   * it needs the log and not the ledger.
+   * it needs the log and not the ledger; the report package's change log reads
+   * the same rows for the same reason -- both need every run that touched this
+   * period, not only the ones whose own window happens to start on day one.
    */
   run_log_for_period: {
-    params: { firmId: Ulid; clientId: Ulid; periodStart: string };
+    params: { firmId: Ulid; clientId: Ulid; periodStart: string; periodEnd: string };
     row: RunLogRow;
   };
 

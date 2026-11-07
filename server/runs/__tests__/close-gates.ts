@@ -751,7 +751,11 @@ test("G17 fails when a request is thirty days old with no owner change", async (
 // G18 the preparer is not the approver.
 // ---------------------------------------------------------------------------
 
-function runLogPair(previewActor: string, applyActor: string): RunLogRow[] {
+function runLogPair(
+  previewActor: string,
+  applyActor: string,
+  window: { periodStart: string; periodEnd: string } = { periodStart: PERIOD, periodEnd: PERIOD_END },
+): RunLogRow[] {
   const base = {
     firmId: FIRM_A,
     clientId: CLIENT_A1,
@@ -765,8 +769,8 @@ function runLogPair(previewActor: string, applyActor: string): RunLogRow[] {
     parentSequenceId: null,
     sequenceStep: null,
     originalRunId: null,
-    periodStart: PERIOD,
-    periodEnd: PERIOD_END,
+    periodStart: window.periodStart,
+    periodEnd: window.periodEnd,
     candidateCount: 1,
     candidateIds: [],
     scopeInput: null,
@@ -803,6 +807,17 @@ test("G18 passes when two different people previewed and applied", async () => {
 test("G18 fails when one person previewed and applied the same run", async () => {
   const db = closeDb();
   db.seed("run_log", runLogPair(PREPARER, PREPARER));
+  assertGate(await gatesOn(db), "G18", "fail");
+});
+
+test("G18 still fails when the same-actor run's own window is a sub-range of the period, not the whole month", async () => {
+  // Audit-adjacent finding: run_log_for_period used to match on exact
+  // periodStart equality, so a run scoped to a sub-range of the month (the
+  // shape freezeCodingScope stamps every coding run with) was invisible to
+  // this gate entirely -- a real separation-of-duties loophole, closed by
+  // widening the query to a periodStart/periodEnd window overlap.
+  const db = closeDb();
+  db.seed("run_log", runLogPair(PREPARER, PREPARER, { periodStart: "2026-01-08", periodEnd: "2026-01-15" }));
   assertGate(await gatesOn(db), "G18", "fail");
 });
 

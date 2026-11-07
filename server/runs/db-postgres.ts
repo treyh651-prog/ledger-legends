@@ -2471,9 +2471,10 @@ export const QUERIES: Record<QueryName, SqlSpec> = {
     table: "run_log",
     sql: `select ${RUN_LOG_COLUMNS}
           from ${SCHEMA}.run_log
-          where firm_id = $1 and client_id = $2 and period_start = $3
+          where firm_id = $1 and client_id = $2
+            and period_start <= $4 and period_end >= $3
           order by started_at asc, id asc`,
-    params: (p) => [p.firmId, p.clientId, p.periodStart],
+    params: (p) => [p.firmId, p.clientId, p.periodStart, p.periodEnd],
   },
   vendor_credits_for_client: {
     table: "vendor_credits",

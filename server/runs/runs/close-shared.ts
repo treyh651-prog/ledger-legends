@@ -408,6 +408,7 @@ export async function loadCloseData(
   const runLog = await tx.query("run_log_for_period", {
     ...key,
     periodStart: window.periodStart,
+    periodEnd: window.periodEnd,
   });
   const engagements = await tx.query("engagements_for_client", key);
 

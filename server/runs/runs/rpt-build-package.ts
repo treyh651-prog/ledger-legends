@@ -988,17 +988,40 @@ function notesLines(
  * A reader who asks why a figure moved since the last package gets an answer
  * here rather than having to ask somebody.
  *
- * Three filters, and every one of them earns its place. Applies only, because a
- * preview changed nothing. Completed only, because a refused run changed nothing
- * either. And no reporting runs, because a package that listed the run building
- * it would describe itself: the preview would see one log row, the apply would
- * see two, and the two calls would disagree over a package that is supposed to
- * be identical in both modes. See NOTES.md entry 110.
+ * Membership is a window overlap, not an exact match on periodStart --
+ * confirmed by reading how a run's own periodStart/periodEnd actually get
+ * set (FrozenScope, per run): a period-scoped run (PER-POST-DEPRECIATION,
+ * CLOSE-CHECK-GATES) spans the real calendar month and matches today's
+ * exact-equality check too, but a coding run (TXN-POST-CODED and siblings,
+ * freezeCodingScope) is stamped with whatever from/to window the caller
+ * picked -- often a sub-range of the month, not the month's own first day --
+ * and a run with no period concept at all (CFG-CREATE-CATEGORY and every
+ * other setup/config run) is stamped with today's date, the day it executed,
+ * not any accounting period. Exact equality against the package's own
+ * periodStart silently dropped both of those real cases, which is exactly
+ * the audit's finding: genuine activity inside the period produced "no runs
+ * recorded" once that activity's own window didn't start on the 1st.
+ *
+ * The window-overlap check below is also enforced one layer down, in the
+ * run_log_for_period query itself (db.ts/db-memory.ts/db-postgres.ts) --
+ * kept here too so this function reads correctly on its own, and because
+ * G18 (cls-evaluate-gates.ts) reads the exact same query's rows for a
+ * different purpose and has no reason to repeat this comment.
+ *
+ * Four filters now, and every one of them earns its place. Overlaps this
+ * period's window, because that is what "changed this period" means. Applies
+ * only, because a preview changed nothing. Completed only, because a refused
+ * run changed nothing either. And no reporting runs, because a package that
+ * listed the run building it would describe itself: the preview would see
+ * one log row, the apply would see two, and the two calls would disagree
+ * over a package that is supposed to be identical in both modes. See
+ * NOTES.md entry 110.
  */
 function changeLogSection(data: ReportData): BuiltSection {
   const rows = data.close.runLog.filter(
     (r) =>
-      r.periodStart === data.periodStart &&
+      r.periodStart <= data.periodEnd &&
+      r.periodEnd >= data.periodStart &&
       r.mode === "apply" &&
       r.status === "completed" &&
       !r.runType.startsWith("RPT-"),
