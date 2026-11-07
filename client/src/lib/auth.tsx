@@ -76,6 +76,8 @@ export interface AuthApi {
   canManageAccess: boolean;
   signInWithPassword: (email: string, password: string) => Promise<string | null>;
   signInWithMagicLink: (email: string) => Promise<string | null>;
+  /** A client creating their own login, ahead of asking any firm for access. needsConfirmation is true when Supabase requires an email click before a session exists. */
+  signUpWithPassword: (email: string, password: string) => Promise<{ error: string | null; needsConfirmation: boolean }>;
   requestPasswordReset: (email: string) => Promise<string | null>;
   updatePassword: (password: string) => Promise<string | null>;
   signOut: () => Promise<void>;
@@ -300,6 +302,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           options: { shouldCreateUser: false, emailRedirectTo: `${window.location.origin}/auth/callback` },
         });
         return errText(error);
+      },
+      async signUpWithPassword(email, password) {
+        const c = clientRef.current;
+        if (!c) return { error: "Sign up is not available.", needsConfirmation: false };
+        const { data, error } = await c.auth.signUp({
+          email,
+          password,
+          options: { emailRedirectTo: `${window.location.origin}/auth/callback` },
+        });
+        if (error) return { error: errText(error), needsConfirmation: false };
+        return { error: null, needsConfirmation: !data.session };
       },
       async requestPasswordReset(email) {
         const c = clientRef.current;

@@ -71,7 +71,7 @@ import { ALWAYS_RENDER, EmptyWorkspace } from "@/components/empty-workspace";
 import { useActiveClient } from "@/lib/active-client";
 import { usePortalClient } from "@/lib/use-portal-client";
 import { AuthProvider, useAuth } from "@/lib/auth";
-import { AuthLoading, NotAMember, SetPassword, SignIn } from "@/pages/auth/sign-in";
+import { AuthLoading, NotAMember, RequestAccess, SetPassword, SignIn } from "@/pages/auth/sign-in";
 import Access from "@/pages/access";
 import { useEffect } from "react";
 import { useLocation } from "wouter";
@@ -190,13 +190,16 @@ function Gate() {
     case "signed-out":
       return <SignIn />;
     case "no-membership":
+      return <RequestAccess />;
     case "refused":
       return <NotAMember />;
     case "signed-in":
     case "off":
       break;
   }
-  if (auth.status === "signed-in" && (auth.linkType === "invite" || auth.linkType === "recovery" || auth.linkType === "signup")) {
+  if (auth.status === "signed-in" && (auth.linkType === "invite" || auth.linkType === "recovery")) {
+    // Not "signup": a self signed up client already chose a password on the
+    // create account form. Asking again here would just be confusing.
     return <SetPassword />;
   }
   return (

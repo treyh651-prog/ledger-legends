@@ -204,9 +204,14 @@ export async function createInvitation(
   );
 }
 
-async function upsertUser(
+/**
+ * Exported for server/auth/access-requests.ts: approving a self submitted
+ * request upserts the same way an invitation does, just with no inviter
+ * (invitedBy null -- nobody invited this person, they asked first).
+ */
+export async function upsertUser(
   tx: ActorTx,
-  u: { authSubject: string; email: string; displayName: string | null; invitedBy: string },
+  u: { authSubject: string; email: string; displayName: string | null; invitedBy: string | null },
 ): Promise<string> {
   const rows = await tx.query<{ id: string }>(
     `insert into tenancy.users (auth_subject, email, display_name, invited_by)

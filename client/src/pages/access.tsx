@@ -16,6 +16,18 @@ import { useToast } from "@/hooks/use-toast";
 import { useClients } from "@/api";
 import { useAuth, type MembershipRole, type MembershipScope } from "@/lib/auth";
 
+interface AccessRequestRow {
+  id: string;
+  firmName: string;
+  requestedClientName: string;
+  message: string | null;
+  email: string;
+  status: "pending" | "approved" | "rejected";
+  createdAt: string;
+  resolvedAt: string | null;
+  rejectionReason: string | null;
+}
+
 interface InvitationRow {
   membershipId: string;
   userId: string;
@@ -60,6 +72,8 @@ export default function Access() {
   const [rows, setRows] = useState<InvitationRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [requests, setRequests] = useState<AccessRequestRow[]>([]);
+  const [requestsLoading, setRequestsLoading] = useState(true);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -76,10 +90,28 @@ export default function Access() {
     }
   }, [auth]);
 
+  const loadRequests = useCallback(async () => {
+    setRequestsLoading(true);
+    try {
+      const res = await auth.authFetch("/api/access-requests");
+      const body = (await res.json()) as { requests?: AccessRequestRow[] };
+      if (res.ok) setRequests(body.requests ?? []);
+    } finally {
+      setRequestsLoading(false);
+    }
+  }, [auth]);
+
   useEffect(() => {
-    if (auth.status === "signed-in") void load();
-    else setLoading(false);
-  }, [auth.status, load]);
+    if (auth.status === "signed-in") {
+      void load();
+      void loadRequests();
+    } else {
+      setLoading(false);
+      setRequestsLoading(false);
+    }
+  }, [auth.status, load, loadRequests]);
+
+  const pendingRequests = requests.filter((r) => r.status === "pending");
 
   async function revoke(row: InvitationRow) {
     const who = row.displayName ? `${row.displayName} (${row.email})` : row.email;
@@ -162,6 +194,26 @@ export default function Access() {
         subtitle={`Who can sign in to ${auth.firm?.firmName ?? "this firm"} and what they can reach. Firm access covers every client. Client access covers one.`}
         testId="header-access"
       />
+      {auth.firm?.firmSlug ? (
+        <SectionCard title="Your sign up code" testId="card-firm-code">
+          <p className="text-sm text-muted-foreground">
+            Give this to a client so they can ask for access themselves: <span className="font-mono font-medium text-foreground">{auth.firm.firmSlug}</span>. They
+            create their own login, enter this code, and it lands in the queue below for you to approve.
+          </p>
+        </SectionCard>
+      ) : null}
+      {pendingRequests.length > 0 || requestsLoading ? (
+        <AccessRequestsQueue
+          requests={pendingRequests}
+          loading={requestsLoading}
+          canResolve={auth.canManageAccess}
+          clients={(clientsQ.data?.items ?? []).map((c) => ({ id: c.id, name: c.name }))}
+          onResolved={() => {
+            void loadRequests();
+            void load();
+          }}
+        />
+      ) : null}
       <div className="grid gap-4 lg:grid-cols-[1fr_360px]">
         <SectionCard title="People" testId="card-access-people">
           <DataGrid rows={rows} cols={cols} rowKey={(r) => r.membershipId} loading={loading} error={error} onRetry={load} testId="grid-access" />
@@ -175,6 +227,118 @@ export default function Access() {
         )}
       </div>
     </>
+  );
+}
+
+function AccessRequestsQueue({
+  requests,
+  loading,
+  canResolve,
+  clients,
+  onResolved,
+}: {
+  requests: AccessRequestRow[];
+  loading: boolean;
+  canResolve: boolean;
+  clients: { id: string; name: string }[];
+  onResolved: () => void;
+}) {
+  const auth = useAuth();
+  const { toast } = useToast();
+  const [clientId, setClientId] = useState<Record<string, string>>({});
+  const [busy, setBusy] = useState<string | null>(null);
+
+  async function approve(r: AccessRequestRow) {
+    const pick = clientId[r.id];
+    if (!pick) {
+      toast({ title: "Choose a client first", variant: "destructive" });
+      return;
+    }
+    setBusy(r.id);
+    try {
+      const res = await auth.authFetch(`/api/access-requests/${r.id}/approve`, { method: "POST", body: JSON.stringify({ clientId: pick }) });
+      const body = (await res.json()) as { error?: { message?: string } };
+      if (!res.ok) {
+        toast({ title: "Could not approve", description: body.error?.message ?? `The server answered ${res.status}.`, variant: "destructive" });
+        return;
+      }
+      toast({ title: "Access granted", description: `${r.email} can now sign in.` });
+      onResolved();
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function reject(r: AccessRequestRow) {
+    const reason = window.prompt(`Why is ${r.email}'s request being turned down? They will see this.`);
+    if (reason === null) return;
+    if (!reason.trim()) {
+      toast({ title: "A reason is required", variant: "destructive" });
+      return;
+    }
+    setBusy(r.id);
+    try {
+      const res = await auth.authFetch(`/api/access-requests/${r.id}/reject`, { method: "POST", body: JSON.stringify({ reason }) });
+      const body = (await res.json()) as { error?: { message?: string } };
+      if (!res.ok) {
+        toast({ title: "Could not reject", description: body.error?.message ?? `The server answered ${res.status}.`, variant: "destructive" });
+        return;
+      }
+      toast({ title: "Request turned down" });
+      onResolved();
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  return (
+    <SectionCard title="Access requests" description="People who signed up on their own and asked for access, oldest first." testId="card-access-requests">
+      {loading ? (
+        <p className="text-sm text-muted-foreground">Loading…</p>
+      ) : requests.length === 0 ? (
+        <p className="text-sm text-muted-foreground">No pending requests.</p>
+      ) : (
+        <div className="space-y-3">
+          {requests.map((r) => (
+            <div key={r.id} className="rounded-sm border border-border p-3" data-testid={`request-${r.id}`}>
+              <div className="flex flex-wrap items-baseline justify-between gap-2">
+                <div>
+                  <span className="font-medium">{r.email}</span>
+                  <span className="text-xs text-muted-foreground"> wants access for </span>
+                  <span className="font-medium">{r.requestedClientName}</span>
+                </div>
+                <Pill tone="watch">{new Date(r.createdAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })}</Pill>
+              </div>
+              {r.message ? <p className="mt-1 text-xs text-muted-foreground">"{r.message}"</p> : null}
+              {canResolve ? (
+                <div className="mt-3 flex flex-wrap items-center gap-2">
+                  <Select value={clientId[r.id] ?? ""} onValueChange={(v) => setClientId((prev) => ({ ...prev, [r.id]: v }))}>
+                    <SelectTrigger className="w-56" data-testid={`select-request-client-${r.id}`}>
+                      <SelectValue placeholder="Which client is this?" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {clients.map((c) => (
+                        <SelectItem key={c.id} value={c.id}>
+                          {c.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Button size="sm" disabled={busy === r.id} onClick={() => void approve(r)} data-testid={`button-approve-${r.id}`}>
+                    Approve
+                  </Button>
+                  <Button size="sm" variant="ghost" disabled={busy === r.id} onClick={() => void reject(r)} data-testid={`button-reject-${r.id}`}>
+                    Turn down
+                  </Button>
+                </div>
+              ) : (
+                <p className="mt-2 text-xs text-muted-foreground">Only an owner or manager can decide this.</p>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </SectionCard>
   );
 }
 

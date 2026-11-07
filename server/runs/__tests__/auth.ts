@@ -40,6 +40,17 @@ import {
   validateInvitation,
   type InvitationDeps,
 } from "../../auth/invitations";
+import {
+  AccessRequestError,
+  approveAccessRequest,
+  listAccessRequests,
+  lookupFirmBySlug,
+  myAccessRequests,
+  rejectAccessRequest,
+  submitAccessRequest,
+  validateAccessRequestInput,
+  type AccessRequestDeps,
+} from "../../auth/access-requests";
 import { buildCsp } from "../../http-hardening";
 import { assert, assertEqual, assertRejects, assertThrows, test } from "./harness";
 
@@ -226,6 +237,7 @@ function fakeReq(opts: { auth?: string; firm?: string; params?: Record<string, s
     actor: undefined as Actor | undefined,
     firm: undefined as ActorMembership | undefined,
     client: undefined as unknown,
+    tokenSubject: undefined as { subject: string; email: string | null } | undefined,
   };
 }
 
@@ -328,6 +340,14 @@ test("bearerToken reads the header and nothing else", () => {
   assertEqual(bearerToken("Basic abc"), null, "wrong scheme");
   assertEqual(bearerToken("Bearer abc.def.ghi"), "abc.def.ghi", "token");
   assertEqual(bearerToken("bearer   x "), "x", "case and spacing");
+});
+
+test("requireToken: passes for any verified token, even one with no tenancy row, which is the entire point of access-requests.ts", async () => {
+  const { mw } = buildMiddleware();
+  const req = fakeReq({ auth: "Bearer t-unknown" });
+  const out = await run(mw.requireToken, req, fakeRes());
+  assertEqual(out, "next", "passes, unlike requireUser, which refuses this same token with auth.no_user");
+  assertEqual(req.tokenSubject, { subject: "sub-unknown", email: null }, "subject and email carried from the token, nothing looked up");
 });
 
 test("requireUser: each failure has its own code and status", async () => {
@@ -801,6 +821,7 @@ async function listen(): Promise<{ base: string; close: () => Promise<void>; adm
     "t-client": verified("sub-client", "client@one.test"),
     "t-outsider": verified("sub-outsider", "owner@b.test"),
     "t-expired": new TokenError("expired", "expired"),
+    "t-newclient": verified("sub-newclient", "newclient@one.test"),
   });
   const store = createPgActorStore(s.pool);
   const middleware = createActorMiddleware({
@@ -941,6 +962,262 @@ test("http: invitations end to end, with the roles the routes enforce", async ()
 
     const big = await call(srv.base, "/api/invitations", { method: "POST", token: "t-owner", body: JSON.stringify({ email: "x".repeat(70_000) }) });
     assertEqual(big.status, 413, "oversized body refused by the limit");
+  } finally {
+    await srv.close();
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Access requests: a self signed up login, with no tenancy row at all yet,
+// asking a specific firm for access -- on the same database as the tests
+// above.
+// ---------------------------------------------------------------------------
+
+test("access requests: validation refuses bad shapes with 400s", () => {
+  const bad = (body: unknown, code: string) => {
+    try {
+      validateAccessRequestInput(body);
+      assert(false, `${code}: accepted`);
+    } catch (e) {
+      assert(e instanceof AccessRequestError && e.status === 400 && e.code === code, `${code}: got ${(e as Error).message}`);
+    }
+  };
+  bad(null, "access_requests.bad_request");
+  bad({ firmSlug: "Not A Slug!", requestedClientName: "Acme" }, "access_requests.bad_slug");
+  bad({ firmSlug: "firm-a", requestedClientName: "" }, "access_requests.bad_client_name");
+  const ok = validateAccessRequestInput({ firmSlug: " Firm-A ", requestedClientName: "  Acme LLC  ", message: "  hi  " });
+  assertEqual(ok.firmSlug, "firm-a", "slug trimmed and lowercased");
+  assertEqual(ok.requestedClientName, "Acme LLC", "client name trimmed");
+  assertEqual(ok.message, "hi", "message trimmed");
+  const okNoMessage = validateAccessRequestInput({ firmSlug: "firm-a", requestedClientName: "Acme" });
+  assertEqual(okNoMessage.message, null, "message defaults to null");
+});
+
+test("access requests: lookupFirmBySlug finds an active firm by slug, nothing otherwise", async () => {
+  const s = await seeded();
+  const firm = await lookupFirmBySlug(s.pool, "firm-a");
+  assertEqual(firm?.name, "Firm A", "found by slug");
+  assertEqual(await lookupFirmBySlug(s.pool, "no-such-firm"), null, "unknown slug");
+});
+
+test("access requests: submit, duplicate pending, unknown firm, and only the requester's own rows come back", async () => {
+  const s = await seeded();
+  const deps: AccessRequestDeps = { pool: s.pool, actorOpts: AS_APP_WEB };
+  const verified = { subject: "sub-new-1", email: "new1@client.test" };
+
+  await assertRejects(
+    () => submitAccessRequest(deps, verified, { firmSlug: "no-such-firm", requestedClientName: "Acme", message: null }),
+    "access_requests.no_firm",
+    "unknown slug refused",
+  );
+
+  const made = await submitAccessRequest(deps, verified, { firmSlug: "firm-a", requestedClientName: "Acme LLC", message: "I bank with you already" });
+  assertEqual(made.status, "pending", "starts pending");
+  assertEqual(made.firmName, "Firm A", "firm name carried");
+
+  await assertRejects(
+    () => submitAccessRequest(deps, verified, { firmSlug: "firm-a", requestedClientName: "Acme LLC", message: null }),
+    "access_requests.already_pending",
+    "a second request to the same firm while one is pending is refused",
+  );
+
+  // A different firm is fine even while one request is still pending.
+  const second = await submitAccessRequest(deps, verified, { firmSlug: "firm-b", requestedClientName: "Acme LLC", message: null });
+  assertEqual(second.firmName, "Firm B", "second firm accepted");
+
+  const mine = await myAccessRequests(deps, verified);
+  assertEqual(mine.map((r) => r.firmName).sort(), ["Firm A", "Firm B"], "both of this subject's requests come back");
+
+  const someoneElse = await myAccessRequests(deps, { subject: "sub-nobody-else" });
+  assertEqual(someoneElse, [], "a different subject sees none of it, even through the same connection");
+});
+
+async function asRequester<T>(s: Seed, subject: string, fn: (query: <R>(sql: string, params?: unknown[]) => Promise<R[]>) => Promise<T>): Promise<T> {
+  const client = await s.pool.connect();
+  await client.query("begin");
+  try {
+    await client.query("set local role app_web");
+    await client.query("select set_config('app.requesting_subject', $1, true)", [subject]);
+    const out = await fn(async <R>(sql: string, params: unknown[] = []) => (await client.query<R>(sql, params)).rows);
+    await client.query("commit");
+    return out;
+  } catch (err) {
+    await client.query("rollback").catch(() => undefined);
+    throw err;
+  }
+}
+
+test("rls: access_requests insert and self read are scoped to the verified subject, a real policy and not application code's word alone", async () => {
+  const s = await seeded();
+  const deps: AccessRequestDeps = { pool: s.pool, actorOpts: AS_APP_WEB };
+  await submitAccessRequest(deps, { subject: "sub-honest", email: "honest@client.test" }, { firmSlug: "firm-a", requestedClientName: "Honest Co", message: null });
+
+  await assertRejects(
+    () =>
+      asRequester(s, "sub-attacker", (query) =>
+        query(`insert into tenancy.access_requests (auth_subject, email, firm_id, requested_client_name) values ($1, $2, $3, $4)`, [
+          "sub-victim",
+          "victim@client.test",
+          s.firmA,
+          "Not mine",
+        ]),
+      ),
+    "row-level security",
+    "a session cannot insert a request naming a different subject than the one its own token verified",
+  );
+
+  const seenByAttacker = await asRequester(s, "sub-attacker", (query) => query<{ id: string }>("select id from tenancy.access_requests"));
+  assertEqual(seenByAttacker, [], "and cannot read the honest row either, the same policy");
+
+  const seenByHonest = await asRequester(s, "sub-honest", (query) => query<{ email: string }>("select email from tenancy.access_requests"));
+  assertEqual(seenByHonest.map((r) => r.email), ["honest@client.test"], "the actual requester sees their own row");
+});
+
+test("access requests: the firm queue shows its own pending requests, not another firm's", async () => {
+  const s = await seeded();
+  const deps: AccessRequestDeps = { pool: s.pool, actorOpts: AS_APP_WEB };
+  await submitAccessRequest(deps, { subject: "sub-queue-1", email: "q1@client.test" }, { firmSlug: "firm-a", requestedClientName: "Queue One", message: null });
+  await submitAccessRequest(deps, { subject: "sub-queue-2", email: "q2@client.test" }, { firmSlug: "firm-b", requestedClientName: "Queue Two", message: null });
+
+  const firmAQueue = await listAccessRequests(deps, s.owner, s.owner.memberships[0]);
+  assert(firmAQueue.some((r) => r.email === "q1@client.test"), "firm a sees its own");
+  assert(!firmAQueue.some((r) => r.email === "q2@client.test"), "not firm b's");
+
+  const firmBQueue = await listAccessRequests(deps, s.outsider, s.outsider.memberships[0]);
+  assert(firmBQueue.some((r) => r.email === "q2@client.test"), "firm b sees its own");
+});
+
+test("access requests: approve creates the user and membership, resolves the row, and refuses a second approval", async () => {
+  const s = await seeded();
+  const deps: AccessRequestDeps = { pool: s.pool, actorOpts: AS_APP_WEB };
+  const firm = s.owner.memberships[0];
+  const made = await submitAccessRequest(
+    deps,
+    { subject: "sub-approve-1", email: "approve1@client.test" },
+    { firmSlug: "firm-a", requestedClientName: "Approve One", message: null },
+  );
+
+  await assertRejects(
+    () => approveAccessRequest(deps, s.preparer, s.preparer.memberships[0], made.id, { clientId: s.client1 }),
+    "invitations.forbidden",
+    "a preparer cannot approve",
+  );
+  await assertRejects(
+    () => approveAccessRequest(deps, s.owner, firm, made.id, { clientId: s.clientB }),
+    "access_requests.no_client",
+    "a client belonging to another firm is refused",
+  );
+  await assertRejects(
+    () => approveAccessRequest(deps, s.owner, firm, made.id, { clientId: s.client1, role: "owner" }),
+    "access_requests.bad_role",
+    "a firm role is not a valid grant for a client request",
+  );
+
+  const out = await approveAccessRequest(deps, s.owner, firm, made.id, { clientId: s.client1 });
+  assert(!!out.membershipId, "membership created");
+
+  const row = await s.db.query<{ status: string }>(`select status from tenancy.access_requests where id = $1`, [made.id]);
+  assertEqual(row.rows[0].status, "approved", "request marked approved");
+  const user = await s.db.query<{ invited_by: string | null }>(`select invited_by from tenancy.users where id = $1`, [out.userId]);
+  assertEqual(user.rows[0].invited_by, null, "nobody invited this person, they asked first");
+
+  await assertRejects(
+    () => approveAccessRequest(deps, s.owner, firm, made.id, { clientId: s.client1 }),
+    "access_requests.already_resolved",
+    "a resolved request cannot be approved twice",
+  );
+
+  const again = await submitAccessRequest(
+    deps,
+    { subject: "sub-approve-1", email: "approve1@client.test" },
+    { firmSlug: "firm-a", requestedClientName: "Approve One, again", message: null },
+  );
+  await assertRejects(
+    () => approveAccessRequest(deps, s.owner, firm, again.id, { clientId: s.client1 }),
+    "access_requests.already_member",
+    "the same access twice is a 409, the same as an invitation would refuse it",
+  );
+});
+
+test("access requests: reject requires a reason, is firm staff only, and never creates a membership", async () => {
+  const s = await seeded();
+  const deps: AccessRequestDeps = { pool: s.pool, actorOpts: AS_APP_WEB };
+  const firm = s.owner.memberships[0];
+  const made = await submitAccessRequest(
+    deps,
+    { subject: "sub-reject-1", email: "reject1@client.test" },
+    { firmSlug: "firm-a", requestedClientName: "Reject One", message: null },
+  );
+
+  await assertRejects(() => rejectAccessRequest(deps, s.owner, firm, made.id, "   "), "access_requests.bad_reason", "blank reason refused");
+  await assertRejects(
+    () => rejectAccessRequest(deps, s.preparer, s.preparer.memberships[0], made.id, "no thanks"),
+    "invitations.forbidden",
+    "a preparer cannot reject",
+  );
+
+  const out = await rejectAccessRequest(deps, s.owner, firm, made.id, "We could not verify this business.");
+  assertEqual(out.id, made.id, "resolved");
+
+  const mine = await myAccessRequests(deps, { subject: "sub-reject-1" });
+  assertEqual(mine[0].status, "rejected", "the requester can see why");
+  assertEqual(mine[0].rejectionReason, "We could not verify this business.", "reason carried");
+
+  await assertRejects(() => rejectAccessRequest(deps, s.owner, firm, made.id, "again"), "access_requests.already_resolved", "cannot reject twice");
+});
+
+test("http: access requests end to end -- sign up with no tenancy row, ask a real firm, get approved, then sign in for real", async () => {
+  const srv = await listen();
+  const s = await seeded();
+  try {
+    const me = await call(srv.base, "/api/auth/me", { token: "t-newclient" });
+    assertEqual(me.status, 401, "requireUser refuses an unknown subject");
+    assertEqual(me.body.error?.code, "auth.no_user", "no_user");
+
+    const found = await call(srv.base, "/api/public/firms/firm-a");
+    assertEqual(found.status, 200, "public firm lookup needs no token at all");
+    assertEqual(found.body.name, "Firm A", "firm a");
+    const notFound = await call(srv.base, "/api/public/firms/no-such-firm");
+    assertEqual(notFound.status, 404, "unknown code");
+
+    const badFirm = await call(srv.base, "/api/access-requests", {
+      method: "POST",
+      token: "t-newclient",
+      body: JSON.stringify({ firmSlug: "no-such-firm", requestedClientName: "New Co" }),
+    });
+    assertEqual(badFirm.status, 404, "an unknown sign up code is refused before anything is written");
+
+    const submitted = await call(srv.base, "/api/access-requests", {
+      method: "POST",
+      token: "t-newclient",
+      body: JSON.stringify({ firmSlug: "firm-a", requestedClientName: "New Co" }),
+    });
+    assertEqual(submitted.status, 201, "requireToken lets this same unknown subject through for this one route");
+    assertEqual(submitted.body.status, "pending", "pending");
+
+    const mine = await call(srv.base, "/api/access-requests/mine", { token: "t-newclient" });
+    assertEqual((mine.body.requests as { firmName: string }[])[0]?.firmName, "Firm A", "the requester can see their own pending request");
+
+    const preparerSees = await call(srv.base, "/api/access-requests", { token: "t-preparer" });
+    assert((preparerSees.body.requests as { email: string }[]).some((r) => r.email === "newclient@one.test"), "firm staff see the pending request");
+
+    const preparerApprove = await call(srv.base, `/api/access-requests/${submitted.body.id as string}/approve`, {
+      method: "POST",
+      token: "t-preparer",
+      body: JSON.stringify({ clientId: s.client1 }),
+    });
+    assertEqual(preparerApprove.status, 403, "a preparer cannot approve");
+
+    const approved = await call(srv.base, `/api/access-requests/${submitted.body.id as string}/approve`, {
+      method: "POST",
+      token: "t-owner",
+      body: JSON.stringify({ clientId: s.client1 }),
+    });
+    assertEqual(approved.status, 200, "owner approves");
+
+    const after = await call(srv.base, "/api/auth/me", { token: "t-newclient" });
+    assertEqual(after.status, 200, "the exact same token that could not sign in before now can");
+    assertEqual((after.body.memberships as { clientId: string | null }[])[0]?.clientId, s.client1, "scoped to the client the firm chose, nothing it asked for on its own");
   } finally {
     await srv.close();
   }

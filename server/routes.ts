@@ -13,6 +13,17 @@ import {
   validateInvitation,
   type InvitationDeps,
 } from "./auth/invitations";
+import {
+  AccessRequestError,
+  approveAccessRequest,
+  listAccessRequests,
+  lookupFirmBySlug,
+  myAccessRequests,
+  rejectAccessRequest,
+  submitAccessRequest,
+  validateAccessRequestInput,
+  type AccessRequestDeps,
+} from "./auth/access-requests";
 import { AuthAdminError } from "./auth/auth-admin";
 import type { Pool } from "pg";
 import { PostgresEntitlementSource } from "./entitlement";
@@ -159,13 +170,14 @@ export async function registerRoutes(httpServer: Server, app: Express, deps?: Ro
   }
   if (!auth) return httpServer;
 
-  const { requireUser, requireFirm } = auth.middleware;
+  const { requireToken, requireUser, requireFirm } = auth.middleware;
   // Supabase Storage when the two values are present; otherwise uploads answer
   // 501 naming the missing settings. Never a memory store against Postgres.
   const storageEnv = readStorageEnv();
   const documentStorage = storageEnv ? createSupabaseStorage(storageEnv) : null;
   console.log(documentStorage ? `document storage: supabase bucket ${documentStorage.bucket}` : "document storage: not configured (SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)");
   const inv: InvitationDeps = { pool: auth.pool, authAdmin: auth.authAdmin, appOrigin: auth.appOrigin, actorOpts: auth.actorOpts };
+  const ar: AccessRequestDeps = { pool: auth.pool, actorOpts: auth.actorOpts };
 
   app.get("/api/auth/me", requireUser, (req, res) => {
     const a = req.actor!;
@@ -223,6 +235,85 @@ export async function registerRoutes(httpServer: Server, app: Express, deps?: Ro
     }
   });
 
+  // Public: the sign up code a prospective client was handed resolves to a
+  // firm name before they submit anything, so the form can confirm "is this
+  // the right firm" instead of asking them to guess. No more sensitive than
+  // the X-Firm header, which every member's browser already sends in the
+  // clear.
+  app.get("/api/public/firms/:slug", publicLimiter, async (req, res, next) => {
+    try {
+      const firm = await lookupFirmBySlug(auth.pool, String(req.params.slug).trim().toLowerCase());
+      if (!firm) {
+        res.status(404).json({ error: { code: "access_requests.no_firm", message: "No firm uses that sign up code." } });
+        return;
+      }
+      res.json(firm);
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // Self service access requests. requireToken, not requireUser: the person
+  // asking has no tenancy.users row yet, which is the entire point.
+  app.post("/api/access-requests", publicLimiter, requireToken, async (req, res, next) => {
+    try {
+      const subject = req.tokenSubject!;
+      if (!subject.email) {
+        res.status(401).json({ error: { code: "auth.invalid_token", message: "This login has no email on file." } });
+        return;
+      }
+      const input = validateAccessRequestInput(req.body);
+      const out = await submitAccessRequest(ar, { subject: subject.subject, email: subject.email }, input);
+      res.status(201).json(out);
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  app.get("/api/access-requests/mine", requireToken, async (req, res, next) => {
+    try {
+      res.json({ requests: await myAccessRequests(ar, { subject: req.tokenSubject!.subject }) });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  app.get("/api/access-requests", requireFirm, async (req, res, next) => {
+    try {
+      res.json({ requests: await listAccessRequests(ar, req.actor!, req.firm!) });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  app.post("/api/access-requests/:id/approve", requireFirm, async (req, res, next) => {
+    try {
+      const body = (req.body ?? {}) as { clientId?: unknown; role?: unknown };
+      if (typeof body.clientId !== "string") {
+        res.status(400).json({ error: { code: "access_requests.no_client", message: "A clientId is required." } });
+        return;
+      }
+      const role = typeof body.role === "string" ? body.role : undefined;
+      const out = await approveAccessRequest(ar, req.actor!, req.firm!, String(req.params.id), { clientId: body.clientId, role });
+      res.json(out);
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  app.post("/api/access-requests/:id/reject", requireFirm, async (req, res, next) => {
+    try {
+      const body = (req.body ?? {}) as { reason?: unknown };
+      if (typeof body.reason !== "string") {
+        res.status(400).json({ error: { code: "access_requests.bad_reason", message: "A reason is required." } });
+        return;
+      }
+      res.json(await rejectAccessRequest(ar, req.actor!, req.firm!, String(req.params.id), body.reason));
+    } catch (err) {
+      next(err);
+    }
+  });
+
   // Anything else under /api that reached here is not a route. Say so in the
   // same shape as everything else, after the guards have had their say.
   app.use("/api", (_req, res) => {
@@ -232,7 +323,7 @@ export async function registerRoutes(httpServer: Server, app: Express, deps?: Ro
   app.use(authErrorHandler);
   app.use((err: unknown, _req: Request, res: Response, next: NextFunction) => {
     if (res.headersSent) return next(err);
-    if (err instanceof InvitationError) {
+    if (err instanceof InvitationError || err instanceof AccessRequestError) {
       res.status(err.status).json({ error: { code: err.code, message: err.message } });
       return;
     }

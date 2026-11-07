@@ -1,10 +1,16 @@
 /**
  * Actor middleware.
  *
- * Three guards, each one adding a requirement:
+ * Five guards, each one adding a requirement:
  *
- *   requireUser    a verified token that resolves to an active tenancy.users
- *                  row. Sets req.actor. 401 otherwise.
+ *   requireToken   a verified token, nothing more. Sets req.tokenSubject to
+ *                  the subject and email the token itself carries. 401
+ *                  otherwise. For the one case that is not yet a member of
+ *                  anything: server/auth/access-requests.ts, where a person
+ *                  who signed up on their own asks a firm for access before
+ *                  any tenancy.users row exists for them.
+ *   requireUser    requireToken, plus that subject resolves to an active
+ *                  tenancy.users row. Sets req.actor. 401 otherwise.
  *   requireFirm    requireUser, plus at least one firm scoped membership.
  *                  Sets req.firm to the selected one. 403 otherwise.
  *   requireClient  requireUser, plus access to the client named in the
@@ -13,8 +19,8 @@
  *                  403 otherwise, and 404 when the client does not exist for
  *                  this actor, which to the caller looks the same as a client
  *                  they may not see.
- *   requireWriteAccess  a fourth guard, standalone rather than part of the
- *                  three above: refuses any mutating request (anything but
+ *   requireWriteAccess  a fifth guard, standalone rather than part of the
+ *                  others: refuses any mutating request (anything but
  *                  GET/HEAD/OPTIONS) when the role requireFirm or
  *                  requireClient just set is read_only. Mount it right after
  *                  whichever of those two ran, since it only reads what they
@@ -47,6 +53,8 @@ declare module "express-serve-static-core" {
     actor?: Actor;
     firm?: ActorMembership;
     client?: ClientScope;
+    /** Set by requireToken: the subject and email a verified token carries, before any tenancy.users lookup. */
+    tokenSubject?: { subject: string; email: string | null };
   }
 }
 
@@ -114,6 +122,7 @@ export interface ActorMiddlewareDeps {
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export interface ActorMiddleware {
+  requireToken: RequestHandler;
   requireUser: RequestHandler;
   requireFirm: RequestHandler;
   requireClient: (param?: string) => RequestHandler;
@@ -126,16 +135,17 @@ export function createActorMiddleware(deps: ActorMiddlewareDeps): ActorMiddlewar
   const touchInterval = deps.touchIntervalMs ?? 60_000;
   const lastTouched = new Map<string, number>();
 
-  async function resolve(req: Request, res: Response): Promise<Actor | null> {
-    if (req.actor) return req.actor;
+  async function verifyToken(req: Request, res: Response): Promise<{ subject: string; email: string | null } | null> {
+    if (req.tokenSubject) return req.tokenSubject;
     const token = bearerToken(req.header("authorization"));
     if (!token) {
       refuse(res, 401, "auth.missing_token", "Sign in to continue.");
       return null;
     }
-    let subject: string;
     try {
-      ({ subject } = await deps.verifier.verify(token));
+      const v = await deps.verifier.verify(token);
+      req.tokenSubject = { subject: v.subject, email: v.email };
+      return req.tokenSubject;
     } catch (err) {
       if (err instanceof TokenError) {
         switch (err.reason) {
@@ -155,6 +165,13 @@ export function createActorMiddleware(deps: ActorMiddlewareDeps): ActorMiddlewar
       }
       throw err;
     }
+  }
+
+  async function resolve(req: Request, res: Response): Promise<Actor | null> {
+    if (req.actor) return req.actor;
+    const tok = await verifyToken(req, res);
+    if (!tok) return null;
+    const { subject } = tok;
     let actor: Actor | null;
     try {
       actor = await deps.store.findByAuthSubject(subject);
@@ -200,6 +217,14 @@ export function createActorMiddleware(deps: ActorMiddlewareDeps): ActorMiddlewar
     if (!match) return { ok: false, code: "auth.forbidden", message: "You are not a member of that firm." };
     return { ok: true, firm: match };
   }
+
+  const requireToken: RequestHandler = (req, res, next) => {
+    verifyToken(req, res)
+      .then((tok) => {
+        if (tok) next();
+      })
+      .catch(next);
+  };
 
   const requireUser: RequestHandler = (req, res, next) => {
     resolve(req, res)
@@ -257,7 +282,7 @@ export function createActorMiddleware(deps: ActorMiddlewareDeps): ActorMiddlewar
         .catch(next);
     };
 
-  return { requireUser, requireFirm, requireClient, selectFirm };
+  return { requireToken, requireUser, requireFirm, requireClient, selectFirm };
 }
 
 /** Express error handler that turns stray TokenErrors into 401s. */
