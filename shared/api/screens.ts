@@ -571,6 +571,38 @@ export const deferralSchedulesSchema = z.object({
 });
 export type DeferralSchedules = z.infer<typeof deferralSchedulesSchema>;
 
+/**
+ * Audit rerun fix, item 6: accrual templates had no screen either --
+ * confirmed zero UI.
+ */
+export const accrualTemplateSchema = z.object({
+  id: z.string(),
+  version: z.number().int(),
+  name: z.string(),
+  accrualKind: z.enum(["bill_received_not_entered", "wages_earned_not_paid", "revenue_earned_not_billed", "other"]),
+  basis: z.enum(["fixed_amount", "from_document", "daily_rate_x_days", "percent_of_base"]),
+  debitAccount: z.string(),
+  creditAccount: z.string(),
+  categoryId: z.string().nullable(),
+  fixedAmountCents: centsSchema.nullable(),
+  sourceDocumentAmountCents: centsSchema.nullable(),
+  dailyRateCents: centsSchema.nullable(),
+  dayCount: z.number().int().nullable(),
+  baseCents: centsSchema.nullable(),
+  percentBps: z.number().int().nullable(),
+  entryMemo: z.string(),
+  autoReverse: z.boolean(),
+  isActive: z.boolean(),
+  manualOverride: z.boolean(),
+});
+export type AccrualTemplate = z.infer<typeof accrualTemplateSchema>;
+
+export const accrualTemplatesSchema = z.object({
+  clientId: idSchema,
+  items: z.array(accrualTemplateSchema),
+});
+export type AccrualTemplates = z.infer<typeof accrualTemplatesSchema>;
+
 /** Audit fix (problem 8): invoices, credit memos, and bills had no screen. */
 export const invoiceSchema = z.object({
   id: z.string(),

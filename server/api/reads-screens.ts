@@ -44,6 +44,7 @@ import type {
   FixedAssets,
   Loans,
   DeferralSchedules,
+  AccrualTemplates,
 } from "../../shared/api/screens";
 import type { Cents } from "../runs/contract";
 import type { RunTx } from "../runs/db";
@@ -732,6 +733,33 @@ export async function deferralSchedulesForClient(tx: RunTx, firmId: string, clie
       periods: s.periods,
       status: s.status,
       manualOverride: s.manualOverride,
+    })),
+  };
+}
+
+export async function accrualTemplatesForClient(tx: RunTx, firmId: string, clientId: string): Promise<AccrualTemplates> {
+  const rows = await tx.query("accrual_templates_for_client", { firmId, clientId });
+  return {
+    clientId,
+    items: rows.map((t) => ({
+      id: t.id,
+      version: t.version,
+      name: t.name,
+      accrualKind: t.accrualKind,
+      basis: t.basis,
+      debitAccount: t.debitAccount,
+      creditAccount: t.creditAccount,
+      categoryId: t.categoryId,
+      fixedAmountCents: t.fixedAmountCents === null ? null : Number(t.fixedAmountCents),
+      sourceDocumentAmountCents: t.sourceDocumentAmountCents === null ? null : Number(t.sourceDocumentAmountCents),
+      dailyRateCents: t.dailyRateCents === null ? null : Number(t.dailyRateCents),
+      dayCount: t.dayCount,
+      baseCents: t.baseCents === null ? null : Number(t.baseCents),
+      percentBps: t.percentBps,
+      entryMemo: t.entryMemo,
+      autoReverse: t.autoReverse,
+      isActive: t.isActive,
+      manualOverride: t.manualOverride,
     })),
   };
 }
