@@ -568,6 +568,29 @@ test("a tick claims a window, runs it, and closes it", async () => {
   assertEqual(report.outcomes[0].status, "succeeded", "and it landed");
 });
 
+test("a scheduled PRAC-ESCALATE-OVERDUE receives today's own date as asOfDate, not a frozen default", async () => {
+  // PRAC-ESCALATE-OVERDUE/PRAC-NUDGE-REQUESTS name this field asOfDate, a
+  // different key than the asOf the runner already supplied -- without the
+  // runWindow() fix, both silently defaulted to the prior month's last day
+  // on every firing, which would stall their own daily escalation ladder
+  // forever instead of advancing it one rung per real day.
+  const db = baseDb();
+  // seedLastNight()'s own window row is scoped to the default schedule id
+  // (SCH-NIGHTLY-A1), so this test keeps that id -- only the run type
+  // changes -- to owe exactly one window, the same single-tick shape every
+  // other test in this block uses, rather than a brand-new schedule's
+  // multi-day catch-up burst.
+  seedSchedule(db, schedule({ runType: "PRAC-ESCALATE-OVERDUE", tier: "unattended" }));
+  seedLastNight(db);
+  const now = new Date("2026-02-10T13:05:00Z");
+  await tick(db, { actor: { firmId: FIRM_A, userId: ACTOR }, now, cadences: ["daily"] });
+  const logRow = db.all("run_log").find((r) => r.runType === "PRAC-ESCALATE-OVERDUE");
+  assert(logRow !== undefined, "the run logged");
+  const scopeInput = logRow?.scopeInput as { asOfDate?: string; period?: string } | undefined;
+  assertEqual(scopeInput?.asOfDate, "2026-02-10", "asOfDate is today's own local day, not the prior period's end");
+  assertEqual(scopeInput?.period, "2026-01-01", "period still names the month that just ended, unaffected by this fix");
+});
+
 test("running the same tick twice claims nothing the second time", async () => {
   const db = baseDb();
   seedSchedule(db, schedule({ runType: "REC-FLAG-STALE", tier: "unattended" }));

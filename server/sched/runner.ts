@@ -373,6 +373,15 @@ async function runWindow(
     from: window.localDay,
     to: window.localDay,
     asOf: window.localDay,
+    // PRAC-NUDGE-REQUESTS/PRAC-ESCALATE-OVERDUE name this field asOfDate, not
+    // asOf -- a different key, so without this line the spread above never
+    // reached them and both silently fell back to their own default
+    // (periodEnd, the prior month's last day) on every single firing. A run
+    // whose escalation ladder is supposed to advance one rung per real day
+    // would evaluate the same frozen date forever and never advance past the
+    // first rung. Harmless to every other run type the same way `period` is:
+    // zod drops an unknown key, nothing here is `.strict()`.
+    asOfDate: window.localDay,
     // A run whose own scope has no `period` field ignores this; zod drops an
     // unknown key by default and nothing here is `.strict()`. For a run that
     // does need one, "the month that just closed" is the only reading that

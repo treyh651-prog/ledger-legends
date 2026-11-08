@@ -149,6 +149,10 @@ export default function PortalClientDetail() {
           )}
         </SectionCard>
 
+        <SectionCard title="Automation" description="Daily coding, aging, tasks, and monthly reporting runs can run themselves instead of waiting for a click.">
+          {id ? <EnableDefaultAutomationButton clientId={id} /> : null}
+        </SectionCard>
+
         <SectionCard
           title="Accounts and how activity reaches the books"
           bodyClassName="p-0"
@@ -374,6 +378,65 @@ function ClientPolicyDialog({ clientId, policy }: { clientId: string; policy: Se
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+/**
+ * SETUP-CREATE-DEFAULT-SCHEDULES has existed since the scheduler audit fix
+ * but was never reachable from anywhere -- not a button, not the intake
+ * flow, only a direct API call. This is that standalone affordance: a
+ * single button, not a schedule list or per-run editing, matching the
+ * user's own choice to defer the fuller management screen. The run is
+ * idempotent per run type, so clicking it again when already on just
+ * reports that back rather than doubling anything.
+ */
+function EnableDefaultAutomationButton({ clientId }: { clientId: string }) {
+  const trigger = useTriggerRun(clientId);
+  const [result, setResult] = useState<{ tone: "good" | "neutral" | "risk"; text: string } | null>(null);
+
+  const enable = async () => {
+    setResult(null);
+    const scope = { clientId };
+    try {
+      const preview = await trigger.mutateAsync({ runCode: "SETUP-CREATE-DEFAULT-SCHEDULES", body: { mode: "preview", scope } });
+      if (preview.status === "no_op") {
+        setResult({ tone: "neutral", text: "Already on -- every default schedule already exists for this client." });
+        return;
+      }
+      if (preview.status !== "completed") {
+        setResult({ tone: "risk", text: preview.errors[0]?.message ?? `The run ended ${preview.status}.` });
+        return;
+      }
+      const applied = await trigger.mutateAsync({
+        runCode: "SETUP-CREATE-DEFAULT-SCHEDULES",
+        body: { mode: "apply", scope, previewRunId: preview.executionId },
+      });
+      if (applied.status !== "completed") {
+        setResult({ tone: "risk", text: applied.errors[0]?.message ?? `The run ended ${applied.status}.` });
+        return;
+      }
+      const made = applied.proposals.length;
+      const already = applied.skips.length;
+      setResult({
+        tone: "good",
+        text: already > 0 ? `${made} new schedule${made === 1 ? "" : "s"} turned on, ${already} already were.` : `${made} schedules turned on.`,
+      });
+    } catch (e) {
+      setResult({ tone: "risk", text: errorMessage(e) });
+    }
+  };
+
+  return (
+    <div className="flex flex-col items-start gap-2">
+      <Button size="sm" variant="outline" disabled={trigger.isPending} onClick={() => void enable()} data-testid="enable-default-automation">
+        Turn on default automation
+      </Button>
+      {result ? (
+        <p className={`text-xs ${result.tone === "good" ? "text-emerald-700" : result.tone === "risk" ? "text-destructive" : "text-muted-foreground"}`} data-testid="default-automation-result">
+          {result.text}
+        </p>
+      ) : null}
+    </div>
   );
 }
 

@@ -14,28 +14,48 @@
  * Scoped deliberately narrow: this run only schedules the run types that
  * server/sched/runner.ts's scope construction can actually satisfy today.
  * runWindow() builds `{...schedule.scopeJson, firmId, clientId, from:
- * window.localDay, to: window.localDay, asOf: window.localDay}` and never
- * supplies a `period` field. Every run whose scope requires `period`
- * (ARAP-REFRESH-AGING, TAX-TRACK-W9, PRAC-GENERATE-TASKS,
- * PRAC-ESCALATE-OVERDUE, CLOSE-CHECK-GATES, RPT-BUILD-PACKAGE,
- * RPT-FLAG-VARIANCES, RPT-REBUILD-FORECAST, RPT-COMPOSE-NARRATIVE,
- * SUB-TIEOUT-ACCOUNTS) is mechanically unreachable from the scheduler right
- * now, even with a perfectly formed schedule row -- scope validation would
- * refuse the window before the run's own logic ever saw it. Guessing at what
- * calendar period a given cron firing date represents, per run type, is a
- * separate, deliberate round of its own: getting it wrong would misdate an
- * automatic close-gate check or report build in a live system, which is a
- * worse failure than the one this run fixes. See the plan file's own
- * "Problem 5" entry for the full list and the reasoning not to guess here.
+ * window.localDay, to: window.localDay, asOf: window.localDay, asOfDate:
+ * window.localDay, period: priorPeriodStartOf(window.localDay)}`.
+ * CLOSE-CHECK-GATES, RPT-BUILD-PACKAGE, and SUB-TIEOUT-ACCOUNTS are left out
+ * on purpose even though their own schemas now accept that scope --
+ * scheduling an automatic close-gate check or report build is its own
+ * deliberate decision about a client's close cadence, not something this
+ * generic setup run should default on for every client.
  *
- * The six run types below are the ones the runner's own scope construction
- * already satisfies verbatim: the five coding-cascade runs share
- * codingScopeSchema ({clientId, from, to, bankAccountIds}, the last field
- * optional and defaulting to null, "every account") and REC-FLAG-STALE uses
- * flagStaleScopeSchema ({clientId, bankAccountIds, asOf, ...}, same optional
- * default). Scheduled daily, five minutes apart in doc 02's own documented
- * cascade order (normalize vendors, detect duplicates, apply rules, apply
- * vendor defaults, map bank codes), with the stale-items check last.
+ * Fourteen run types below, in two groups:
+ *
+ * The first six are the ones the runner's own scope construction already
+ * satisfied before the `period` field existed: the five coding-cascade runs
+ * share codingScopeSchema ({clientId, from, to, bankAccountIds}, the last
+ * field optional and defaulting to null, "every account") and REC-FLAG-STALE
+ * uses flagStaleScopeSchema ({clientId, bankAccountIds, asOf, ...}, same
+ * optional default). Scheduled daily, five minutes apart in doc 02's own
+ * documented cascade order (normalize vendors, detect duplicates, apply
+ * rules, apply vendor defaults, map bank codes), with the stale-items check
+ * last.
+ *
+ * The other eight need `period` and/or `asOfDate`, both of which the
+ * scheduler can now supply (the period-gap fix, and the asOfDate fix this
+ * same round made to runWindow() -- PRAC-NUDGE-REQUESTS/PRAC-ESCALATE-OVERDUE
+ * name that field asOfDate, a different key than the asOf the runner
+ * already had, so without that fix both would have silently frozen on the
+ * prior month's last day forever instead of advancing daily). User's own
+ * choice, asked directly rather than guessed: auto-schedule the
+ * non-destructive ones (nothing that posts to the ledger or touches a close
+ * gate), confirmed against each run's own write semantics before choosing a
+ * cadence, not assumed from the run type name alone:
+ *   - ARAP-REFRESH-AGING, TAX-TRACK-W9, PRAC-GENERATE-TASKS,
+ *     PRAC-NUDGE-REQUESTS, PRAC-ESCALATE-OVERDUE: all write-idempotent and
+ *     explicitly want to run daily in their own header comments (aging stays
+ *     fresh, the task/nudge/escalation ladders advance one rung per real
+ *     day) -- scheduled daily, in the same early morning slot as the coding
+ *     cascade, a few minutes after it.
+ *   - RPT-FLAG-VARIANCES, RPT-REBUILD-FORECAST, RPT-COMPOSE-NARRATIVE: all
+ *     architecturally monthly concerns (a variance is against a monthly
+ *     budget, a narrative is a period-close document) -- scheduled
+ *     monthly_day on the 1st, a separate slot from the daily batch, since
+ *     `priorPeriodStartOf` resolves "the month that just ended" correctly
+ *     from day one of the new month onward.
  *
  * Idempotent per run type: each schedule's id is derived from the client and
  * the run type it schedules, so re-running this for an already-scheduled
@@ -71,6 +91,10 @@ interface DefaultScheduleSpec {
   name: string;
   localHour: number;
   localMinute: number;
+  /** Daily unless given, which is every run type in the first group below. */
+  cadence?: "daily" | "monthly_day";
+  /** Required, and only meaningful, for cadence "monthly_day". */
+  dayOfMonth?: number;
 }
 
 /**
@@ -86,6 +110,24 @@ const DEFAULT_SCHEDULES: readonly DefaultScheduleSpec[] = [
   { runType: "TXN-APPLY-VENDORDEFAULTS", name: "Apply vendor default categories", localHour: 5, localMinute: 15 },
   { runType: "TXN-MAP-BANKCODES", name: "Apply bank and card code mappings", localHour: 5, localMinute: 20 },
   { runType: "REC-FLAG-STALE", name: "Flag stale reconciling items", localHour: 5, localMinute: 30 },
+  // Daily, non-destructive, write-idempotent -- confirmed against each run's
+  // own header comment and write semantics before scheduling, not assumed.
+  // A separate slot after the coding cascade/stale check above, so the
+  // day's posting activity is in before aging/tasks/nudges/escalation read it.
+  { runType: "ARAP-REFRESH-AGING", name: "Refresh AR/AP aging", localHour: 5, localMinute: 40 },
+  { runType: "TAX-TRACK-W9", name: "Refresh W-9 tracking", localHour: 5, localMinute: 45 },
+  { runType: "PRAC-GENERATE-TASKS", name: "Generate the day's practice tasks", localHour: 5, localMinute: 50 },
+  { runType: "PRAC-NUDGE-REQUESTS", name: "Nudge overdue client requests", localHour: 5, localMinute: 55 },
+  { runType: "PRAC-ESCALATE-OVERDUE", name: "Escalate overdue practice tasks", localHour: 6, localMinute: 0 },
+  // Monthly, on the 1st -- architecturally period-close concerns
+  // (a variance is against a monthly budget, a narrative is a period-close
+  // document). priorPeriodStartOf correctly names the month that just
+  // ended from the 1st of the new month onward. A separate morning slot
+  // from the daily batch above, in doc 02's own report-cascade order
+  // (variances, then the forecast, then the narrative).
+  { runType: "RPT-FLAG-VARIANCES", name: "Flag budget variances for last month", localHour: 6, localMinute: 30, cadence: "monthly_day", dayOfMonth: 1 },
+  { runType: "RPT-REBUILD-FORECAST", name: "Rebuild the cash forecast", localHour: 6, localMinute: 35, cadence: "monthly_day", dayOfMonth: 1 },
+  { runType: "RPT-COMPOSE-NARRATIVE", name: "Compose last month's narrative", localHour: 6, localMinute: 40, cadence: "monthly_day", dayOfMonth: 1 },
 ];
 
 export function defaultScheduleIdFor(clientId: Ulid, runType: string): Ulid {
@@ -156,9 +198,9 @@ export const setupCreateDefaultSchedules: Run<CreateDefaultSchedulesScope, Propo
         runType: spec.runType,
         tier: "unattended",
         executionMode: "apply",
-        cadence: "daily",
+        cadence: spec.cadence ?? "daily",
         weekday: null,
-        dayOfMonth: null,
+        dayOfMonth: spec.cadence === "monthly_day" ? (spec.dayOfMonth ?? 1) : null,
         businessDay: null,
         localHour: spec.localHour,
         localMinute: spec.localMinute,
