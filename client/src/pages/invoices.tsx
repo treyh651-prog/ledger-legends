@@ -86,6 +86,12 @@ export default function Invoices() {
                   render: (i) => <span className="tnum">{usd(i.originalAmountCents - i.appliedPaymentsCents - i.appliedCreditsCents - i.writtenOffCents)}</span>,
                 },
                 { key: "status", label: "Status", mobile: "value", render: (i) => <Pill tone={i.status === "paid" ? "good" : i.status === "void" ? "neutral" : "info"}>{i.status.replace(/_/g, " ")}</Pill> },
+                {
+                  key: "actions",
+                  label: "",
+                  mobile: "row",
+                  render: (i) => (i.status === "draft" && clientId ? <IssueInvoiceButton clientId={clientId} invoice={i} /> : null),
+                },
               ]}
             />
           </SectionCard>
@@ -110,6 +116,50 @@ export default function Invoices() {
           </SectionCard>
         </TabsContent>
       </Tabs>
+    </div>
+  );
+}
+
+/**
+ * AR-ISSUE-INVOICE. Audit finding: AR-CHARGE-LATEFEES creates a fee
+ * invoice as status draft on purpose ("a person decides whether to issue
+ * it"), but nothing ever called the run that actually posts one -- a fee
+ * could sit here forever and never become revenue. One button, no
+ * dialog: there is nothing left to decide once the row is already here,
+ * the review already happened by the time a person is looking at this
+ * screen.
+ */
+function IssueInvoiceButton({ clientId, invoice }: { clientId: string; invoice: Invoice }) {
+  const trigger = useTriggerRun(clientId);
+  const qc = useQueryClient();
+  const [error, setError] = useState<string | null>(null);
+
+  const issue = async () => {
+    setError(null);
+    const scope = { clientId, invoiceId: invoice.id };
+    try {
+      const preview = await trigger.mutateAsync({ runCode: "AR-ISSUE-INVOICE", body: { mode: "preview", scope } });
+      if (preview.status !== "completed") {
+        setError(preview.errors[0]?.message ?? `The run ended ${preview.status}.`);
+        return;
+      }
+      const applied = await trigger.mutateAsync({ runCode: "AR-ISSUE-INVOICE", body: { mode: "apply", scope, previewRunId: preview.executionId } });
+      if (applied.status !== "completed") {
+        setError(applied.errors[0]?.message ?? `The run ended ${applied.status}.`);
+        return;
+      }
+      void qc.invalidateQueries({ queryKey: screenKeys.invoices(clientId) });
+    } catch (e) {
+      setError(errorMessage(e));
+    }
+  };
+
+  return (
+    <div className="flex flex-col items-end gap-1">
+      <Button size="sm" variant="outline" onClick={() => void issue()} disabled={trigger.isPending} data-testid={`issue-invoice-${invoice.id}`}>
+        Issue
+      </Button>
+      {error ? <p className="max-w-[14rem] break-words text-right text-xs text-destructive">{error}</p> : null}
     </div>
   );
 }

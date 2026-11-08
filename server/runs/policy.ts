@@ -266,6 +266,11 @@ export const RUN_POLICIES: Readonly<Record<string, RunPolicy>> = {
     reason:
       "posts the sale to the general ledger and bills a named customer, so the run prepares and a person decides, the same reasoning SETUP-IMPORT-BALANCES gives for the opening entry",
   },
+  "AR-ISSUE-INVOICE": {
+    tier: "manual",
+    reason:
+      "posts a draft invoice's sale to the general ledger and makes it revenue, the same reasoning AR-CREATE-INVOICE itself gives, and a late fee is exactly the kind of charge a person should look at before it becomes one",
+  },
   "AP-CREATE-VENDOR": {
     tier: "manual",
     reason:

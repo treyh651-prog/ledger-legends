@@ -89,6 +89,7 @@ export type RunTypeId =
   // nothing in the original 49 ever puts the first one there.
   | "AR-CREATE-CUSTOMER"
   | "AR-CREATE-INVOICE"
+  | "AR-ISSUE-INVOICE"
   | "REC-IMPORT-STATEMENT"
   | "SETUP-ADD-BANK-ACCOUNT"
   // Audit fix, problem 5: nothing ever inserted a client's first

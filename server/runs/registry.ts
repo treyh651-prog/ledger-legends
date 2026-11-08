@@ -58,6 +58,7 @@ import { apCreateVendor } from "./runs/ap-create-vendor";
 import { apCreateBill } from "./runs/ap-create-bill";
 import { arCreateCustomer } from "./runs/ar-create-customer";
 import { arCreateInvoice } from "./runs/ar-create-invoice";
+import { arIssueInvoice } from "./runs/ar-issue-invoice";
 import { arCreateCreditMemo } from "./runs/ar-create-creditmemo";
 import { arRecordPayment } from "./runs/ar-record-payment";
 import { apRecordPayment } from "./runs/ap-record-payment";
@@ -234,6 +235,7 @@ export const registry: readonly RegistryEntry[] = [
   // AR_AP_ORDER explains the rest.
   entry(arCreateCustomer),
   entry(arCreateInvoice),
+  entry(arIssueInvoice),
   entry(arCreateCreditMemo),
   entry(apCreateVendor),
   entry(apCreateBill),
