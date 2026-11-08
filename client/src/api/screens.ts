@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { Aging, Bills, Budget, Categories, ClientSetup, CloseChecklist, ConsolidatedPackages, CpaHandoffs, Customers, EntityGroups, FirmRequests, FirmTasks, FirmTeam, RunOutcomeDto, UpdateTaskBody, Forecast, Invoices, Journal, Narratives, OffboardExports, PayRuns, PortalStatements, Reconcile, RecurringTemplates, ReportPackages, Rules, StagedBatches, StagedRows, Substantiation, TaxForms, TrialBalance, Vendors } from "@shared/api";
+import type { Aging, Bills, Budget, Categories, ClientSetup, CloseChecklist, ConsolidatedPackages, CpaHandoffs, Customers, EntityGroups, FirmRequests, FirmTasks, FirmTeam, FixedAssets, RunOutcomeDto, UpdateTaskBody, Forecast, Invoices, Journal, Narratives, OffboardExports, PayRuns, PortalStatements, Reconcile, RecurringTemplates, ReportPackages, Rules, StagedBatches, StagedRows, Substantiation, TaxForms, TrialBalance, Vendors } from "@shared/api";
 import { api, toQuery } from "./http";
 
 /** Reads for the firm screens. Keys live under the client so run mutations invalidate them. */
@@ -21,6 +21,7 @@ export const screenKeys = {
   recurringTemplates: (clientId: string) => ["api", "firm", "clients", clientId, "recurring-templates"] as const,
   customers: (clientId: string) => ["api", "firm", "clients", clientId, "customers"] as const,
   vendors: (clientId: string) => ["api", "firm", "clients", clientId, "vendors"] as const,
+  fixedAssets: (clientId: string) => ["api", "firm", "clients", clientId, "fixed-assets"] as const,
   invoices: (clientId: string) => ["api", "firm", "clients", clientId, "invoices"] as const,
   bills: (clientId: string) => ["api", "firm", "clients", clientId, "bills"] as const,
   payRuns: (clientId: string) => ["api", "firm", "clients", clientId, "pay-runs"] as const,
@@ -227,6 +228,14 @@ export function useCustomers(clientId: string | null) {
   return useQuery({
     queryKey: screenKeys.customers(clientId ?? "none"),
     queryFn: () => api<Customers>("GET", `/api/firm/clients/${clientId}/customers`),
+    enabled: !!clientId,
+  });
+}
+
+export function useFixedAssets(clientId: string | null) {
+  return useQuery({
+    queryKey: screenKeys.fixedAssets(clientId ?? "none"),
+    queryFn: () => api<FixedAssets>("GET", `/api/firm/clients/${clientId}/fixed-assets`),
     enabled: !!clientId,
   });
 }

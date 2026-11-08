@@ -472,6 +472,45 @@ export const vendorsSchema = z.object({
 });
 export type Vendors = z.infer<typeof vendorsSchema>;
 
+/**
+ * Audit rerun fix, item 6: fixed assets had no screen at all, confirmed
+ * zero UI even though CFG-CREATE-FIXED-ASSET/PER-POST-DEPRECIATION/
+ * PER-DISPOSE-ASSET have all existed since the original action audit.
+ */
+export const fixedAssetSchema = z.object({
+  id: z.string(),
+  version: z.number().int(),
+  tag: z.string().nullable(),
+  description: z.string(),
+  assetClass: z.string(),
+  costAccount: z.string(),
+  accumAccount: z.string(),
+  expenseAccount: z.string(),
+  acquiredOn: z.string(),
+  placedInServiceOn: z.string(),
+  costCents: centsSchema,
+  salvageCents: centsSchema,
+  depreciableBaseCents: centsSchema,
+  method: z.enum(["straight_line", "ddb", "ddb_150", "macrs", "sum_of_years", "units_of_production", "none"]),
+  lifeMonths: z.number().int().nullable(),
+  ddbFactorBps: z.number().int().nullable(),
+  macrsRecoveryYears: z.number().int().nullable(),
+  unitsTotal: z.number().int().nullable(),
+  convention: z.enum(["full_month", "mid_month", "mid_quarter", "mid_year", "actual_days"]),
+  halfMonthConvention: z.boolean(),
+  status: z.enum(["active", "fully_depreciated", "disposed", "written_off"]),
+  disposedOn: z.string().nullable(),
+  disposalProceedsCents: centsSchema.nullable(),
+  manualOverride: z.boolean(),
+});
+export type FixedAsset = z.infer<typeof fixedAssetSchema>;
+
+export const fixedAssetsSchema = z.object({
+  clientId: idSchema,
+  items: z.array(fixedAssetSchema),
+});
+export type FixedAssets = z.infer<typeof fixedAssetsSchema>;
+
 /** Audit fix (problem 8): invoices, credit memos, and bills had no screen. */
 export const invoiceSchema = z.object({
   id: z.string(),

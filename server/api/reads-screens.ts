@@ -41,6 +41,7 @@ import type {
   PayRuns,
   CpaHandoffs,
   OffboardExports,
+  FixedAssets,
 } from "../../shared/api/screens";
 import type { Cents } from "../runs/contract";
 import type { RunTx } from "../runs/db";
@@ -638,6 +639,39 @@ export async function customersForClient(tx: RunTx, firmId: string, clientId: st
         doNotPursue: c.doNotPursue,
       }))
       .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0)),
+  };
+}
+
+export async function fixedAssetsForClient(tx: RunTx, firmId: string, clientId: string): Promise<FixedAssets> {
+  const rows = await tx.query("fixed_assets_for_client", { firmId, clientId });
+  return {
+    clientId,
+    items: rows.map((a) => ({
+      id: a.id,
+      version: a.version,
+      tag: a.tag,
+      description: a.description,
+      assetClass: a.assetClass,
+      costAccount: a.costAccount,
+      accumAccount: a.accumAccount,
+      expenseAccount: a.expenseAccount,
+      acquiredOn: a.acquiredOn,
+      placedInServiceOn: a.placedInServiceOn,
+      costCents: Number(a.costCents),
+      salvageCents: Number(a.salvageCents),
+      depreciableBaseCents: Number(a.depreciableBaseCents),
+      method: a.method,
+      lifeMonths: a.lifeMonths,
+      ddbFactorBps: a.ddbFactorBps,
+      macrsRecoveryYears: a.macrsRecoveryYears,
+      unitsTotal: a.unitsTotal,
+      convention: a.convention,
+      halfMonthConvention: a.halfMonthConvention,
+      status: a.status,
+      disposedOn: a.disposedOn,
+      disposalProceedsCents: a.disposalProceedsCents === null ? null : Number(a.disposalProceedsCents),
+      manualOverride: a.manualOverride,
+    })),
   };
 }
 
