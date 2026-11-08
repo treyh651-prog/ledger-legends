@@ -143,6 +143,7 @@ export function payRun(id: string, extra: Partial<PayRunRow> = {}): PayRunRow {
     createdByRunId: "RUNX-SEED",
     createdAt: NOW.toISOString(),
     manualOverride: false,
+    g18OverrideReason: null,
     ...extra,
   };
 }
@@ -161,6 +162,7 @@ export function approveScope(
     employeeWithholdingCents: number;
     employerTaxCents: number;
     employeeCount: number;
+    overrideReason: string;
   }> = {},
 ) {
   return {

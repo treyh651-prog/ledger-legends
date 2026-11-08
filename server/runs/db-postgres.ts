@@ -1424,7 +1424,7 @@ const PAY_RUN_COLUMNS = `
   vault_retention_starts_on::text as "vaultRetentionStartsOn",
   vault_object_lock_until::text as "vaultObjectLockUntil",
   created_by_run_id as "createdByRunId", created_at::text as "createdAt",
-  manual_override as "manualOverride"
+  manual_override as "manualOverride", g18_override_reason as "g18OverrideReason"
 `;
 
 const PAY_REGISTER_ENTRY_COLUMNS = `

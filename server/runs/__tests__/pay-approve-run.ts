@@ -276,6 +276,26 @@ test("the preparer of the register cannot approve it", async () => {
   );
 });
 
+test("audit fix: a written reason lets the preparer approve their own register", async () => {
+  const db = payrollDb();
+  const { applied } = await applyDlv(db, payApproveRun, approveScope({ overrideReason: "solo firm, only one person on this engagement" }), {
+    actor: { userId: PREPARER, kind: "human" },
+  });
+  assertEqual(applied.status, "completed", "the exception is accepted");
+  const row = payRunsOf(db)[0];
+  assertEqual(row.g18OverrideReason, "solo firm, only one person on this engagement", "the reason is on record");
+  assertEqual(row.manualOverride, false, "not the generic freeze flag -- PAY-POST-REGISTER must still be able to post this run");
+  assertEqual(row.approvedBy, PREPARER, "the same person who prepared it, honestly recorded as who approved it too");
+});
+
+test("an override reason is ignored when the approver is not the preparer, no exception to grant", async () => {
+  const db = payrollDb();
+  const { applied } = await applyDlv(db, payApproveRun, approveScope({ overrideReason: "not needed here" }));
+  assertEqual(applied.status, "completed", "approves normally");
+  const row = payRunsOf(db)[0];
+  assertEqual(row.g18OverrideReason, null, "the reason is not recorded when there was nothing to override");
+});
+
 test("a posted run is finished and is not re approved", async () => {
   const db = payrollDb();
   db.seed("pay_runs", [

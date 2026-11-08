@@ -4,6 +4,7 @@ import { Plus } from "lucide-react";
 import { DataGrid, EmptyState, ErrorState, Kpi, Money, PageHeader, Pill, SectionCard } from "@/components/kit";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { useApp } from "@/store";
 import { useActiveClient } from "@/lib/active-client";
@@ -183,6 +184,12 @@ function ApprovePayrollDialog({ clientId, period }: { clientId: string; period: 
   const [employerTaxDollars, setEmployerTaxDollars] = useState("");
   const [employeeCount, setEmployeeCount] = useState("");
   const [error, setError] = useState<string | null>(null);
+  // Audit fix: a solo or two person firm has nobody else to ask, so a
+  // G18 refusal (overrideProtected) offers a written-reason retry right
+  // here, the same "accept the exception and say why" shape
+  // close-checklist.tsx's own gate override already uses.
+  const [needsOverride, setNeedsOverride] = useState(false);
+  const [overrideReason, setOverrideReason] = useState("");
   const trigger = useTriggerRun(clientId);
   const qc = useQueryClient();
 
@@ -193,12 +200,18 @@ function ApprovePayrollDialog({ clientId, period }: { clientId: string; period: 
     setEmployerTaxDollars("");
     setEmployeeCount("");
     setError(null);
+    setNeedsOverride(false);
+    setOverrideReason("");
   };
 
   const save = async () => {
     setError(null);
     if (!providerName.trim() || !payDate) {
       setError("The provider name and the pay date are required.");
+      return;
+    }
+    if (needsOverride && !overrideReason.trim()) {
+      setError("A written reason is required to accept the exception.");
       return;
     }
     const scope = {
@@ -209,10 +222,16 @@ function ApprovePayrollDialog({ clientId, period }: { clientId: string; period: 
       employeeWithholdingCents: dollarsToCents(withholdingDollars),
       employerTaxCents: dollarsToCents(employerTaxDollars),
       employeeCount: employeeCount.trim() === "" ? undefined : Math.round(Number(employeeCount)),
+      ...(needsOverride ? { overrideReason: overrideReason.trim() } : {}),
     };
     try {
       const preview = await trigger.mutateAsync({ runCode: "PAY-APPROVE-RUN", body: { mode: "preview", scope } });
       if (preview.status !== "completed") {
+        if (!needsOverride && preview.errors[0]?.code === "overrideProtected") {
+          setNeedsOverride(true);
+          setError(preview.errors[0]?.message ?? null);
+          return;
+        }
         setError(preview.errors[0]?.message ?? `The run ended ${preview.status}.`);
         return;
       }
@@ -272,10 +291,18 @@ function ApprovePayrollDialog({ clientId, period }: { clientId: string; period: 
             </div>
           </div>
           {error ? <p className="break-words text-xs text-destructive">{error}</p> : null}
+          {needsOverride ? (
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-muted-foreground">Why this exception is accepted</label>
+              <Textarea value={overrideReason} onChange={(e) => setOverrideReason(e.target.value)} data-testid="payroll-approve-override-reason" />
+            </div>
+          ) : null}
         </div>
         <DialogFooter>
           <Button size="sm" variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
-          <Button size="sm" onClick={() => void save()} disabled={trigger.isPending} data-testid="payroll-approve-save">Approve</Button>
+          <Button size="sm" onClick={() => void save()} disabled={trigger.isPending} data-testid="payroll-approve-save">
+            {needsOverride ? "Approve anyway" : "Approve"}
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

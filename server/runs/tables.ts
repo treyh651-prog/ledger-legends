@@ -2585,6 +2585,8 @@ export interface PayRunRow {
   createdByRunId: string | null;
   createdAt: string;
   manualOverride: boolean;
+  /** Set only when G18 (separation of duties) was knowingly bypassed by the approver. Independent of manualOverride, which would freeze the row against PAY-POST-REGISTER forever. */
+  g18OverrideReason: string | null;
 }
 
 /** One posted register per pay run per period per client. */

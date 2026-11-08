@@ -87,6 +87,14 @@ export const approveRunScopeSchema = z.object({
   /** Employer side taxes, a positive magnitude in cents. */
   employerTaxCents: z.number().int().nonnegative().safe(),
   employeeCount: z.number().int().nonnegative().optional(),
+  /**
+   * Audit finding (rerun, 2026-11-06): a one or two person firm could
+   * record a payroll register and never approve it, with no way past
+   * G18. Only read when the approver is also the preparer -- supplying
+   * this for any other approval is simply ignored, the same way
+   * CLOSE-OVERRIDE-GATE's own reason only matters for a failing gate.
+   */
+  overrideReason: z.string().min(1).optional(),
 });
 
 export type ApproveRunScope = z.infer<typeof approveRunScopeSchema>;
@@ -112,6 +120,7 @@ interface PayRunContent {
   vaultObjectLockMode: "GOVERNANCE";
   vaultRetentionStartsOn: string;
   vaultObjectLockUntil: string;
+  g18OverrideReason: string | null;
 }
 
 /**
@@ -242,17 +251,30 @@ export const payApproveRun: Run<ApproveRunScope, Proposal> = {
      * G18. The approver is not the preparer. Checked against the actor on the
      * context rather than against the placeholder, because the placeholder is
      * resolved at write time and the refusal has to happen before that.
+     *
+     * Audit finding: a one or two person firm has nobody else to ask, and
+     * before this there was no way past this refusal at all. A written
+     * reason records the exception the same way CLOSE-OVERRIDE-GATE does
+     * for a close gate, in g18OverrideReason -- deliberately not the
+     * generic manualOverride column, which would freeze the row against
+     * PAY-POST-REGISTER forever (migration 0071's own comment explains
+     * why). Still refuses by default; the caller has to ask for the
+     * exception, not stumble into it.
      */
+    let g18OverrideReason: string | null = null;
     if (register.preparedBy !== null && register.preparedBy === ctx.actor.userId) {
-      errors.push({
-        rowId,
-        code: "overrideProtected",
-        message:
-          `G18. ${ctx.actor.userId} prepared this register and cannot approve it. ` +
-          `A second person has to look at it.`,
-        retryable: false,
-      });
-      return makeResult<Proposal>(frozen.candidateIds.length, proposals, skips, errors, ZERO);
+      if (!scope.overrideReason) {
+        errors.push({
+          rowId,
+          code: "overrideProtected",
+          message:
+            `G18. ${ctx.actor.userId} prepared this register and cannot approve it. ` +
+            `A second person has to look at it, or approve again with a written reason to accept the exception.`,
+          retryable: false,
+        });
+        return makeResult<Proposal>(frozen.candidateIds.length, proposals, skips, errors, ZERO);
+      }
+      g18OverrideReason = scope.overrideReason;
     }
 
     /*
@@ -320,6 +342,7 @@ export const payApproveRun: Run<ApproveRunScope, Proposal> = {
       // D7. Retention starts at the period end, not at the day of approval.
       vaultRetentionStartsOn: window.periodEnd,
       vaultObjectLockUntil: retentionUntil(window.periodEnd),
+      g18OverrideReason,
     };
 
     const prior = existing.find((p) => p.id === rowId);
