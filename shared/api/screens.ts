@@ -543,6 +543,34 @@ export const loansSchema = z.object({
 });
 export type Loans = z.infer<typeof loansSchema>;
 
+/**
+ * Audit rerun fix, item 6: prepaid/intangible/deferred-revenue/accrual
+ * schedules had no screen either -- confirmed zero UI.
+ */
+export const deferralScheduleSchema = z.object({
+  id: z.string(),
+  version: z.number().int(),
+  kind: z.enum(["prepaid", "intangible_amortization", "deferred_revenue", "accrual"]),
+  description: z.string(),
+  balanceAccount: z.string(),
+  releaseAccount: z.string(),
+  accumAccount: z.string().nullable(),
+  totalCents: centsSchema,
+  serviceStart: z.string(),
+  serviceEnd: z.string(),
+  method: z.enum(["straight_line_monthly", "straight_line_daily", "custom"]),
+  periods: z.number().int(),
+  status: z.enum(["active", "complete", "cancelled", "superseded"]),
+  manualOverride: z.boolean(),
+});
+export type DeferralSchedule = z.infer<typeof deferralScheduleSchema>;
+
+export const deferralSchedulesSchema = z.object({
+  clientId: idSchema,
+  items: z.array(deferralScheduleSchema),
+});
+export type DeferralSchedules = z.infer<typeof deferralSchedulesSchema>;
+
 /** Audit fix (problem 8): invoices, credit memos, and bills had no screen. */
 export const invoiceSchema = z.object({
   id: z.string(),

@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { Aging, Bills, Budget, Categories, ClientSetup, CloseChecklist, ConsolidatedPackages, CpaHandoffs, Customers, EntityGroups, FirmRequests, FirmTasks, FirmTeam, FixedAssets, Loans, RunOutcomeDto, UpdateTaskBody, Forecast, Invoices, Journal, Narratives, OffboardExports, PayRuns, PortalStatements, Reconcile, RecurringTemplates, ReportPackages, Rules, StagedBatches, StagedRows, Substantiation, TaxForms, TrialBalance, Vendors } from "@shared/api";
+import type { Aging, Bills, Budget, Categories, ClientSetup, CloseChecklist, ConsolidatedPackages, CpaHandoffs, Customers, DeferralSchedules, EntityGroups, FirmRequests, FirmTasks, FirmTeam, FixedAssets, Loans, RunOutcomeDto, UpdateTaskBody, Forecast, Invoices, Journal, Narratives, OffboardExports, PayRuns, PortalStatements, Reconcile, RecurringTemplates, ReportPackages, Rules, StagedBatches, StagedRows, Substantiation, TaxForms, TrialBalance, Vendors } from "@shared/api";
 import { api, toQuery } from "./http";
 
 /** Reads for the firm screens. Keys live under the client so run mutations invalidate them. */
@@ -23,6 +23,7 @@ export const screenKeys = {
   vendors: (clientId: string) => ["api", "firm", "clients", clientId, "vendors"] as const,
   fixedAssets: (clientId: string) => ["api", "firm", "clients", clientId, "fixed-assets"] as const,
   loans: (clientId: string) => ["api", "firm", "clients", clientId, "loans"] as const,
+  deferralSchedules: (clientId: string) => ["api", "firm", "clients", clientId, "deferral-schedules"] as const,
   invoices: (clientId: string) => ["api", "firm", "clients", clientId, "invoices"] as const,
   bills: (clientId: string) => ["api", "firm", "clients", clientId, "bills"] as const,
   payRuns: (clientId: string) => ["api", "firm", "clients", clientId, "pay-runs"] as const,
@@ -245,6 +246,14 @@ export function useLoans(clientId: string | null) {
   return useQuery({
     queryKey: screenKeys.loans(clientId ?? "none"),
     queryFn: () => api<Loans>("GET", `/api/firm/clients/${clientId}/loans`),
+    enabled: !!clientId,
+  });
+}
+
+export function useDeferralSchedules(clientId: string | null) {
+  return useQuery({
+    queryKey: screenKeys.deferralSchedules(clientId ?? "none"),
+    queryFn: () => api<DeferralSchedules>("GET", `/api/firm/clients/${clientId}/deferral-schedules`),
     enabled: !!clientId,
   });
 }

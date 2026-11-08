@@ -26,6 +26,7 @@ import Customers from "@/pages/customers";
 import Vendors from "@/pages/vendors";
 import FixedAssets from "@/pages/fixed-assets";
 import Loans from "@/pages/loans";
+import DeferralSchedules from "@/pages/deferral-schedules";
 import Invoices from "@/pages/invoices";
 import Bills from "@/pages/bills";
 import Payroll from "@/pages/payroll";
@@ -112,6 +113,7 @@ function AppRouter() {
       <Route path="/vendors">{guarded("/vendors", Vendors)}</Route>
       <Route path="/fixed-assets">{guarded("/fixed-assets", FixedAssets)}</Route>
       <Route path="/loans">{guarded("/loans", Loans)}</Route>
+      <Route path="/deferral-schedules">{guarded("/deferral-schedules", DeferralSchedules)}</Route>
       <Route path="/invoices">{guarded("/invoices", Invoices)}</Route>
       <Route path="/bills">{guarded("/bills", Bills)}</Route>
       <Route path="/payroll">{guarded("/payroll", Payroll)}</Route>

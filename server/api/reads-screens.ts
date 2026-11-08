@@ -43,6 +43,7 @@ import type {
   OffboardExports,
   FixedAssets,
   Loans,
+  DeferralSchedules,
 } from "../../shared/api/screens";
 import type { Cents } from "../runs/contract";
 import type { RunTx } from "../runs/db";
@@ -706,6 +707,31 @@ export async function loansForClient(tx: RunTx, firmId: string, clientId: string
       payoffDate: l.payoffDate,
       manualOverride: l.manualOverride,
       scheduleLineCount: lineCount.get(l.id) ?? 0,
+    })),
+  };
+}
+
+const DEFERRAL_SCHEDULE_KINDS = ["prepaid", "intangible_amortization", "deferred_revenue", "accrual"] as const;
+
+export async function deferralSchedulesForClient(tx: RunTx, firmId: string, clientId: string): Promise<DeferralSchedules> {
+  const rows = await tx.query("deferral_schedules_for_client", { firmId, clientId, kinds: [...DEFERRAL_SCHEDULE_KINDS] });
+  return {
+    clientId,
+    items: rows.map((s) => ({
+      id: s.id,
+      version: s.version,
+      kind: s.kind,
+      description: s.description,
+      balanceAccount: s.balanceAccount,
+      releaseAccount: s.releaseAccount,
+      accumAccount: s.accumAccount,
+      totalCents: Number(s.totalCents),
+      serviceStart: s.serviceStart,
+      serviceEnd: s.serviceEnd,
+      method: s.method,
+      periods: s.periods,
+      status: s.status,
+      manualOverride: s.manualOverride,
     })),
   };
 }
