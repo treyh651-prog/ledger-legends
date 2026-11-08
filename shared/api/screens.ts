@@ -947,6 +947,23 @@ export const setupClientPolicySchema = z.object({
 });
 export type SetupClientPolicy = z.infer<typeof setupClientPolicySchema>;
 
+/**
+ * Null means no subledger.arap_policies row exists yet. Only the fields a
+ * firm actually sets up front -- the rest of the 26-field policy stays at
+ * CFG-CREATE-ARAP-POLICY's own defaults until something needs to change them.
+ */
+export const setupArapPolicySchema = z.object({
+  arControlAccount: z.string(),
+  arClearingAccount: z.string(),
+  apControlAccount: z.string(),
+  apClearingAccount: z.string(),
+  salesTaxAccount: z.string().nullable(),
+  lateFeeRevenueAccount: z.string().nullable(),
+  graceDays: z.number().int(),
+  lateFeeMinimumCents: centsSchema,
+});
+export type SetupArapPolicy = z.infer<typeof setupArapPolicySchema>;
+
 export const clientSetupSchema = z.object({
   clientId: idSchema,
   bankAccounts: z.array(setupBankAccountSchema),
@@ -955,5 +972,6 @@ export const clientSetupSchema = z.object({
   /** False until object storage exists. The upload screen reads it. */
   uploadsConfigured: z.boolean(),
   policy: setupClientPolicySchema.nullable(),
+  arapPolicy: setupArapPolicySchema.nullable(),
 });
 export type ClientSetup = z.infer<typeof clientSetupSchema>;

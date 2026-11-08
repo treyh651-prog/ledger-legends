@@ -23,7 +23,7 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogT
 import { firmKeys, useClient, useClientSetup, useTriggerRun, errorMessage } from "@/api";
 import { fmtDate, usd } from "@/lib/money";
 import { tierMeta, isTierId } from "@shared/tiers";
-import type { SetupClientPolicy } from "@shared/api";
+import type { SetupArapPolicy, SetupClientPolicy } from "@shared/api";
 
 /** True when the wizard just routed here. Query only, nothing is stored. */
 function cameFromWizard(): boolean {
@@ -62,6 +62,7 @@ export default function PortalClientDetail() {
   const profiles = setup.data?.mappingProfiles ?? [];
   const tasks = setup.data?.tasks ?? [];
   const policy = setup.data?.policy ?? null;
+  const arapPolicy = setup.data?.arapPolicy ?? null;
   const level = c.engagement && isTierId(c.engagement.serviceLevel) ? tierMeta(c.engagement.serviceLevel).name : c.engagement?.serviceLevel ?? "No engagement";
 
   return (
@@ -131,6 +132,29 @@ export default function PortalClientDetail() {
               { label: "Net assets with restrictions", value: policy?.netAssetsWithRestrictionsAccount ?? "Not set" },
             ]}
           />
+        </SectionCard>
+
+        <SectionCard
+          title="AR/AP policy"
+          description="Control and clearing accounts, grace days, and the late fee minimum -- read by every AR/AP run. One row per client, set once."
+          actions={id && !arapPolicy ? <ArapPolicyDialog clientId={id} /> : null}
+        >
+          {arapPolicy ? (
+            <KeyValue
+              items={[
+                { label: "AR control account", value: arapPolicy.arControlAccount },
+                { label: "AR clearing account", value: arapPolicy.arClearingAccount },
+                { label: "AP control account", value: arapPolicy.apControlAccount },
+                { label: "AP clearing account", value: arapPolicy.apClearingAccount },
+                { label: "Sales tax account", value: arapPolicy.salesTaxAccount ?? "Not set" },
+                { label: "Late fee revenue account", value: arapPolicy.lateFeeRevenueAccount ?? "Not set" },
+                { label: "Grace days", value: String(arapPolicy.graceDays) },
+                { label: "Late fee minimum", value: usd(arapPolicy.lateFeeMinimumCents) },
+              ]}
+            />
+          ) : (
+            <p className="text-xs text-muted-foreground">Not set up yet. Every AR/AP run reads doc 02's module 5 defaults until this is created.</p>
+          )}
         </SectionCard>
 
         <SectionCard title="Engagement" description="From tenancy.engagements. Signing is on the client's portal.">
@@ -374,6 +398,173 @@ function ClientPolicyDialog({ clientId, policy }: { clientId: string; policy: Se
           </Button>
           <Button size="sm" onClick={() => void save()} disabled={trigger.isPending} data-testid="policy-save">
             Save
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/**
+ * Create affordance for subledger.arap_policies, via CFG-CREATE-ARAP-POLICY.
+ * Create-only -- there is no edit run for this table yet (the run's own
+ * header comment), so this dialog only ever appears while no policy row
+ * exists; once one does, the setup screen renders it read-only instead.
+ * Covers only the four required control/clearing accounts plus the two
+ * fields most directly tied to the late-fee gap this same audit round
+ * closed (salesTaxAccount, lateFeeRevenueAccount) and the two fields a
+ * firm is most likely to want non-default (graceDays, lateFeeMinimumCents)
+ * -- the other eighteen fields stay at the run's own documented defaults.
+ */
+function ArapPolicyDialog({ clientId }: { clientId: string }) {
+  const [open, setOpen] = useState(false);
+  const [arControlAccount, setArControlAccount] = useState("");
+  const [arClearingAccount, setArClearingAccount] = useState("");
+  const [apControlAccount, setApControlAccount] = useState("");
+  const [apClearingAccount, setApClearingAccount] = useState("");
+  const [salesTaxAccount, setSalesTaxAccount] = useState("");
+  const [lateFeeRevenueAccount, setLateFeeRevenueAccount] = useState("");
+  const [graceDays, setGraceDays] = useState("10");
+  const [lateFeeMinimumDollars, setLateFeeMinimumDollars] = useState("0");
+  const [error, setError] = useState<string | null>(null);
+  const trigger = useTriggerRun(clientId);
+  const qc = useQueryClient();
+
+  const reset = () => {
+    setArControlAccount("");
+    setArClearingAccount("");
+    setApControlAccount("");
+    setApClearingAccount("");
+    setSalesTaxAccount("");
+    setLateFeeRevenueAccount("");
+    setGraceDays("10");
+    setLateFeeMinimumDollars("0");
+    setError(null);
+  };
+
+  const save = async () => {
+    setError(null);
+    const accountPattern = /^[0-9]{4}$/;
+    for (const [label, value] of [
+      ["AR control account", arControlAccount],
+      ["AR clearing account", arClearingAccount],
+      ["AP control account", apControlAccount],
+      ["AP clearing account", apClearingAccount],
+    ] as const) {
+      if (!accountPattern.test(value)) {
+        setError(`${label} must be a 4 digit account number.`);
+        return;
+      }
+    }
+    const graceDaysNum = Math.round(Number(graceDays));
+    if (!Number.isFinite(graceDaysNum) || graceDaysNum < 0) {
+      setError("Grace days must be a whole number of 0 or more.");
+      return;
+    }
+    const lateFeeMinimumCents = Math.round(Number(lateFeeMinimumDollars) * 100);
+    if (!Number.isFinite(lateFeeMinimumCents) || lateFeeMinimumCents < 0) {
+      setError("Late fee minimum must be a dollar amount of 0 or more.");
+      return;
+    }
+    const fields: Record<string, unknown> = {
+      arControlAccount,
+      arClearingAccount,
+      apControlAccount,
+      apClearingAccount,
+      graceDays: graceDaysNum,
+      lateFeeMinimumCents,
+    };
+    const tax = salesTaxAccount.trim();
+    if (tax) fields.salesTaxAccount = tax;
+    const lateFeeRevenue = lateFeeRevenueAccount.trim();
+    if (lateFeeRevenue) fields.lateFeeRevenueAccount = lateFeeRevenue;
+    const scope = { clientId, fields };
+    try {
+      const preview = await trigger.mutateAsync({ runCode: "CFG-CREATE-ARAP-POLICY", body: { mode: "preview", scope } });
+      if (preview.status !== "completed") {
+        setError(preview.errors[0]?.message ?? `The run ended ${preview.status}.`);
+        return;
+      }
+      const applied = await trigger.mutateAsync({
+        runCode: "CFG-CREATE-ARAP-POLICY",
+        body: { mode: "apply", scope, previewRunId: preview.executionId },
+      });
+      if (applied.status !== "completed") {
+        setError(applied.errors[0]?.message ?? `The run ended ${applied.status}.`);
+        return;
+      }
+      void qc.invalidateQueries({ queryKey: firmKeys.setup(clientId) });
+      setOpen(false);
+    } catch (e) {
+      setError(errorMessage(e));
+    }
+  };
+
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        setOpen(next);
+        if (next) reset();
+      }}
+    >
+      <DialogTrigger asChild>
+        <Button size="sm" variant="outline" data-testid="arap-policy-create">
+          Set up AR/AP policy
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>AR/AP policy</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-3">
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-muted-foreground">AR control account</label>
+              <Input value={arControlAccount} onChange={(e) => setArControlAccount(e.target.value)} placeholder="1100" data-testid="arap-ar-control" />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-muted-foreground">AR clearing account</label>
+              <Input value={arClearingAccount} onChange={(e) => setArClearingAccount(e.target.value)} placeholder="1150" data-testid="arap-ar-clearing" />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-muted-foreground">AP control account</label>
+              <Input value={apControlAccount} onChange={(e) => setApControlAccount(e.target.value)} placeholder="2000" data-testid="arap-ap-control" />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-muted-foreground">AP clearing account</label>
+              <Input value={apClearingAccount} onChange={(e) => setApClearingAccount(e.target.value)} placeholder="2050" data-testid="arap-ap-clearing" />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-muted-foreground">Sales tax account (optional)</label>
+              <Input value={salesTaxAccount} onChange={(e) => setSalesTaxAccount(e.target.value)} placeholder="2300" data-testid="arap-sales-tax" />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-muted-foreground">Late fee revenue account (optional)</label>
+              <Input
+                value={lateFeeRevenueAccount}
+                onChange={(e) => setLateFeeRevenueAccount(e.target.value)}
+                placeholder="4900"
+                data-testid="arap-late-fee-revenue"
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-muted-foreground">Grace days</label>
+              <Input type="number" value={graceDays} onChange={(e) => setGraceDays(e.target.value)} data-testid="arap-grace-days" />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-muted-foreground">Late fee minimum ($)</label>
+              <Input type="number" value={lateFeeMinimumDollars} onChange={(e) => setLateFeeMinimumDollars(e.target.value)} data-testid="arap-late-fee-min" />
+            </div>
+          </div>
+          {error ? <p className="break-words text-xs text-destructive">{error}</p> : null}
+        </div>
+        <DialogFooter>
+          <Button size="sm" variant="outline" onClick={() => setOpen(false)}>
+            Cancel
+          </Button>
+          <Button size="sm" onClick={() => void save()} disabled={trigger.isPending} data-testid="arap-policy-save">
+            Create
           </Button>
         </DialogFooter>
       </DialogContent>

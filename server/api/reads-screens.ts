@@ -1179,16 +1179,18 @@ export async function firmTasks(tx: RunTx, firmId: string, period: string): Prom
 
 /** Bank accounts, active mapping profiles with their columns, and tasks for one client. */
 export async function clientSetup(tx: RunTx, firmId: string, clientId: string): Promise<ClientSetup> {
-  const [client, banks, profiles, columns, tasks, policies] = await Promise.all([
+  const [client, banks, profiles, columns, tasks, policies, arapPolicies] = await Promise.all([
     tx.query("client_by_id", { firmId, clientId }),
     tx.query("bank_accounts_for_client", { firmId, clientId }),
     tx.query("mapping_profiles_for_client", { firmId, clientId }),
     tx.query("mapping_profile_columns_for_client", { firmId, clientId }),
     tx.query("practice_tasks_for_client", { firmId, clientId }),
     tx.query("client_policy", { firmId, clientId }),
+    tx.query("arap_policy", { firmId, clientId }),
   ]);
   const name = client[0]?.name ?? clientId;
   const policy = policies[0] ?? null;
+  const arapPolicy = arapPolicies[0] ?? null;
   return {
     clientId,
     bankAccounts: banks.map((b) => ({
@@ -1233,6 +1235,19 @@ export async function clientSetup(tx: RunTx, firmId: string, clientId: string): 
             netAssetsWithoutRestrictionsAccount: policy.netAssetsWithoutRestrictionsAccount,
             netAssetsWithRestrictionsAccount: policy.netAssetsWithRestrictionsAccount,
             fiscalYearEndMonth: policy.fiscalYearEndMonth,
+          },
+    arapPolicy:
+      arapPolicy === null
+        ? null
+        : {
+            arControlAccount: arapPolicy.arControlAccount,
+            arClearingAccount: arapPolicy.arClearingAccount,
+            apControlAccount: arapPolicy.apControlAccount,
+            apClearingAccount: arapPolicy.apClearingAccount,
+            salesTaxAccount: arapPolicy.salesTaxAccount,
+            lateFeeRevenueAccount: arapPolicy.lateFeeRevenueAccount,
+            graceDays: arapPolicy.graceDays,
+            lateFeeMinimumCents: Number(arapPolicy.lateFeeMinimumCents),
           },
   };
 }
