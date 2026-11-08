@@ -259,6 +259,27 @@ export const txnApplyRules: Run<CodingScope, Proposal> = {
         skips.push(alreadyResolvedSkip(t, level));
         continue;
       }
+      // Audit finding: a suspense-swept row (level 9) is not caught by the
+      // check above, since 9 is not less than rule's own level 6 -- the
+      // cascade's own ordering intentionally lets a rule override a row
+      // suspense already claimed. But this run only ever classifies
+      // (writesLedger: false, unattended tier, enforced by the
+      // run_policy_ledger_not_unattended constraint); it must never touch
+      // categoryId on a row that already posted, because journalEntryId
+      // would then point at a superseded suspense entry forever -- the
+      // register would show the corrected category while the ledger still
+      // carries the money in Suspense, permanently out of agreement. Only
+      // TXN-RECODE (manual tier, already reverses the stale entry and
+      // reposts under the right category in one apply) may fix an
+      // already-posted row.
+      if (t.journalEntryId !== null) {
+        skips.push({
+          rowId: t.id,
+          reason: "missing_prerequisite",
+          detail: "already posted (suspense); a rule cannot recode it, use TXN-RECODE",
+        });
+        continue;
+      }
       const currencySkip = foreignCurrencySkip(t, policy.functionalCurrency);
       if (currencySkip !== null) {
         skips.push(currencySkip);

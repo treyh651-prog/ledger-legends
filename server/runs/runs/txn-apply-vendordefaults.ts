@@ -147,6 +147,21 @@ export const txnApplyVendorDefaults: Run<CodingScope, Proposal> = {
         skips.push(alreadyResolvedSkip(t, level));
         continue;
       }
+      // Audit finding (txn-apply-rules.ts carries the full explanation): a
+      // suspense-swept row's level (9) is not caught by the check above, so
+      // without this, a vendor default would silently recode an
+      // already-posted row's categoryId while journalEntryId kept pointing
+      // at the superseded suspense entry. This run only ever classifies
+      // (writesLedger: false, unattended tier); only TXN-RECODE may touch
+      // an already-posted row.
+      if (t.journalEntryId !== null) {
+        skips.push({
+          rowId: t.id,
+          reason: "missing_prerequisite",
+          detail: "already posted (suspense); a vendor default cannot recode it, use TXN-RECODE",
+        });
+        continue;
+      }
       const currencySkip = foreignCurrencySkip(t, policy.functionalCurrency);
       if (currencySkip !== null) {
         skips.push(currencySkip);

@@ -486,3 +486,30 @@ test("apply rules, a foreign currency row is left for the sweep", async () => {
     "and the detail names the only outcome the register constraint allows",
   );
 });
+
+test("apply rules, a row already posted to suspense is refused, not silently half recoded", async () => {
+  // Audit finding: a rule matching a suspense swept row used to change
+  // categoryId on the register while journalEntryId kept pointing at the
+  // superseded suspense entry, leaving the ledger and the register
+  // permanently disagreeing. This run only ever classifies -- it must
+  // refuse an already posted row outright and let a person use TXN-RECODE.
+  const db = codingDb();
+  db.seed("categories", standardCategories());
+  db.seed("client_policies", [clientPolicy()]);
+  db.seed("rules", [rule("RULE-GITHUB")]);
+  db.seed("transactions", [
+    txn("TX-STUCK", FIRM_A, CLIENT_A1, "BA-A1-OP", "2026-01-09", BigInt(-2500), {
+      normalizedVendor: "GITHUB",
+      cascadeLevel: 9,
+      suspenseReason: "SUS-01",
+      journalEntryId: "JE-SUSPENSE-1",
+    }),
+  ]);
+  const preview = await previewCoding(db, txnApplyRules, scopeFor(CLIENT_A1));
+  assertEqual(preview.result.proposals.length, 0, "nothing is proposed for this row");
+  assertEqual(
+    skipDetails(preview, "TX-STUCK")[0],
+    "missing_prerequisite:already posted (suspense); a rule cannot recode it, use TXN-RECODE",
+    "a clear refusal naming the fix, not a silent half recode",
+  );
+});

@@ -53,8 +53,11 @@ import { applyProposals, requireTx } from "../apply-writer";
 import { isLockedDay } from "../dates";
 import { derivedId } from "../ids";
 import { reverseEntry, revertFieldWrite } from "../undo";
+import { reversalOfPostedEntry } from "./txn-void";
 import type {
   BankAccountRow,
+  JournalEntryRow,
+  JournalLineRow,
   RecurringSplitRow,
   RecurringTemplateRow,
   TransactionRow,
@@ -247,6 +250,35 @@ export const txnApplyRecurring: Run<CodingScope, Proposal> = {
     const accountById = new Map<string, BankAccountRow>();
     for (const a of accounts) accountById.set(a.id, a);
 
+    // Audit finding: a transaction already posted before a recurring
+    // template matched it (today, only reachable via TXN-SWEEP-SUSPENSE
+    // running earlier in the same cascade pass, or a template created
+    // after an older suspense sweep) must have that posting reversed, not
+    // silently superseded -- overwriting journalEntryId without reversing
+    // the entry it pointed at would leave the old posting in the ledger
+    // forever while a second, new entry also posts, double counting cash.
+    // This run is allowed to write the ledger (propose tier), unlike
+    // TXN-APPLY-RULES/VENDORDEFAULTS/MAP-BANKCODES, so it fixes this
+    // itself rather than skipping, the same reversalOfPostedEntry TXN-VOID
+    // and TXN-RECODE already use.
+    const priorEntryIds = candidates.map((t) => t.journalEntryId).filter((id): id is string => id !== null);
+    const priorEntries: readonly JournalEntryRow[] =
+      priorEntryIds.length === 0
+        ? []
+        : await tx.query("journal_entries_for_client", { firmId: frozen.firmId, clientId: frozen.clientId });
+    const priorEntriesById = new Map(priorEntries.map((e) => [e.id, e]));
+    const priorLines: readonly JournalLineRow[] =
+      priorEntryIds.length === 0
+        ? []
+        : await tx.query("journal_lines_for_entries", { firmId: frozen.firmId, clientId: frozen.clientId, entryIds: priorEntryIds });
+    const priorLinesByEntry = new Map<string, JournalLineRow[]>();
+    for (const l of priorLines) {
+      const list = priorLinesByEntry.get(l.entryId) ?? [];
+      list.push(l);
+      priorLinesByEntry.set(l.entryId, list);
+    }
+    const reversalEntryIdFor = (transactionId: string): string => derivedId(transactionId, "txn-apply-recurring-reverse", 0);
+
     for (const tpl of allTemplates) {
       if (tpl.isActive) continue;
       skips.push({
@@ -378,6 +410,22 @@ export const txnApplyRecurring: Run<CodingScope, Proposal> = {
           retryable: false,
         });
         continue;
+      }
+
+      if (t.journalEntryId !== null) {
+        const original = priorEntriesById.get(t.journalEntryId);
+        if (!original) {
+          skips.push({
+            rowId: t.id,
+            reason: "missing_prerequisite",
+            detail: `journal entry ${t.journalEntryId} does not exist, cannot reverse before reposting`,
+          });
+          continue;
+        }
+        const originalLines = priorLinesByEntry.get(original.id) ?? [];
+        proposals.push(
+          reversalOfPostedEntry(original, originalLines, t.postedDate, reversalEntryIdFor(t.id), "superseded by a recurring template match"),
+        );
       }
 
       const entryId = recurringMatchEntryIdFor(t.id);

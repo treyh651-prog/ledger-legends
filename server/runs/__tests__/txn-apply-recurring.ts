@@ -14,9 +14,11 @@
 import { isJournalEntry, isSuspenseRouting } from "../contract";
 import type { TransactionRow } from "../tables";
 import { txnApplyRules } from "../runs/txn-apply-rules";
+import { txnSweepSuspense, suspenseEntryIdFor } from "../runs/txn-sweep-suspense";
 import {
   allocateByBasisPoints,
   dayOfMonthDistance,
+  recurringMatchEntryIdFor,
   SUS_TEMPLATE_AMOUNT,
   SUS_TEMPLATE_CONFLICT,
   txnApplyRecurring,
@@ -24,6 +26,7 @@ import {
 import { CLIENT_A1, FIRM_A, scopeFor, txn } from "./fixtures";
 import {
   applyCoding,
+  clientPolicy,
   codingDb,
   previewCoding,
   rule,
@@ -259,4 +262,63 @@ test("apply recurring, ordering, a rule may not overwrite a template split", asy
   assertEqual(row.ruleId, null, "no rule id was written over the template provenance");
   assertEqual(row.templateId, "TPL-1", "the template provenance survives");
   assertEqual(inOrder.all("journal_lines").length, 3, "and the split is still two lines plus bank");
+});
+
+test("apply recurring, a row already posted to suspense is reversed before the template reposts it, never double counted", async () => {
+  // Audit finding: a recurring template created after a transaction was
+  // already swept to suspense used to overwrite journalEntryId with a
+  // brand new posting, leaving the original suspense entry orphaned in
+  // the ledger forever -- the exact cash is posted twice. This run is
+  // allowed to write the ledger (propose tier), so it must reverse
+  // whatever already posted before reposting under the template split,
+  // the same reversalOfPostedEntry TXN-VOID/TXN-RECODE already use.
+  const db = codingDb();
+  db.seed("categories", standardCategories());
+  db.seed("client_policies", [clientPolicy()]);
+  db.seed("transactions", [
+    txn("TX-SUB", FIRM_A, CLIENT_A1, "BA-A1-OP", "2026-01-14", BigInt(-10000), {
+      normalizedVendor: "GITHUB",
+    }),
+  ]);
+
+  // A real suspense sweep, the same way a bank feed with no matching rule,
+  // vendor default, or template yet would land here on its own.
+  await applyCoding(db, txnSweepSuspense, scopeFor(CLIENT_A1));
+  const beforeTemplate = (db.all("transactions") as TransactionRow[])[0];
+  assertEqual(beforeTemplate.journalEntryId, suspenseEntryIdFor("TX-SUB"), "really posted to suspense");
+  assertEqual(
+    db.all("journal_lines").filter((l) => l.accountNumber === "1990").reduce((s, l) => s + l.amountCents, BigInt(0)),
+    BigInt(10000),
+    "the whole charge sits in suspense",
+  );
+
+  // A template is created afterward and now matches the same vendor.
+  db.seed("recurring_templates", [template("TPL-1")]);
+  db.seed("recurring_splits", [split("SPL-1", "TPL-1", 1)]);
+
+  const { applied } = await applyCoding(db, txnApplyRecurring, scopeFor(CLIENT_A1));
+  assertEqual(applied.status, "completed", `status ${show(applied.status)}`);
+  const entries = applied.result.proposals.filter(isJournalEntry);
+  assertEqual(entries.length, 2, "one reversal of the suspense entry, one new split posting");
+  const reversal = entries.find((e) => e.reversalOf !== undefined);
+  assertEqual(reversal?.reversalOf, suspenseEntryIdFor("TX-SUB"), "pointing at the entry it reverses");
+
+  assertEqual(
+    db.all("journal_lines").filter((l) => l.accountNumber === "1990").reduce((s, l) => s + l.amountCents, BigInt(0)),
+    BigInt(0),
+    "suspense is cleared back to zero, not left stranded",
+  );
+  assertEqual(
+    db.all("journal_lines").filter((l) => l.accountNumber === "6100").reduce((s, l) => s + l.amountCents, BigInt(0)),
+    BigInt(10000),
+    "the full charge lands in the template's own category, once",
+  );
+  assertEqual(
+    db.all("journal_lines").filter((l) => l.accountNumber === "1010").reduce((s, l) => s + l.amountCents, BigInt(0)),
+    BigInt(-10000),
+    "the bank line nets to the one real charge across all three entries, never doubled",
+  );
+  const after = (db.all("transactions") as TransactionRow[])[0];
+  assertEqual(after.journalEntryId, recurringMatchEntryIdFor("TX-SUB"), "the register now points at the new posting");
+  assertEqual(after.templateId, "TPL-1", "and records which template decided");
 });

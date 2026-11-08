@@ -318,16 +318,22 @@ test("sweep suspense, ordering, a bank code decision is never swept away", async
     "SUS-01",
     "the row is in suspense, which is the defect being guarded",
   );
-  // Running the mapping afterwards does not repair it. The row gets a category,
-  // but the posting to 1990 is already on the books and this run does not reverse
-  // entries, so the row is coded twice and 1990 never clears.
-  await applyCoding(outOfOrder, txnMapBankCodes, scopeFor(CLIENT_A1));
-  const late = (outOfOrder.all("transactions") as TransactionRow[])[0];
-  assertEqual(late.categoryId, "CAT-software", "the mapping writes a category anyway");
-  assert(
-    late.suspenseReason !== null,
-    "while the row still carries a suspense reason, which is a contradiction",
+  // Audit finding: running the mapping afterwards used to "repair" the
+  // category while leaving the posting to 1990 untouched, coding the row
+  // twice with 1990 never clearing -- a silent contradiction between the
+  // register and the ledger. Fixed: a bank code mapping (like a rule or a
+  // vendor default) only ever classifies, never posts, so it must not
+  // touch categoryId on a row that already posted; it skips instead,
+  // leaving the honest state for a person to fix with TXN-RECODE.
+  const mapped = await applyCoding(outOfOrder, txnMapBankCodes, scopeFor(CLIENT_A1));
+  assertEqual(
+    skipDetails(mapped.applied, "TX-ANON")[0],
+    "missing_prerequisite:already posted (suspense); a bank code mapping cannot recode it, use TXN-RECODE",
+    "the mapping refuses rather than silently half fixing it",
   );
+  const late = (outOfOrder.all("transactions") as TransactionRow[])[0];
+  assertEqual(late.categoryId, null, "categoryId is untouched, no contradiction with the ledger");
+  assertEqual(late.suspenseReason, "SUS-01", "still exactly as the sweep left it");
   const stranded = outOfOrder
     .all("journal_lines")
     .filter((l) => l.accountNumber === "1990")
@@ -335,7 +341,7 @@ test("sweep suspense, ordering, a bank code decision is never swept away", async
   assertEqual(
     stranded,
     BigInt(4200),
-    "and 1990 is left holding money, so gate G01 can never reach zero",
+    "1990 still holds the money -- honestly, visibly stuck pending a person's TXN-RECODE, not silently miscoded",
   );
 
   // Documented order. Bank codes first, then the sweep finds nothing to do.

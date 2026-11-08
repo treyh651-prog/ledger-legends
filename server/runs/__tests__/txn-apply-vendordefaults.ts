@@ -222,3 +222,29 @@ test("apply vendor defaults, ordering, a rule outranks the vendor master", async
   assertEqual(right.categoryId, "CAT-software", "the rule decision survives");
   assertEqual(right.ruleId, "RULE-GITHUB", "with its provenance intact");
 });
+
+test("apply vendor defaults, a row already posted to suspense is refused, not silently half recoded", async () => {
+  // Same audit finding as TXN-APPLY-RULES's own test: this run only ever
+  // classifies, so it must refuse a row that already posted rather than
+  // changing categoryId while journalEntryId keeps pointing at a
+  // superseded suspense entry.
+  const db = codingDb();
+  db.seed("categories", standardCategories());
+  db.seed("client_policies", [clientPolicy()]);
+  db.seed("vendors", [vendor("VEN-GH", "GITHUB")]);
+  db.seed("transactions", [
+    txn("TX-STUCK", FIRM_A, CLIENT_A1, "BA-A1-OP", "2026-01-09", BigInt(-2500), {
+      normalizedVendor: "GITHUB",
+      cascadeLevel: 9,
+      suspenseReason: "SUS-01",
+      journalEntryId: "JE-SUSPENSE-1",
+    }),
+  ]);
+  const preview = await previewCoding(db, txnApplyVendorDefaults, scopeFor(CLIENT_A1));
+  assertEqual(preview.result.proposals.length, 0, "nothing is proposed for this row");
+  assertEqual(
+    skipDetails(preview, "TX-STUCK")[0],
+    "missing_prerequisite:already posted (suspense); a vendor default cannot recode it, use TXN-RECODE",
+    "a clear refusal naming the fix, not a silent half recode",
+  );
+});
