@@ -111,6 +111,7 @@ import type {
   DeferralScheduleRow,
   AccrualTemplateRow,
   ArapPolicyRow,
+  NotificationPreferenceRow,
   BankCodeMappingRow,
   BudgetRow,
   BudgetThresholdRow,
@@ -570,6 +571,10 @@ async function writeField(
     case "rules":
       await tx.update("rules", rowId, after);
       return;
+    // CFG-SET-NOTIFICATION-PREFERENCE flipping a row that already exists.
+    case "notification_preferences":
+      await tx.update("notification_preferences", rowId, after);
+      return;
     // CFG-EDIT-CATEGORY. The category row itself is updated in place, unlike
     // a mapping profile; see MappingProfileRow's own comment for why those
     // two tables disagree on this.
@@ -1015,6 +1020,11 @@ async function insertRow(
       return;
     case "arap_policies":
       await tx.insert("arap_policies", [withId as unknown as ArapPolicyRow]);
+      return;
+    // CFG-SET-NOTIFICATION-PREFERENCE's first toggle for a given (client,
+    // notification type) pair -- a later toggle is a field_write instead.
+    case "notification_preferences":
+      await tx.insert("notification_preferences", [withId as unknown as NotificationPreferenceRow]);
       return;
     case "bank_code_mappings":
       await tx.insert("bank_code_mappings", [withId as unknown as BankCodeMappingRow]);

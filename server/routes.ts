@@ -34,6 +34,7 @@ import { apiErrorHandler } from "./api/errors";
 import { buildDevActor, devActorEnabled, DEV_ACTOR, DEV_FIRM_ID, DEV_USER_ID, type DevActorRuntime } from "./api/dev-actor";
 import { firmMembers } from "./auth/actor-store";
 import { createMemoryStorage, createSupabaseStorage, readStorageEnv } from "./storage/document-storage";
+import { createLoggingEmail, createResendEmail, readEmailEnv } from "./email";
 
 /**
  * Routes.
@@ -159,6 +160,10 @@ export async function registerRoutes(httpServer: Server, app: Express, deps?: Ro
         guards: devActor.middleware,
         // Memory storage, development only. Bytes vanish with the process and the screens say so.
         storage: createMemoryStorage(),
+        // No tenancy.* tables exist to query in memory mode, so pool stays
+        // null and notifyAfterRun is simply never called.
+        pool: null,
+        email: createLoggingEmail(),
         entitlements: new RunDbEntitlementSource(runDb.db, DEV_USER_ID, DEV_FIRM_ID),
         members: async () => [{ userId: DEV_USER_ID, displayName: DEV_ACTOR.displayName ?? DEV_ACTOR.email, email: DEV_ACTOR.email, role: "owner" }],
       }),
@@ -178,6 +183,9 @@ export async function registerRoutes(httpServer: Server, app: Express, deps?: Ro
   const storageEnv = readStorageEnv();
   const documentStorage = storageEnv ? createSupabaseStorage(storageEnv) : null;
   console.log(documentStorage ? `document storage: supabase bucket ${documentStorage.bucket}` : "document storage: not configured (SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)");
+  const emailEnv = readEmailEnv();
+  const email = emailEnv ? createResendEmail(emailEnv) : createLoggingEmail();
+  console.log(email.provider === "resend" ? "email: resend" : "email: not configured (RESEND_API_KEY, EMAIL_FROM), logging instead of sending");
   const inv: InvitationDeps = { pool: auth.pool, authAdmin: auth.authAdmin, appOrigin: auth.appOrigin, actorOpts: auth.actorOpts };
   const ar: AccessRequestDeps = { pool: auth.pool, actorOpts: auth.actorOpts };
 
@@ -197,6 +205,8 @@ export async function registerRoutes(httpServer: Server, app: Express, deps?: Ro
       db: runDb.db,
       guards: auth.middleware,
       storage: documentStorage,
+      pool: auth.pool,
+      email,
       entitlements: new PostgresEntitlementSource(auth.pool as Pool),
       members: (firmId) => firmMembers(auth.pool, firmId),
     }),

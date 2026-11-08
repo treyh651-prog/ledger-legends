@@ -36,6 +36,8 @@
 import { schedules } from "@trigger.dev/sdk";
 
 import { resolveRunDb } from "../server/db/run-db";
+import { getPool } from "../server/db/pool";
+import { createLoggingEmail, createResendEmail, readEmailEnv } from "../server/email";
 import { tick, type SchedulerActor, type TickReport } from "../server/sched/runner";
 
 /**
@@ -74,10 +76,11 @@ async function runTick(
   cadences: ReadonlyArray<"daily" | "weekly" | "monthly_day" | "monthly_business_day"> | undefined,
   sweep: boolean,
 ): Promise<TickReport> {
-  const { db, description } = resolveRunDb();
+  const { db, kind, description } = resolveRunDb();
   // Printed rather than assumed. A task that quietly ran against the memory
   // port would report every window as succeeded and write nothing.
   console.log(`scheduler tick: ${description}`);
+  const emailCfg = readEmailEnv();
   return tick(db, {
     actor: actorFromEnv(),
     // The platform's timestamp, not a clock read inside the task. A retry an
@@ -86,6 +89,10 @@ async function runTick(
     cadences,
     triggerRunId,
     sweep,
+    // Memory mode has no real tenancy.* tables for notifyAfterRun's own
+    // queries to read, so it stays null there the same way db does.
+    pool: kind === "postgres" ? getPool() : null,
+    email: emailCfg ? createResendEmail(emailCfg) : createLoggingEmail(),
   });
 }
 

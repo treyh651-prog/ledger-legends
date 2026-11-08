@@ -16,6 +16,7 @@ import type {
   AccrualTemplateRow,
   AgingSnapshotRow,
   ArapPolicyRow,
+  NotificationPreferenceRow,
   BankAccountRow,
   BankCodeMappingRow,
   BillApplicationRow,
@@ -506,6 +507,11 @@ export interface QueryCatalog {
   arap_policy: {
     params: { firmId: Ulid; clientId: Ulid };
     row: ArapPolicyRow;
+  };
+  /** Every notification preference row for a client, 0 to 2 (one per type). */
+  notification_preferences_for_client: {
+    params: { firmId: Ulid; clientId: Ulid };
+    row: NotificationPreferenceRow;
   };
   /** Customer name ascending then id ascending, the module 5 iteration order. */
   customers_for_client: {

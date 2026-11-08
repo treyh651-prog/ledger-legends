@@ -390,6 +390,11 @@ export const RUN_POLICIES: Readonly<Record<string, RunPolicy>> = {
     reason:
       "deciding what a bank's own code means on this client's books is a judgment a person makes, the same reasoning CFG-CREATE-RULE gives for its own category mapping",
   },
+  "CFG-SET-NOTIFICATION-PREFERENCE": {
+    tier: "manual",
+    reason:
+      "turning on a client-facing email notification is a deliberate per-client, per-type choice a person makes, never a default -- the D4 compliance framing docs/09 states for this feature",
+  },
   "CFG-CREATE-BUDGET-LINES": {
     tier: "manual",
     reason:

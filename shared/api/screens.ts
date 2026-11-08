@@ -1115,6 +1115,14 @@ export const setupArapPolicySchema = z.object({
 });
 export type SetupArapPolicy = z.infer<typeof setupArapPolicySchema>;
 
+/** The two client-facing notification types this round wires up. An absent entry means off. */
+export const notificationTypeSchema = z.enum(["document_request_nudge", "substantiation_request_raised"]);
+export const setupNotificationPreferenceSchema = z.object({
+  notificationType: notificationTypeSchema,
+  enabled: z.boolean(),
+});
+export type SetupNotificationPreference = z.infer<typeof setupNotificationPreferenceSchema>;
+
 export const clientSetupSchema = z.object({
   clientId: idSchema,
   bankAccounts: z.array(setupBankAccountSchema),
@@ -1124,5 +1132,6 @@ export const clientSetupSchema = z.object({
   uploadsConfigured: z.boolean(),
   policy: setupClientPolicySchema.nullable(),
   arapPolicy: setupArapPolicySchema.nullable(),
+  notificationPreferences: z.array(setupNotificationPreferenceSchema),
 });
 export type ClientSetup = z.infer<typeof clientSetupSchema>;

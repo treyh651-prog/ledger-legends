@@ -163,6 +163,7 @@ const TABLES: TableName[] = [
   "loan_schedule",
   "accrual_templates",
   "arap_policies",
+  "notification_preferences",
   "customers",
   "invoices",
   "credit_memos",
@@ -1319,6 +1320,13 @@ class MemoryTx implements RunTx {
         return this.view("arap_policies")
           .filter((r) => r.firmId === p.firmId && r.clientId === p.clientId)
           .sort(byId)
+          .map(clone);
+      }
+      case "notification_preferences_for_client": {
+        const p = rawParams as QueryCatalog["notification_preferences_for_client"]["params"];
+        return this.view("notification_preferences")
+          .filter((r) => r.firmId === p.firmId && r.clientId === p.clientId)
+          .sort((a, b) => ((a as unknown as { notificationType: string }).notificationType < (b as unknown as { notificationType: string }).notificationType ? -1 : 1))
           .map(clone);
       }
       case "customers_for_client": {

@@ -1262,6 +1262,21 @@ export interface AccrualTemplateRow {
  * run resolves the policy through a defaults helper rather than reading the
  * row directly.
  */
+/**
+ * tenancy.notification_preferences, migration 0074. One row per (client,
+ * notification type), absent means off -- opt in, never opt out, per
+ * docs/09's D4 compliance framing for this feature.
+ */
+export interface NotificationPreferenceRow {
+  id: Ulid;
+  firmId: Ulid;
+  clientId: Ulid;
+  version: number;
+  notificationType: "document_request_nudge" | "substantiation_request_raised";
+  enabled: boolean;
+  manualOverride: boolean;
+}
+
 export interface ArapPolicyRow {
   id: Ulid;
   firmId: Ulid;
@@ -2957,6 +2972,7 @@ export interface RowMap {
   loan_schedule: LoanScheduleRow;
   accrual_templates: AccrualTemplateRow;
   arap_policies: ArapPolicyRow;
+  notification_preferences: NotificationPreferenceRow;
   customers: CustomerRow;
   invoices: InvoiceRow;
   credit_memos: CreditMemoRow;

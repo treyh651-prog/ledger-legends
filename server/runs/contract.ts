@@ -210,6 +210,7 @@ export type RunTypeId =
   | "CFG-CREATE-ACCRUAL-TEMPLATE"
   | "CFG-CREATE-ARAP-POLICY"
   | "CFG-CREATE-BANKCODE-MAPPING"
+  | "CFG-SET-NOTIFICATION-PREFERENCE"
   | "CFG-CREATE-BUDGET-LINES"
   | "CFG-CREATE-BUDGET-THRESHOLD"
   // close.substantiation_records had a real insert case in apply-writer.ts

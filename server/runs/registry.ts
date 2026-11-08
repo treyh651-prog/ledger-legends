@@ -87,6 +87,7 @@ import { cfgCreateDeferralSchedule } from "./runs/cfg-create-deferral-schedule";
 import { cfgCreateAccrualTemplate } from "./runs/cfg-create-accrual-template";
 import { cfgCreateArapPolicy } from "./runs/cfg-create-arap-policy";
 import { cfgCreateBankcodeMapping } from "./runs/cfg-create-bankcode-mapping";
+import { cfgSetNotificationPreference } from "./runs/cfg-set-notification-preference";
 import { cfgCreateBudgetLines } from "./runs/cfg-create-budget-lines";
 import { cfgCreateBudgetThreshold } from "./runs/cfg-create-budget-threshold";
 import { cfgCreateSubstantiationRecord } from "./runs/cfg-create-substantiation-record";
@@ -263,6 +264,7 @@ export const registry: readonly RegistryEntry[] = [
   entry(cfgCreateAccrualTemplate),
   entry(cfgCreateArapPolicy),
   entry(cfgCreateBankcodeMapping),
+  entry(cfgSetNotificationPreference),
   entry(cfgCreateBudgetLines),
   entry(cfgCreateBudgetThreshold),
   entry(cfgCreateSubstantiationRecord),

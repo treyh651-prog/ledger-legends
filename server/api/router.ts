@@ -52,6 +52,9 @@ import type { Actor } from "../db/with-actor";
 import type { RunDb } from "../runs/db";
 import { ApiFailure, notConfigured, notFound, withOneRetry } from "./errors";
 import type { DocumentStorage } from "../storage/document-storage";
+import type { PgPoolLike } from "../runs/db-postgres";
+import type { EmailSender } from "../email";
+import { notifyAfterRun } from "../notify/practice-email";
 import {
   firmOverview,
   getClient,
@@ -79,6 +82,10 @@ export interface ApiDeps {
   now?: () => Date;
   /** Where document bytes live. Null means uploads answer 501 and the screens say so. */
   storage?: DocumentStorage | null;
+  /** Null in memory mode. notifyAfterRun's own raw-pool queries need the real thing. */
+  pool?: PgPoolLike | null;
+  /** Logs instead of sending when RESEND_API_KEY/EMAIL_FROM are not both set. */
+  email?: EmailSender | null;
 }
 
 /**
@@ -959,6 +966,18 @@ export function createApiRouter(deps: ApiDeps): Router {
         scope: body.scope,
         now: now(),
       });
+      if (body.mode === "apply" && deps.pool && deps.email) {
+        try {
+          await notifyAfterRun(
+            { pool: deps.pool, email: deps.email },
+            { status: outcome.status, runType: outcome.runType, proposals: outcome.proposals as Array<Record<string, unknown>> },
+            req.firm!.firmId,
+            clientId,
+          );
+        } catch (err) {
+          console.error(`notifyAfterRun failed for ${runCode} on client ${clientId}:`, err);
+        }
+      }
       return { status: outcome.status === "refused" || outcome.status === "rejected_locked" ? 409 : 200, body: outcome };
     }),
   );

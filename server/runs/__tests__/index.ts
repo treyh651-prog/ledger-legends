@@ -155,6 +155,7 @@ import "./txn-void-and-reissue";
 import "./txn-accept-coding";
 import "./txn-recode";
 import "./cfg-disable-rule-autopost";
+import "./cfg-set-notification-preference";
 import "./apply-writer-cash-effect";
 import "./intake-open-requests";
 import "./setup-add-bank-account";

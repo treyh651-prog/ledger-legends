@@ -69,6 +69,7 @@ const SCHEMA = "ledger";
 export const PHYSICAL_TABLES: Partial<Record<TableName, string>> = {
   clients: "tenancy.clients",
   engagements: "tenancy.engagements",
+  notification_preferences: "tenancy.notification_preferences",
   documents: "docvault.documents",
   audit_events: "docvault.audit_events",
   signature_evidence: "docvault.signature_evidence",
@@ -796,6 +797,12 @@ const ARAP_POLICY_COLUMNS = `
   ap_clearing_account as "apClearingAccount",
   purchase_discount_account as "purchaseDiscountAccount",
   vendor_credit_account as "vendorCreditAccount",
+  manual_override as "manualOverride"
+`;
+
+const NOTIFICATION_PREFERENCE_COLUMNS = `
+  id, firm_id as "firmId", client_id as "clientId", version,
+  notification_type as "notificationType", enabled,
   manual_override as "manualOverride"
 `;
 
@@ -2222,6 +2229,14 @@ export const QUERIES: Record<QueryName, SqlSpec> = {
           from subledger.arap_policies
           where firm_id = $1 and client_id = $2
           order by id asc`,
+    params: (p) => [p.firmId, p.clientId],
+  },
+  notification_preferences_for_client: {
+    table: "notification_preferences",
+    sql: `select ${NOTIFICATION_PREFERENCE_COLUMNS}
+          from tenancy.notification_preferences
+          where firm_id = $1 and client_id = $2
+          order by notification_type asc`,
     params: (p) => [p.firmId, p.clientId],
   },
   customers_for_client: {

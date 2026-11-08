@@ -1322,7 +1322,7 @@ export async function firmTasks(tx: RunTx, firmId: string, period: string): Prom
 
 /** Bank accounts, active mapping profiles with their columns, and tasks for one client. */
 export async function clientSetup(tx: RunTx, firmId: string, clientId: string): Promise<ClientSetup> {
-  const [client, banks, profiles, columns, tasks, policies, arapPolicies] = await Promise.all([
+  const [client, banks, profiles, columns, tasks, policies, arapPolicies, notificationPreferences] = await Promise.all([
     tx.query("client_by_id", { firmId, clientId }),
     tx.query("bank_accounts_for_client", { firmId, clientId }),
     tx.query("mapping_profiles_for_client", { firmId, clientId }),
@@ -1330,6 +1330,7 @@ export async function clientSetup(tx: RunTx, firmId: string, clientId: string): 
     tx.query("practice_tasks_for_client", { firmId, clientId }),
     tx.query("client_policy", { firmId, clientId }),
     tx.query("arap_policy", { firmId, clientId }),
+    tx.query("notification_preferences_for_client", { firmId, clientId }),
   ]);
   const name = client[0]?.name ?? clientId;
   const policy = policies[0] ?? null;
@@ -1392,5 +1393,6 @@ export async function clientSetup(tx: RunTx, firmId: string, clientId: string): 
             graceDays: arapPolicy.graceDays,
             lateFeeMinimumCents: Number(arapPolicy.lateFeeMinimumCents),
           },
+    notificationPreferences: notificationPreferences.map((p) => ({ notificationType: p.notificationType, enabled: p.enabled })),
   };
 }

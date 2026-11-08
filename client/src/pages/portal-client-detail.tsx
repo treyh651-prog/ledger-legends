@@ -23,7 +23,7 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogT
 import { firmKeys, useClient, useClientSetup, useTriggerRun, errorMessage } from "@/api";
 import { fmtDate, usd } from "@/lib/money";
 import { tierMeta, isTierId } from "@shared/tiers";
-import type { SetupArapPolicy, SetupClientPolicy } from "@shared/api";
+import type { SetupArapPolicy, SetupClientPolicy, SetupNotificationPreference } from "@shared/api";
 
 /** True when the wizard just routed here. Query only, nothing is stored. */
 function cameFromWizard(): boolean {
@@ -63,6 +63,7 @@ export default function PortalClientDetail() {
   const tasks = setup.data?.tasks ?? [];
   const policy = setup.data?.policy ?? null;
   const arapPolicy = setup.data?.arapPolicy ?? null;
+  const notificationPreferences = setup.data?.notificationPreferences ?? [];
   const level = c.engagement && isTierId(c.engagement.serviceLevel) ? tierMeta(c.engagement.serviceLevel).name : c.engagement?.serviceLevel ?? "No engagement";
 
   return (
@@ -155,6 +156,30 @@ export default function PortalClientDetail() {
           ) : (
             <p className="text-xs text-muted-foreground">Not set up yet. Every AR/AP run reads doc 02's module 5 defaults until this is created.</p>
           )}
+        </SectionCard>
+
+        <SectionCard
+          title="Email notifications"
+          description="Opt in per notification type. Off by default -- absence means off, docs/09's own framing for this feature."
+        >
+          <div className="space-y-2">
+            {id ? (
+              <NotificationPreferenceToggle
+                clientId={id}
+                notificationType="document_request_nudge"
+                label="Nudge the client when an open document request is due for a check"
+                preferences={notificationPreferences}
+              />
+            ) : null}
+            {id ? (
+              <NotificationPreferenceToggle
+                clientId={id}
+                notificationType="substantiation_request_raised"
+                label="Email the client when a new document request is raised"
+                preferences={notificationPreferences}
+              />
+            ) : null}
+          </div>
         </SectionCard>
 
         <SectionCard title="Engagement" description="From tenancy.engagements. Signing is on the client's portal.">
@@ -569,6 +594,69 @@ function ArapPolicyDialog({ clientId }: { clientId: string }) {
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+/**
+ * CFG-SET-NOTIFICATION-PREFERENCE, one toggle per notification type. No
+ * dialog -- a checkbox that triggers the run directly on change, the same
+ * shape every on/off setting elsewhere in this app uses (category/rule
+ * isActive). Absence in `preferences` means off, matching the run's own
+ * "no row means off" semantics -- this component never has to distinguish
+ * "explicitly off" from "never set."
+ */
+function NotificationPreferenceToggle({
+  clientId,
+  notificationType,
+  label,
+  preferences,
+}: {
+  clientId: string;
+  notificationType: SetupNotificationPreference["notificationType"];
+  label: string;
+  preferences: SetupNotificationPreference[];
+}) {
+  const [error, setError] = useState<string | null>(null);
+  const trigger = useTriggerRun(clientId);
+  const qc = useQueryClient();
+  const enabled = preferences.find((p) => p.notificationType === notificationType)?.enabled ?? false;
+
+  const toggle = async (next: boolean) => {
+    setError(null);
+    const scope = { clientId, notificationType, enabled: next };
+    try {
+      const preview = await trigger.mutateAsync({ runCode: "CFG-SET-NOTIFICATION-PREFERENCE", body: { mode: "preview", scope } });
+      if (preview.status !== "completed" && preview.status !== "no_op") {
+        setError(preview.errors[0]?.message ?? `The run ended ${preview.status}.`);
+        return;
+      }
+      if (preview.status === "completed") {
+        const applied = await trigger.mutateAsync({ runCode: "CFG-SET-NOTIFICATION-PREFERENCE", body: { mode: "apply", scope, previewRunId: preview.executionId } });
+        if (applied.status !== "completed") {
+          setError(applied.errors[0]?.message ?? `The run ended ${applied.status}.`);
+          return;
+        }
+      }
+      void qc.invalidateQueries({ queryKey: firmKeys.setup(clientId) });
+    } catch (e) {
+      setError(errorMessage(e));
+    }
+  };
+
+  return (
+    <div>
+      <label className="flex items-center gap-2 text-sm">
+        <input
+          type="checkbox"
+          checked={enabled}
+          onChange={(e) => void toggle(e.target.checked)}
+          disabled={trigger.isPending}
+          data-testid={`notification-pref-${notificationType}`}
+        />
+        {label}
+      </label>
+      {error ? <p className="mt-1 break-words text-xs text-destructive">{error}</p> : null}
+    </div>
   );
 }
 

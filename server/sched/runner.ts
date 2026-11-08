@@ -43,6 +43,9 @@ import {
   type SkipReason,
 } from "./plan";
 import { cadenceFireInstants, priorPeriodStartOf } from "../runs/dates";
+import type { PgPoolLike } from "../runs/db-postgres";
+import type { EmailSender } from "../email";
+import { notifyAfterRun } from "../notify/practice-email";
 
 const DAY_MS = 86_400_000;
 
@@ -82,6 +85,14 @@ export interface TickOptions {
    * windows an earlier tick recorded and did not finish.
    */
   sweep?: boolean;
+  /**
+   * Null or omitted in memory mode and in every test -- notifyAfterRun is
+   * then simply never called. The real tick (trigger/scheduler.ts) passes
+   * the same process wide pool getPool() already hands out, and a real or
+   * logging EmailSender depending on whether RESEND_API_KEY is set.
+   */
+  pool?: PgPoolLike | null;
+  email?: EmailSender | null;
 }
 
 export interface WindowOutcome {
@@ -444,6 +455,22 @@ async function runWindow(
       previewRunId: preview.executionId,
       unattended: true,
     });
+    // Best effort, outside the run's own correctness entirely -- a Resend
+    // outage must never turn a real, already committed apply into a failed
+    // window. See server/notify/practice-email.ts for what this does and
+    // does not send.
+    if (opts.pool && opts.email) {
+      try {
+        await notifyAfterRun(
+          { pool: opts.pool, email: opts.email },
+          { status: applied.status, runType: applied.runType, proposals: applied.result.proposals as unknown as Array<Record<string, unknown>> },
+          schedule.firmId,
+          schedule.clientId,
+        );
+      } catch (err) {
+        console.error(`notifyAfterRun failed for ${schedule.runType} on client ${schedule.clientId}:`, err);
+      }
+    }
     const failed = applied.status === "refused" || applied.status === "failed";
     await finishWindow(db, opts, schedule, window, {
       status: failed ? "failed" : "succeeded",
