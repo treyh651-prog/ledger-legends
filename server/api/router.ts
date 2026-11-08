@@ -29,7 +29,7 @@ const taskParamsSchema = clientParamsSchema.extend({ taskId: z.string().min(1) }
 const batchParamsSchema = clientParamsSchema.extend({ batchId: z.string().min(1) });
 const stagedRowParamsSchema = batchParamsSchema.extend({ stagedRowId: z.string().min(1) });
 const setBillingStatusBodySchema = z.object({ billingStatus: z.enum(["current", "past_due"]) });
-import { aging, billsForClient, budget, categoriesForClient, clientSetup, closeChecklist, consolidatedPackages, cpaHandoffsForClient, customersForClient, entityGroups, firmRequests, firmTasks, fixedAssetsForClient, forecast, invoicesForClient, journal, narratives, offboardExportsForClient, payRunsForClient, reconcile, recurringTemplates, reportPackages, rules, stagedBatches, stagedRowsForBatch, substantiation, taxForms, trialBalance, vendorsForClient } from "./reads-screens";
+import { aging, billsForClient, budget, categoriesForClient, clientSetup, closeChecklist, consolidatedPackages, cpaHandoffsForClient, customersForClient, entityGroups, firmRequests, firmTasks, fixedAssetsForClient, forecast, invoicesForClient, journal, loansForClient, narratives, offboardExportsForClient, payRunsForClient, reconcile, recurringTemplates, reportPackages, rules, stagedBatches, stagedRowsForBatch, substantiation, taxForms, trialBalance, vendorsForClient } from "./reads-screens";
 import { rejectBatchBodySchema, reviewStagedRowBodySchema, updateTaskBodySchema, type FirmMember, type FirmTeam } from "../../shared/api/screens";
 import { CODING_CASCADE_ORDER, lookupRun } from "../runs/registry";
 import { executeSequence, step } from "../runs/sequence";
@@ -776,6 +776,16 @@ export function createApiRouter(deps: ApiDeps): Router {
       const { clientId } = parse(clientParamsSchema, req.params);
       const firmId = req.firm!.firmId;
       const body = await deps.db.tx(readSession(req.actor!, firmId, clientId), (tx) => fixedAssetsForClient(tx, firmId, clientId));
+      return { body };
+    }),
+  );
+
+  firmClient.get(
+    "/loans",
+    route(async (req) => {
+      const { clientId } = parse(clientParamsSchema, req.params);
+      const firmId = req.firm!.firmId;
+      const body = await deps.db.tx(readSession(req.actor!, firmId, clientId), (tx) => loansForClient(tx, firmId, clientId));
       return { body };
     }),
   );

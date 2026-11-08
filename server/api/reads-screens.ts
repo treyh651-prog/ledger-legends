@@ -42,6 +42,7 @@ import type {
   CpaHandoffs,
   OffboardExports,
   FixedAssets,
+  Loans,
 } from "../../shared/api/screens";
 import type { Cents } from "../runs/contract";
 import type { RunTx } from "../runs/db";
@@ -671,6 +672,40 @@ export async function fixedAssetsForClient(tx: RunTx, firmId: string, clientId: 
       disposedOn: a.disposedOn,
       disposalProceedsCents: a.disposalProceedsCents === null ? null : Number(a.disposalProceedsCents),
       manualOverride: a.manualOverride,
+    })),
+  };
+}
+
+export async function loansForClient(tx: RunTx, firmId: string, clientId: string): Promise<Loans> {
+  const loans = await tx.query("loans_for_client", { firmId, clientId });
+  const loanIds = loans.map((l) => l.id);
+  const schedule = loanIds.length === 0 ? [] : await tx.query("loan_schedule_for_loans", { firmId, clientId, loanIds });
+  const lineCount = new Map<string, number>();
+  for (const l of schedule) lineCount.set(l.loanId, (lineCount.get(l.loanId) ?? 0) + 1);
+  return {
+    clientId,
+    items: loans.map((l) => ({
+      id: l.id,
+      version: l.version,
+      lenderName: l.lenderName,
+      loanType: l.loanType,
+      principalAccountLt: l.principalAccountLt,
+      principalAccountCp: l.principalAccountCp,
+      interestAccount: l.interestAccount,
+      fundingAccount: l.fundingAccount,
+      escrowAccount: l.escrowAccount,
+      originalPrincipalCents: Number(l.originalPrincipalCents),
+      originationDate: l.originationDate,
+      firstPaymentDate: l.firstPaymentDate,
+      termMonths: l.termMonths,
+      annualRateBps: l.annualRateBps,
+      paymentCents: l.paymentCents === null ? null : Number(l.paymentCents),
+      balloonCents: Number(l.balloonCents),
+      rateType: l.rateType,
+      status: l.status,
+      payoffDate: l.payoffDate,
+      manualOverride: l.manualOverride,
+      scheduleLineCount: lineCount.get(l.id) ?? 0,
     })),
   };
 }

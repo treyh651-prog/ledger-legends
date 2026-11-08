@@ -511,6 +511,38 @@ export const fixedAssetsSchema = z.object({
 });
 export type FixedAssets = z.infer<typeof fixedAssetsSchema>;
 
+/** Audit rerun fix, item 6: loans had no screen either -- confirmed zero UI. */
+export const loanSchema = z.object({
+  id: z.string(),
+  version: z.number().int(),
+  lenderName: z.string(),
+  loanType: z.string(),
+  principalAccountLt: z.string(),
+  principalAccountCp: z.string().nullable(),
+  interestAccount: z.string(),
+  fundingAccount: z.string().nullable(),
+  escrowAccount: z.string().nullable(),
+  originalPrincipalCents: centsSchema,
+  originationDate: z.string(),
+  firstPaymentDate: z.string(),
+  termMonths: z.number().int(),
+  annualRateBps: z.number().int(),
+  paymentCents: centsSchema.nullable(),
+  balloonCents: centsSchema,
+  rateType: z.enum(["fixed", "variable"]),
+  status: z.enum(["active", "paid_off", "refinanced", "written_off"]),
+  payoffDate: z.string().nullable(),
+  manualOverride: z.boolean(),
+  scheduleLineCount: z.number().int(),
+});
+export type Loan = z.infer<typeof loanSchema>;
+
+export const loansSchema = z.object({
+  clientId: idSchema,
+  items: z.array(loanSchema),
+});
+export type Loans = z.infer<typeof loansSchema>;
+
 /** Audit fix (problem 8): invoices, credit memos, and bills had no screen. */
 export const invoiceSchema = z.object({
   id: z.string(),

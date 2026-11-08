@@ -110,7 +110,11 @@ function PostDepreciationButton({ clientId, period }: { clientId: string; period
     const scope = { clientId, period: periodStartOf(period) };
     try {
       const preview = await trigger.mutateAsync({ runCode: "PER-POST-DEPRECIATION", body: { mode: "preview", scope } });
-      if (preview.status !== "completed") {
+      if (preview.status === "no_op") {
+        setMessage("Nothing to depreciate this period.");
+        return;
+      }
+      if (preview.status !== "completed" && preview.status !== "completed_with_skips") {
         setError(preview.errors[0]?.message ?? `The run ended ${preview.status}.`);
         return;
       }
@@ -118,7 +122,7 @@ function PostDepreciationButton({ clientId, period }: { clientId: string; period
         runCode: "PER-POST-DEPRECIATION",
         body: { mode: "apply", scope, previewRunId: preview.executionId },
       });
-      if (applied.status !== "completed") {
+      if (applied.status !== "completed" && applied.status !== "completed_with_skips") {
         setError(applied.errors[0]?.message ?? `The run ended ${applied.status}.`);
         return;
       }
