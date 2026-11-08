@@ -29,7 +29,7 @@ const taskParamsSchema = clientParamsSchema.extend({ taskId: z.string().min(1) }
 const batchParamsSchema = clientParamsSchema.extend({ batchId: z.string().min(1) });
 const stagedRowParamsSchema = batchParamsSchema.extend({ stagedRowId: z.string().min(1) });
 const setBillingStatusBodySchema = z.object({ billingStatus: z.enum(["current", "past_due"]) });
-import { accrualTemplatesForClient, aging, billsForClient, budget, categoriesForClient, clientSetup, closeChecklist, consolidatedPackages, cpaHandoffsForClient, customersForClient, deferralSchedulesForClient, entityGroups, firmRequests, firmTasks, fixedAssetsForClient, forecast, invoicesForClient, journal, loansForClient, narratives, offboardExportsForClient, payRunsForClient, reconcile, recurringTemplates, reportPackages, rules, stagedBatches, stagedRowsForBatch, substantiation, taxForms, trialBalance, vendorsForClient } from "./reads-screens";
+import { accrualTemplatesForClient, aging, bankCodeMappingsForClient, billsForClient, budget, categoriesForClient, clientSetup, closeChecklist, consolidatedPackages, cpaHandoffsForClient, customersForClient, deferralSchedulesForClient, entityGroups, firmRequests, firmTasks, fixedAssetsForClient, forecast, invoicesForClient, journal, loansForClient, narratives, offboardExportsForClient, payRunsForClient, reconcile, recurringTemplates, reportPackages, rules, stagedBatches, stagedRowsForBatch, substantiation, taxForms, trialBalance, vendorsForClient } from "./reads-screens";
 import { rejectBatchBodySchema, reviewStagedRowBodySchema, updateTaskBodySchema, type FirmMember, type FirmTeam } from "../../shared/api/screens";
 import { CODING_CASCADE_ORDER, lookupRun } from "../runs/registry";
 import { executeSequence, step } from "../runs/sequence";
@@ -806,6 +806,16 @@ export function createApiRouter(deps: ApiDeps): Router {
       const { clientId } = parse(clientParamsSchema, req.params);
       const firmId = req.firm!.firmId;
       const body = await deps.db.tx(readSession(req.actor!, firmId, clientId), (tx) => accrualTemplatesForClient(tx, firmId, clientId));
+      return { body };
+    }),
+  );
+
+  firmClient.get(
+    "/bank-code-mappings",
+    route(async (req) => {
+      const { clientId } = parse(clientParamsSchema, req.params);
+      const firmId = req.firm!.firmId;
+      const body = await deps.db.tx(readSession(req.actor!, firmId, clientId), (tx) => bankCodeMappingsForClient(tx, firmId, clientId));
       return { body };
     }),
   );

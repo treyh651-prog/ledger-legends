@@ -603,6 +603,26 @@ export const accrualTemplatesSchema = z.object({
 });
 export type AccrualTemplates = z.infer<typeof accrualTemplatesSchema>;
 
+/**
+ * Audit rerun fix, item 6: bank code mappings had no screen either --
+ * confirmed zero UI. The last of the 14 run types this fix round covers.
+ */
+export const bankCodeMappingSchema = z.object({
+  id: z.string(),
+  institutionId: z.string(),
+  bankCode: z.string(),
+  categoryId: z.string(),
+  categoryName: z.string().nullable(),
+  isActive: z.boolean(),
+});
+export type BankCodeMapping = z.infer<typeof bankCodeMappingSchema>;
+
+export const bankCodeMappingsSchema = z.object({
+  clientId: idSchema,
+  items: z.array(bankCodeMappingSchema),
+});
+export type BankCodeMappings = z.infer<typeof bankCodeMappingsSchema>;
+
 /** Audit fix (problem 8): invoices, credit memos, and bills had no screen. */
 export const invoiceSchema = z.object({
   id: z.string(),

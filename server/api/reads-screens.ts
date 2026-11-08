@@ -45,6 +45,7 @@ import type {
   Loans,
   DeferralSchedules,
   AccrualTemplates,
+  BankCodeMappings,
 } from "../../shared/api/screens";
 import type { Cents } from "../runs/contract";
 import type { RunTx } from "../runs/db";
@@ -760,6 +761,25 @@ export async function accrualTemplatesForClient(tx: RunTx, firmId: string, clien
       autoReverse: t.autoReverse,
       isActive: t.isActive,
       manualOverride: t.manualOverride,
+    })),
+  };
+}
+
+export async function bankCodeMappingsForClient(tx: RunTx, firmId: string, clientId: string): Promise<BankCodeMappings> {
+  const [mappings, categories] = await Promise.all([
+    tx.query("bank_code_mappings_for_client", { firmId, clientId }),
+    tx.query("categories_for_client", { firmId, clientId }),
+  ]);
+  const categoryName = new Map(categories.map((c) => [c.id, c.name]));
+  return {
+    clientId,
+    items: mappings.map((m) => ({
+      id: m.id,
+      institutionId: m.institutionId,
+      bankCode: m.bankCode,
+      categoryId: m.categoryId,
+      categoryName: categoryName.get(m.categoryId) ?? null,
+      isActive: m.isActive,
     })),
   };
 }

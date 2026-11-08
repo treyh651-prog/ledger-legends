@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { AccrualTemplates, Aging, Bills, Budget, Categories, ClientSetup, CloseChecklist, ConsolidatedPackages, CpaHandoffs, Customers, DeferralSchedules, EntityGroups, FirmRequests, FirmTasks, FirmTeam, FixedAssets, Loans, RunOutcomeDto, UpdateTaskBody, Forecast, Invoices, Journal, Narratives, OffboardExports, PayRuns, PortalStatements, Reconcile, RecurringTemplates, ReportPackages, Rules, StagedBatches, StagedRows, Substantiation, TaxForms, TrialBalance, Vendors } from "@shared/api";
+import type { AccrualTemplates, Aging, BankCodeMappings, Bills, Budget, Categories, ClientSetup, CloseChecklist, ConsolidatedPackages, CpaHandoffs, Customers, DeferralSchedules, EntityGroups, FirmRequests, FirmTasks, FirmTeam, FixedAssets, Loans, RunOutcomeDto, UpdateTaskBody, Forecast, Invoices, Journal, Narratives, OffboardExports, PayRuns, PortalStatements, Reconcile, RecurringTemplates, ReportPackages, Rules, StagedBatches, StagedRows, Substantiation, TaxForms, TrialBalance, Vendors } from "@shared/api";
 import { api, toQuery } from "./http";
 
 /** Reads for the firm screens. Keys live under the client so run mutations invalidate them. */
@@ -25,6 +25,7 @@ export const screenKeys = {
   loans: (clientId: string) => ["api", "firm", "clients", clientId, "loans"] as const,
   deferralSchedules: (clientId: string) => ["api", "firm", "clients", clientId, "deferral-schedules"] as const,
   accrualTemplates: (clientId: string) => ["api", "firm", "clients", clientId, "accrual-templates"] as const,
+  bankCodeMappings: (clientId: string) => ["api", "firm", "clients", clientId, "bank-code-mappings"] as const,
   invoices: (clientId: string) => ["api", "firm", "clients", clientId, "invoices"] as const,
   bills: (clientId: string) => ["api", "firm", "clients", clientId, "bills"] as const,
   payRuns: (clientId: string) => ["api", "firm", "clients", clientId, "pay-runs"] as const,
@@ -263,6 +264,14 @@ export function useAccrualTemplates(clientId: string | null) {
   return useQuery({
     queryKey: screenKeys.accrualTemplates(clientId ?? "none"),
     queryFn: () => api<AccrualTemplates>("GET", `/api/firm/clients/${clientId}/accrual-templates`),
+    enabled: !!clientId,
+  });
+}
+
+export function useBankCodeMappings(clientId: string | null) {
+  return useQuery({
+    queryKey: screenKeys.bankCodeMappings(clientId ?? "none"),
+    queryFn: () => api<BankCodeMappings>("GET", `/api/firm/clients/${clientId}/bank-code-mappings`),
     enabled: !!clientId,
   });
 }
