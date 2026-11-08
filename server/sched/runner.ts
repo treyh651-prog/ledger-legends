@@ -89,7 +89,7 @@ export interface TickOptions {
    * Null or omitted in memory mode and in every test -- notifyAfterRun is
    * then simply never called. The real tick (trigger/scheduler.ts) passes
    * the same process wide pool getPool() already hands out, and a real or
-   * logging EmailSender depending on whether RESEND_API_KEY is set.
+   * logging EmailSender depending on whether SMTP is configured.
    */
   pool?: PgPoolLike | null;
   email?: EmailSender | null;
@@ -455,7 +455,7 @@ async function runWindow(
       previewRunId: preview.executionId,
       unattended: true,
     });
-    // Best effort, outside the run's own correctness entirely -- a Resend
+    // Best effort, outside the run's own correctness entirely -- an SMTP
     // outage must never turn a real, already committed apply into a failed
     // window. See server/notify/practice-email.ts for what this does and
     // does not send.

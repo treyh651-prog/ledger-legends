@@ -37,7 +37,7 @@ import { schedules } from "@trigger.dev/sdk";
 
 import { resolveRunDb } from "../server/db/run-db";
 import { getPool } from "../server/db/pool";
-import { createLoggingEmail, createResendEmail, readEmailEnv } from "../server/email";
+import { createLoggingEmail, createSmtpEmail, readEmailEnv } from "../server/email";
 import { tick, type SchedulerActor, type TickReport } from "../server/sched/runner";
 
 /**
@@ -92,7 +92,7 @@ async function runTick(
     // Memory mode has no real tenancy.* tables for notifyAfterRun's own
     // queries to read, so it stays null there the same way db does.
     pool: kind === "postgres" ? getPool() : null,
-    email: emailCfg ? createResendEmail(emailCfg) : createLoggingEmail(),
+    email: emailCfg ? createSmtpEmail(emailCfg) : createLoggingEmail(),
   });
 }
 

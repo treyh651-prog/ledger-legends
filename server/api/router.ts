@@ -84,7 +84,7 @@ export interface ApiDeps {
   storage?: DocumentStorage | null;
   /** Null in memory mode. notifyAfterRun's own raw-pool queries need the real thing. */
   pool?: PgPoolLike | null;
-  /** Logs instead of sending when RESEND_API_KEY/EMAIL_FROM are not both set. */
+  /** Logs instead of sending when SMTP_HOST/PORT/USER/PASS/EMAIL_FROM are not all set. */
   email?: EmailSender | null;
 }
 

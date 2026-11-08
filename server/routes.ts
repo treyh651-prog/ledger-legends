@@ -34,7 +34,7 @@ import { apiErrorHandler } from "./api/errors";
 import { buildDevActor, devActorEnabled, DEV_ACTOR, DEV_FIRM_ID, DEV_USER_ID, type DevActorRuntime } from "./api/dev-actor";
 import { firmMembers } from "./auth/actor-store";
 import { createMemoryStorage, createSupabaseStorage, readStorageEnv } from "./storage/document-storage";
-import { createLoggingEmail, createResendEmail, readEmailEnv } from "./email";
+import { createLoggingEmail, createSmtpEmail, readEmailEnv } from "./email";
 
 /**
  * Routes.
@@ -184,8 +184,8 @@ export async function registerRoutes(httpServer: Server, app: Express, deps?: Ro
   const documentStorage = storageEnv ? createSupabaseStorage(storageEnv) : null;
   console.log(documentStorage ? `document storage: supabase bucket ${documentStorage.bucket}` : "document storage: not configured (SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)");
   const emailEnv = readEmailEnv();
-  const email = emailEnv ? createResendEmail(emailEnv) : createLoggingEmail();
-  console.log(email.provider === "resend" ? "email: resend" : "email: not configured (RESEND_API_KEY, EMAIL_FROM), logging instead of sending");
+  const email = emailEnv ? createSmtpEmail(emailEnv) : createLoggingEmail();
+  console.log(emailEnv ? `email: smtp ${emailEnv.host}` : "email: not configured (SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, EMAIL_FROM), logging instead of sending");
   const inv: InvitationDeps = { pool: auth.pool, authAdmin: auth.authAdmin, appOrigin: auth.appOrigin, actorOpts: auth.actorOpts };
   const ar: AccessRequestDeps = { pool: auth.pool, actorOpts: auth.actorOpts };
 
