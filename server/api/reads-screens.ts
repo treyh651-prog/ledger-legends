@@ -720,6 +720,7 @@ export async function payRunsForClient(tx: RunTx, firmId: string, clientId: stri
       .map((p) => ({
         id: p.id,
         providerName: p.providerName,
+        periodStart: p.periodStart,
         payPeriodStart: p.payPeriodStart,
         payPeriodEnd: p.payPeriodEnd,
         payDate: p.payDate,

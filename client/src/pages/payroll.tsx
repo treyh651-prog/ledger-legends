@@ -69,9 +69,58 @@ export default function Payroll() {
             { key: "gross", label: "Gross", align: "right", mobile: "row", render: (p) => <Money cents={p.grossCents} dim /> },
             { key: "net", label: "Net", align: "right", mobile: "value", render: (p) => <Money cents={p.netCents} className="font-semibold" /> },
             { key: "status", label: "Status", mobile: "row", render: (p) => <Pill tone={p.status === "posted" ? "good" : "info"}>{p.status}</Pill> },
+            {
+              key: "actions",
+              label: "",
+              mobile: "row",
+              render: (p) => (clientId && p.status === "approved" ? <PostRegisterButton clientId={clientId} payRun={p} /> : null),
+            },
           ]}
         />
       </SectionCard>
+    </div>
+  );
+}
+
+/**
+ * PAY-POST-REGISTER. Audit finding: the run posts the approved register's
+ * own figures to the ledger (gross, employer tax, withholding, net to the
+ * funding account), but nothing in the client ever called it -- an
+ * approved run could sit here forever and never reach the books. Same
+ * clientId/period/payDate/providerName the approval dialog already used,
+ * read straight off this row, nothing retyped.
+ */
+function PostRegisterButton({ clientId, payRun }: { clientId: string; payRun: PayRun }) {
+  const trigger = useTriggerRun(clientId);
+  const qc = useQueryClient();
+  const [error, setError] = useState<string | null>(null);
+
+  const post = async () => {
+    setError(null);
+    const scope = { clientId, period: payRun.periodStart, payDate: payRun.payDate, providerName: payRun.providerName };
+    try {
+      const preview = await trigger.mutateAsync({ runCode: "PAY-POST-REGISTER", body: { mode: "preview", scope } });
+      if (preview.status !== "completed") {
+        setError(preview.errors[0]?.message ?? `The run ended ${preview.status}.`);
+        return;
+      }
+      const applied = await trigger.mutateAsync({ runCode: "PAY-POST-REGISTER", body: { mode: "apply", scope, previewRunId: preview.executionId } });
+      if (applied.status !== "completed") {
+        setError(applied.errors[0]?.message ?? `The run ended ${applied.status}.`);
+        return;
+      }
+      void qc.invalidateQueries({ queryKey: screenKeys.payRuns(clientId) });
+    } catch (e) {
+      setError(errorMessage(e));
+    }
+  };
+
+  return (
+    <div className="flex flex-col items-end gap-1">
+      <Button size="sm" variant="outline" onClick={() => void post()} disabled={trigger.isPending} data-testid={`post-register-${payRun.id}`}>
+        Post
+      </Button>
+      {error ? <p className="max-w-[14rem] break-words text-right text-xs text-destructive">{error}</p> : null}
     </div>
   );
 }

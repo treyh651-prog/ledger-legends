@@ -542,6 +542,8 @@ export type Bills = z.infer<typeof billsSchema>;
 export const payRunSchema = z.object({
   id: z.string(),
   providerName: z.string(),
+  /** The accounting period this approval was raised against, distinct from the pay period dates below. PAY-POST-REGISTER posts under this exact period. */
+  periodStart: z.string(),
   payPeriodStart: z.string(),
   payPeriodEnd: z.string(),
   payDate: z.string(),
