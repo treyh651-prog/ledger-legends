@@ -174,6 +174,40 @@ export function weightByDays(total: Cents, slices: readonly MonthSlice[]): Cents
   return negative ? out.map((v) => -v) : out;
 }
 
+/**
+ * Weight a total across month slices into equal monthly shares, remainder in
+ * the last. This is what "straight_line_monthly" actually means, distinct
+ * from weightByDays ("straight_line_daily") above: every *whole* calendar
+ * month gets exactly total/periods, the same figure every other whole month
+ * gets, regardless of how many days that particular month happens to have.
+ * Only a genuinely partial month at either end of the service window -- a
+ * policy that starts or ends mid month -- is prorated, and only within that
+ * one month's own day count (monthlyShare * coveredDays / monthDays), never
+ * against the total day count across the whole schedule the way
+ * weightByDays prorates everything. Audit finding: a twelve month policy
+ * running exactly Oct 1 through Sep 30 (no partial months at all) used to
+ * release $101.91 in October and roughly $92.05 in February under
+ * weightByDays, because a 31 day month and a 28 day month are not the same
+ * fraction of a 365 day year -- here every one of the twelve gets exactly
+ * $100.00.
+ */
+export function weightByMonths(total: Cents, slices: readonly MonthSlice[], periods: number): Cents[] {
+  if (slices.length === 0 || periods <= 0) return slices.map(() => BigInt(0));
+  const negative = total < BigInt(0);
+  const magnitude = negative ? -total : total;
+  const monthlyShare = magnitude / BigInt(periods);
+  const out: Cents[] = [];
+  let assigned = BigInt(0);
+  for (let i = 0; i < slices.length - 1; i += 1) {
+    const s = slices[i];
+    const share = s.coveredDays === s.monthDays ? monthlyShare : (monthlyShare * BigInt(s.coveredDays)) / BigInt(s.monthDays);
+    out.push(share);
+    assigned += share;
+  }
+  out.push(magnitude - assigned);
+  return negative ? out.map((v) => -v) : out;
+}
+
 /** Half of an amount, rounded down, for the half month convention. */
 export function halve(amount: Cents): Cents {
   const negative = amount < BigInt(0);

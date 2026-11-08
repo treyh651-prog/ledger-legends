@@ -17,15 +17,35 @@
  * Building it here rather than leaving the schedule empty is the difference
  * between a prepaid that amortizes and a prepaid that quietly does nothing.
  *
- * Partial months on both ends are the reason the table is weighted by days
- * rather than split evenly. A twelve month policy bought on the 15th of March
- * covers seventeen days of March, eleven whole months, and fourteen days of the
- * following March. Seventeen days plus fourteen days is one month, so thirteen
- * calendar months of releases add to exactly the amount paid.
+ * The schedule's own method decides how a period is weighted, read and
+ * respected here, not assumed (audit finding: this used to always weight by
+ * days regardless of what the schedule said, so a twelve month policy
+ * running exactly Oct 1 through Sep 30 -- no partial month at either end --
+ * released $101.91 in October and roughly $92.05 in February, because a 31
+ * day month and a 28 day month are not the same fraction of a 365 day year).
  *
- * The residual lands in the final period. Every earlier period is equal to
- * every other and the last one absorbs the rounding, which is what a person
- * reading the schedule expects and what makes the prepaid land on zero.
+ * straight_line_monthly (weightByMonths, per-shared.ts): every *whole*
+ * calendar month gets exactly total/periods, the same figure every other
+ * whole month gets. A twelve month policy bought on the 15th of March covers
+ * seventeen days of March, eleven whole months, and fourteen days of the
+ * following March -- the eleven whole months are each exactly equal, and the
+ * two stubs are each prorated within their own month's day count, not
+ * against the total day count of the whole schedule.
+ *
+ * straight_line_daily (weightByDays, per-shared.ts): every slice, whole
+ * month or stub, is weighted by its own days against the total days across
+ * the whole schedule -- the shape this run used to apply unconditionally,
+ * correct for a policy that genuinely means to track per diem (certain
+ * insurance products read that way), wrong as a universal default.
+ *
+ * custom is refused, not guessed at: nothing in this codebase yet lets a
+ * firm enter its own per period amounts, so there is no real allocation to
+ * build from. See NOTES.md or ask before building a guess.
+ *
+ * The residual lands in the final period either way. Every earlier period is
+ * exactly what its own method gives it and the last one absorbs the
+ * rounding, which is what a person reading the schedule expects and what
+ * makes the prepaid land on zero.
  */
 
 import { z } from "zod";
@@ -61,6 +81,7 @@ import {
   periodWindow,
   sliceMonths,
   weightByDays,
+  weightByMonths,
   type MonthSlice,
   type PeriodWindow,
 } from "./per-shared";
@@ -68,6 +89,7 @@ import {
 export const PREPAID_ERROR_CODES = {
   emptyWindow: "PER_PREPAID_SERVICE_WINDOW_EMPTY",
   scheduleMismatch: "PER_PREPAID_LINES_DO_NOT_FOOT",
+  customMethodNotSupported: "PER_PREPAID_CUSTOM_METHOD_NOT_SUPPORTED",
 } as const;
 
 /** Kinds this run releases. Deferred revenue is a different run. */
@@ -364,8 +386,8 @@ interface BuildFailure {
 }
 
 /**
- * Build the allocation table from the service window. Day weighted, so the two
- * partial months at the ends add to one whole month.
+ * Build the allocation table from the service window, weighted per the
+ * schedule's own method -- see this file's header for what each one means.
  */
 function buildTable(
   schedule: DeferralScheduleRow,
@@ -376,11 +398,20 @@ function buildTable(
       message: `schedule ${schedule.id} ends ${schedule.serviceEnd} before it starts ${schedule.serviceStart}`,
     };
   }
+  if (schedule.method === "custom") {
+    return {
+      code: PREPAID_ERROR_CODES.customMethodNotSupported,
+      message: `schedule ${schedule.id} is method custom, which nothing in this codebase computes an allocation for yet`,
+    };
+  }
   const slices: MonthSlice[] = sliceMonths(
     schedule.serviceStart,
     schedule.serviceEnd,
   );
-  const amounts = weightByDays(schedule.totalCents, slices);
+  const amounts =
+    schedule.method === "straight_line_monthly"
+      ? weightByMonths(schedule.totalCents, slices, schedule.periods)
+      : weightByDays(schedule.totalCents, slices);
   const lines: PlannedLine[] = [];
   let released: Cents = BigInt(0);
   for (let i = 0; i < slices.length; i += 1) {

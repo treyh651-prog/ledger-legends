@@ -52,7 +52,10 @@ import {
 import { assert, assertEqual, show, test } from "./harness";
 
 const RENT = BigInt(250000);
-const PREPAID_JANUARY = BigInt(10191);
+// Audit finding: straight_line_monthly means every whole month is exactly
+// total/periods (120000/12), not weighted by January's own 31 days the way
+// straight_line_daily would.
+const PREPAID_JANUARY = BigInt(10000);
 const INTEREST = BigInt(40000);
 const PRINCIPAL = BigInt(60000);
 const ACCRUAL = BigInt(50000);

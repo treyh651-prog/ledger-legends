@@ -56,8 +56,12 @@ test("per prepaid, a clean twelve month policy builds a table and releases Janua
     BigInt(120000),
     "and they add to the policy total",
   );
-  // 120000 over 365 days, 31 of them in January.
-  assertEqual(table[0].amountCents, BigInt(10191), "January is day weighted");
+  // Audit finding: method straight_line_monthly means every whole month is
+  // exactly total/periods -- 120000/12 -- regardless of January having 31
+  // days and February having 28. Used to be day weighted unconditionally
+  // (10191, 120000 over 365 days times 31 in January), which this schedule's
+  // own method never asked for.
+  assertEqual(table[0].amountCents, BigInt(10000), "January is a full month, exactly total over periods");
   assertEqual(table[0].status, "posted", "and January is marked posted");
   assertEqual(table[1].status, "scheduled", "February is still waiting");
 
@@ -65,8 +69,30 @@ test("per prepaid, a clean twelve month policy builds a table and releases Janua
   assertEqual(entries.length, 1, "one release entry");
   assertEqual(entries[0].entryDate, "2026-01-31", "dated the period end");
   assertEqual(sumLines(linesOf(db, entries[0].id)), BigInt(0), "it balances");
-  assertEqual(balanceOf(db, "6200"), BigInt(10191), "expense took the debit");
-  assertEqual(balanceOf(db, "1310"), BigInt(-10191), "the prepaid asset came down");
+  assertEqual(balanceOf(db, "6200"), BigInt(10000), "expense took the debit");
+  assertEqual(balanceOf(db, "1310"), BigInt(-10000), "the prepaid asset came down");
+});
+
+test("per prepaid, method straight_line_daily weights by days, unlike straight_line_monthly above", async () => {
+  // The same clean twelve month policy, but with the method that genuinely
+  // wants per diem weighting -- confirms the old behavior is still
+  // reachable, just no longer the unconditional default.
+  const db = perDb();
+  db.seed("deferral_schedules", [prepaid("DS-INS", { method: "straight_line_daily" })]);
+  const { applied } = await applyPer(db, perAmortizePrepaids, periodScope());
+  assert(applied.status === "completed" || applied.status === "completed_with_skips", `status ${applied.status}`);
+  const table = tableFor(db, "DS-INS");
+  assertEqual(table.reduce((acc, l) => acc + l.amountCents, BigInt(0)), BigInt(120000), "still adds to the total");
+  // 120000 over 365 days, 31 of them in January.
+  assertEqual(table[0].amountCents, BigInt(10191), "January is day weighted under this method");
+});
+
+test("per prepaid, method custom is refused rather than guessed at", async () => {
+  const db = perDb();
+  db.seed("deferral_schedules", [prepaid("DS-INS", { method: "custom" })]);
+  const { applied } = await applyPer(db, perAmortizePrepaids, periodScope());
+  const errors = applied.result?.errors ?? [];
+  assertEqual(errors[0]?.code, "PER_PREPAID_CUSTOM_METHOD_NOT_SUPPORTED", "named, not silently computed");
 });
 
 test("per prepaid, the last period releases the residual so the schedule foots", async () => {
@@ -99,14 +125,23 @@ test("per prepaid, a mid month policy weights both partial months", async () => 
     prepaid("DS-MID", {
       serviceStart: "2026-01-15",
       serviceEnd: "2027-01-14",
-      periods: 13,
+      // Twelve months of real coverage, confirmed against
+      // cfg-create-deferral-schedule.ts: periods is the firm's own stated
+      // coverage count (a plain positive integer, never cross checked
+      // against the window), not the number of calendar months the window
+      // happens to touch -- those are thirteen here only because the
+      // policy starts mid month, which is exactly the stub case this
+      // test exists to prove.
+      periods: 12,
     }),
   ]);
   await applyPer(db, perAmortizePrepaids, periodScope());
   const table = tableFor(db, "DS-MID");
-  assertEqual(table.length, 13, "thirteen months are touched");
-  // Seventeen days of January out of 365.
-  assertEqual(table[0].amountCents, BigInt(5589), "the opening stub");
+  assertEqual(table.length, 13, "thirteen calendar months are touched by a twelve month policy");
+  // 120000 / 12 periods = 10000 a month; the opening stub is seventeen of
+  // January's thirty one days, prorated within January alone, not against
+  // the whole schedule's total days the way weightByDays would.
+  assertEqual(table[0].amountCents, BigInt(5483), "the opening stub");
   assertEqual(table[0].periodStart, "2026-01-01", "stated as a whole month");
   assertEqual(table[12].periodEnd, "2027-01-31", "and the closing month");
   const whole = table[1].amountCents;
