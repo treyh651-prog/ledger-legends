@@ -42,6 +42,22 @@ export function useCloseChecklist(clientId: string | null, period: string) {
   });
 }
 
+export interface RunCloseChecksResult {
+  stoppedAtStep: number | null;
+  stoppedBy: string | null;
+  done: boolean;
+}
+
+/** ARAP-REFRESH-AGING, SUB-TIEOUT-ACCOUNTS, CLOSE-CHECK-GATES, in order, as one sequence. */
+export function useRunCloseChecks() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ clientId, period }: { clientId: string; period: string }) =>
+      api<RunCloseChecksResult>("POST", `/api/firm/clients/${clientId}/close/run-checks${toQuery({ period: periodStartOf(period) })}`),
+    onSuccess: (_r, { clientId, period }) => void qc.invalidateQueries({ queryKey: screenKeys.close(clientId, periodStartOf(period)) }),
+  });
+}
+
 export function useReconcile(clientId: string | null, period: string, batchId: string | null) {
   const p = periodStartOf(period);
   return useQuery({

@@ -7,7 +7,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { useApp } from "@/store";
 import { useActiveClient } from "@/lib/active-client";
-import { useCloseChecklist, useTriggerRun, errorMessage, periodStartOf, screenKeys } from "@/api";
+import { useCloseChecklist, useRunCloseChecks, useTriggerRun, errorMessage, periodStartOf, screenKeys } from "@/api";
 import { fmtPeriod, fmtShortDate, fmtTimestamp } from "@/lib/money";
 import type { CloseGate, CloseTask, Tieout } from "@shared/api";
 
@@ -50,6 +50,7 @@ export default function CloseChecklist() {
         actions={
           clientId ? (
             <div className="flex gap-2">
+              {d && d.periodStatus !== "locked" ? <RunCloseChecksButton clientId={clientId} period={period} /> : null}
               {d && d.periodStatus === "locked" ? <PostYearEndDialog clientId={clientId} period={period} /> : null}
               {canLock ? <LockPeriodButton clientId={clientId} period={period} /> : null}
             </div>
@@ -155,6 +156,51 @@ export default function CloseChecklist() {
           />
         </SectionCard>
       </div>
+    </div>
+  );
+}
+
+/**
+ * Audit finding: CLOSE-CHECK-GATES had no button anywhere, was left out of
+ * auto-scheduling on purpose, and the Lock button above cannot appear until
+ * at least one gate result exists -- so without this, a real user could
+ * never reach a lockable state at all. Runs aging, the subledger tie out,
+ * and gate evaluation in order, as one sequence (server/runs/sequence.ts),
+ * the same way IMPORT-COMMIT-BATCH's approval already chains the coding
+ * cascade. Shown whenever the period isn't locked yet, since a later gate
+ * can depend on an earlier one's output (G04/G05 compare aging against the
+ * control balance) and running the whole sequence is always safe to repeat.
+ */
+function RunCloseChecksButton({ clientId, period }: { clientId: string; period: string }) {
+  const run = useRunCloseChecks();
+  const qc = useQueryClient();
+  const [result, setResult] = useState<{ tone: "good" | "risk"; text: string } | null>(null);
+
+  const submit = async () => {
+    setResult(null);
+    try {
+      const out = await run.mutateAsync({ clientId, period });
+      setResult(
+        out.done
+          ? { tone: "good", text: "Aging, tie out, and gate check all ran." }
+          : { tone: "risk", text: `Stopped at ${out.stoppedBy ?? "an earlier step"}.` },
+      );
+      void qc.invalidateQueries({ queryKey: screenKeys.close(clientId, periodStartOf(period)) });
+    } catch (e) {
+      setResult({ tone: "risk", text: errorMessage(e) });
+    }
+  };
+
+  return (
+    <div className="flex flex-col items-end gap-1">
+      <Button size="sm" variant="outline" onClick={() => void submit()} disabled={run.isPending} data-testid="close-run-checks">
+        Run close checks
+      </Button>
+      {result ? (
+        <p className={`max-w-[16rem] break-words text-right text-xs ${result.tone === "good" ? "text-emerald-700" : "text-destructive"}`} data-testid="close-run-checks-result">
+          {result.text}
+        </p>
+      ) : null}
     </div>
   );
 }

@@ -448,6 +448,37 @@ test("api: the screen read models answer for a new client with honest zeros", as
   assertEqual(bad.status, 400, "a mid month period is refused");
 });
 
+test("api: run close checks chains aging, tie out, and gate evaluation, which is what makes the lock button reachable", async () => {
+  // Audit finding: CLOSE-CHECK-GATES had no button anywhere, and the close
+  // checklist's own Lock button cannot appear until at least one gate
+  // result exists -- so without this route, a real user could never reach
+  // a lockable state at all, confirmed directly: zero gates before, at
+  // least one gate result after, on the very client the test above just
+  // confirmed starts with gates.length === 0.
+  const base = `/api/firm/clients/${createdClientId}`;
+  const before = await call(world, "GET", `${base}/close?period=2026-10-01`);
+  assertEqual(before.body.gates.length, 0, "nothing evaluated yet");
+
+  const refused = await call(world, "POST", `${base}/close/run-checks?period=2026-10-01`, { token: "client" });
+  assert(refused.status === 403 || refused.status === 404, `a client scoped actor is refused: ${refused.status}`);
+
+  const ran = await call(world, "POST", `${base}/close/run-checks?period=2026-10-01`);
+  assertEqual(ran.status, 200, `run-checks status: ${JSON.stringify(ran.body)}`);
+  assertEqual(ran.body.done, true, `the sequence completed every step: ${JSON.stringify(ran.body)}`);
+  assertEqual(ran.body.stoppedAtStep, null, "nothing stopped it");
+
+  const after = await call(world, "GET", `${base}/close?period=2026-10-01`);
+  assert(after.body.gates.length > 0, "CLOSE-CHECK-GATES actually wrote gate results");
+
+  const logged = await world.db.tx(readSession(DEV_ACTOR, DEV_FIRM_ID, createdClientId), (tx) =>
+    tx.query("run_log_for_period", { firmId: DEV_FIRM_ID, clientId: createdClientId, periodStart: "2026-10-01", periodEnd: "2026-10-31" }),
+  );
+  const ranTypes = new Set((logged as any[]).filter((r: any) => r.mode === "apply").map((r: any) => r.runType));
+  for (const type of ["ARAP-REFRESH-AGING", "SUB-TIEOUT-ACCOUNTS", "CLOSE-CHECK-GATES"]) {
+    assert(ranTypes.has(type), `${type} is in the applied run log for this period`);
+  }
+});
+
 test("api: a period that is not a first of month is 400", async () => {
   const r = await call(world, "GET", `/api/portal/${createdClientId}/statements?period=2026-10-15`, { token: "client" });
   assertEqual(r.status, 400, "status");

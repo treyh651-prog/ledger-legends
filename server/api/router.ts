@@ -173,6 +173,41 @@ async function runCodingCascadeForBatch(
   });
 }
 
+/**
+ * Audit finding: CLOSE-CHECK-GATES had no button anywhere, was deliberately
+ * left out of auto-scheduling (scheduling an automatic close-gate check is
+ * its own per-client decision, not a generic default), and the close
+ * checklist's own Lock button cannot appear until at least one gate result
+ * exists -- so a real user could never reach a lockable state at all. This
+ * is the "Run close checks" sequence the audit itself suggested: aging,
+ * then the subledger tie out, then the gate evaluation, in the order a
+ * close actually depends on them, using the same executeSequence helper
+ * runCodingCascadeForBatch above already establishes the pattern for.
+ */
+async function runCloseChecksForPeriod(
+  db: RunDb,
+  actor: Actor,
+  firmId: string,
+  clientId: string,
+  period: string,
+  now: Date,
+) {
+  const runTypes = ["ARAP-REFRESH-AGING", "SUB-TIEOUT-ACCOUNTS", "CLOSE-CHECK-GATES"] as const;
+  const steps = runTypes.map((type) => {
+    const entry = lookupRun(type);
+    if (!entry) throw new ApiFailure(500, "internal", `${type} is in the close checks sequence but not in the registry`);
+    return step(entry.run, { clientId, period });
+  });
+  return executeSequence(db, steps, {
+    name: `close checks for ${clientId} ${period}`,
+    firmId,
+    clientId,
+    actorId: actor.userId,
+    now,
+    mode: "apply",
+  });
+}
+
 export function createApiRouter(deps: ApiDeps): Router {
   const api = Router();
   const { requireFirm, requireClient } = deps.guards;
@@ -452,6 +487,23 @@ export function createApiRouter(deps: ApiDeps): Router {
       const firmId = req.firm!.firmId;
       const body = await deps.db.tx(readSession(req.actor!, firmId, clientId), (tx) => closeChecklist(tx, firmId, clientId, period));
       return { body };
+    }),
+  );
+
+  firmClient.post(
+    "/close/run-checks",
+    route(async (req) => {
+      const { clientId } = parse(clientParamsSchema, req.params);
+      const period = screenPeriod(req);
+      const firmId = req.firm!.firmId;
+      const outcome = await runCloseChecksForPeriod(deps.db, req.actor!, firmId, clientId, period, now());
+      return {
+        body: {
+          stoppedAtStep: outcome.stoppedAtStep,
+          stoppedBy: outcome.stoppedBy,
+          done: outcome.stoppedAtStep === null,
+        },
+      };
     }),
   );
 
