@@ -35,6 +35,8 @@ import { buildDevActor, devActorEnabled, DEV_ACTOR, DEV_FIRM_ID, DEV_USER_ID, ty
 import { firmMembers } from "./auth/actor-store";
 import { createMemoryStorage, createSupabaseStorage, readStorageEnv } from "./storage/document-storage";
 import { createLoggingEmail, createSmtpEmail, readEmailEnv } from "./email";
+import { createBusinessFeedRouter } from "./api/business-feed";
+import { getPool } from "./db/pool";
 
 /**
  * Routes.
@@ -134,6 +136,17 @@ export async function registerRoutes(httpServer: Server, app: Express, deps?: Ro
     }
     res.json({ configured: true, supabaseUrl: auth.browserConfig.supabaseUrl, anonKey: auth.browserConfig.anonKey });
   });
+
+  // The separate virtual-office widget's one read, a shared secret rather
+  // than a signed in person -- see docs/BUSINESS_FEED.md in that other
+  // repository for the full contract. Mounted unconditionally, same as
+  // /healthz, so it answers correctly (401, or an empty feed) in every
+  // runtime mode rather than only once Supabase auth is configured.
+  app.use(
+    "/api",
+    publicLimiter,
+    createBusinessFeedRouter(runDb.kind === "postgres" ? getPool() : null, process.env.BUSINESS_FEED_TOKEN?.trim() || null),
+  );
 
   app.use("/api", apiLimiter);
 

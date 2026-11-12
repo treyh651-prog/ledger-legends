@@ -1118,5 +1118,6 @@ import "./entitlement";
 // The API layer (docs/11-api.md). A real express app on a loopback port over
 // the memory run db, with the production guards fed by test tokens.
 import "../../api/__tests__/routes";
+import "../../api/__tests__/business-feed";
 import "../../api/__tests__/portal-routes";
 import "../../api/__tests__/uploads";
